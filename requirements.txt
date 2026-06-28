@@ -1,0 +1,14 @@
+# DAVE (E2EE) es obligatorio en voz desde mar-2026. 2.7.x trae la sesión DAVE (davey)
+# que usamos para descifrar el audio entrante (el descifrado va en cogs/meeting.py).
+discord.py[voice]==2.7.1
+aiohttp>=3.9.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+watchdog>=4.0.0
+
+# ── Reuniones (transcripción + resumen) ──────────────────────────────────────────
+# OJO: voice-recv solo publica versiones alpha; el "a0" en el spec hace que pip las acepte.
+discord-ext-voice-recv>=0.5.0a0   # recepción de audio para discord.py (pre-release)
+PyNaCl>=1.5.0                     # cifrado de voz (requerido para conectarse a voz)
+faster-whisper>=1.0.0            # transcripción local (descarga ctranslate2)
+# Ollama NO es un paquete pip: se instala aparte en el servidor (ver MEETING_SETUP.md)

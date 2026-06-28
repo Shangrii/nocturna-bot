@@ -1,0 +1,18 @@
+# Entorno
+.env
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Datos locales
+bot.db
+bot.log
+recordings/
+notas.md
+
+# IDE
+.vscode/
+.idea/
