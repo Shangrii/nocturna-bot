@@ -34,6 +34,24 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_source_url ON forum_posts(source_url)")
 
 
+# ── Galería (Fase 5): cursor de backfill ──────────────────────────────────────
+def init_gallery_state():
+    """Create the 1-row backfill-cursor table for the gallery cog (D-20).
+
+    The cog's ``__init__`` calls this so the table exists before startup backfill.
+    This plan (05-03) only creates the table; the cursor read/write helpers land in
+    05-04. ``CHECK (id = 1)`` keeps it a single-row store — one cursor for the one
+    photos channel — following the repo's ``CREATE TABLE IF NOT EXISTS`` idiom.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS gallery_state (
+                id                        INTEGER PRIMARY KEY CHECK (id = 1),
+                last_processed_message_id INTEGER
+            )
+        """)
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 def save_post(thread_id: int, title: str, author_id: int, avatars: list[str],
               image_url: str = "", source_url: str = ""):

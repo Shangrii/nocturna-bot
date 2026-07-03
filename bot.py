@@ -35,6 +35,7 @@ class NocturnaBot(commands.Bot):
     async def setup_hook(self):
         await self.load_extension("cogs.encoding")
         await self.load_extension("cogs.forum")
+        await self.load_extension("cogs.gallery")
         await self.load_extension("cogs.help")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
@@ -74,6 +75,18 @@ def main():
         sys.exit(1)
     if not config.ENCODING_CHANNEL_ID:
         log.error("ENCODING_CHANNEL_ID no configurado en el .env")
+        sys.exit(1)
+    # ── Galería (Fase 5): el cog de publicación de fotos requiere estos secretos
+    #    para el push cross-repo y la frontera de confianza de staff. Fallo rápido
+    #    si faltan, igual que los canales de arriba (D-01/D-15/T-05-SC).
+    if not config.GITHUB_PAT:
+        log.error("GITHUB_PAT no configurado en el .env (requerido para publicar la galería)")
+        sys.exit(1)
+    if not config.WEBSITE_REPO:
+        log.error("WEBSITE_REPO no configurado en el .env (repo destino de la galería)")
+        sys.exit(1)
+    if not config.GALLERY_STAFF_ROLE_IDS:
+        log.error("GALLERY_STAFF_ROLE_IDS no configurado en el .env (roles que aprueban fotos)")
         sys.exit(1)
 
     bot = NocturnaBot()
