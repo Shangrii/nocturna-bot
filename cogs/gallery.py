@@ -156,14 +156,16 @@ class GalleryCog(commands.Cog):
 
         try:
             result = await github_publish.publish_message(message.id, entries, date=date)
-        except Exception:
-            # Persistent-error UX (D-19) lands in 05-04; here just log + propagate so the
-            # 05-04 handler can wrap it. Do NOT add the 🟢 marker on failure.
+        except github_publish.GitHubPublishError:
+            # Retries already exhausted inside the transport (D-18) -> surface it (D-19).
+            # Do NOT add the 🟢 marker on failure; the ⚠️ + reply are the retry to-do.
             log.exception("gallery publish failed for discord msg %s", message.id)
-            raise
+            await self._surface_failure(message, "publicar")
+            return
 
         count = result.get("count", len(entries)) if isinstance(result, dict) else len(entries)
         await message.add_reaction("🟢")                    # persistent published marker (D-05)
+        await self._clear_warning(message)                  # drop a stale ⚠️ from a prior failure
         await message.reply(                                # auto-deleting confirmation (D-04)
             f"📸 Publiqué {count} foto{'s' if count != 1 else ''} en la galería — "
             "la web tarda un par de minutos en actualizarse.",
@@ -182,9 +184,17 @@ class GalleryCog(commands.Cog):
         it can't be published, and commit NOTHING (D-07).
         """
         if _is_published(message):
-            result = await github_publish.remove_message(message.id)  # photos + entries, 1 commit
+            try:
+                result = await github_publish.remove_message(message.id)  # photos+entries, 1 commit
+            except github_publish.GitHubPublishError:
+                # Removal exhausted its retries (D-18) -> persistent surface (D-19). Leave
+                # the 🟢 marker in place: the photos are still live, so it stays published.
+                log.exception("gallery unpublish failed for discord msg %s", message.id)
+                await self._surface_failure(message, "quitar")
+                return
             count = result.get("count", 0) if isinstance(result, dict) else 0
             await message.remove_reaction("🟢", self.bot.user)  # back to pending (D-09)
+            await self._clear_warning(message)              # drop a stale ⚠️ from a prior failure
             await message.reply(                            # mirrored auto-deleting feedback (D-09)
                 f"🌙 Quité {count} foto{'s' if count != 1 else ''} de la galería — "
                 "la web tarda un par de minutos en actualizarse.",
@@ -193,6 +203,34 @@ class GalleryCog(commands.Cog):
         else:
             # Pending: clear the ✅ prompt so it won't be published; no commit (D-07).
             await message.remove_reaction("✅", self.bot.user)
+
+    async def _surface_failure(self, message: discord.Message, verbo: str):
+        """D-19 persistent-error UX: when github_publish exhausts its retries and raises,
+        leave a NON-auto-deleting reply + a ⚠️ reaction on the message. The reply names
+        the failure and the ⚠️ doubles as a retry to-do — staff recover by removing and
+        re-adding ✅ (which re-enters ``_publish``). The 🟢 marker is never added on this
+        path. ``github_publish`` already keeps the PAT/Authorization value out of the logs
+        (T-05-04); the ``log.exception`` at the call site records only the msg id + trace.
+        """
+        try:
+            await message.add_reaction("⚠️")               # impossible-to-miss retry to-do
+        except Exception:
+            log.exception("could not add ⚠️ marker to discord msg %s", message.id)
+        await message.reply(                                # NO delete_after: this must persist
+            f"⚠️ No pude {verbo} las fotos: GitHub falló tras varios intentos. "
+            "Quita y vuelve a poner ✅ para reintentar."
+        )
+
+    async def _clear_warning(self, message: discord.Message):
+        """Remove a stale ⚠️ retry marker on a later success so it doesn't linger (D-19).
+
+        The common case is no prior ⚠️; ``remove_reaction`` on an absent reaction is
+        tolerated so a clean publish/removal never errors on the clear.
+        """
+        try:
+            await message.remove_reaction("⚠️", self.bot.user)
+        except Exception:
+            pass                                            # no prior ⚠️ — nothing to clear
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
