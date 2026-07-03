@@ -91,7 +91,8 @@ class GalleryCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        db.init_gallery_state()   # backfill-cursor table (05-04 reads/writes it)
+        self._backfilled = False   # startup reconcile runs once (on_ready can re-fire)
+        db.init_gallery_state()    # backfill-cursor table (D-20)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -245,6 +246,114 @@ class GalleryCog(commands.Cog):
         if payload.channel_id != config.PHOTO_CHANNEL_ID:
             return
         await github_publish.remove_message(payload.message_id)
+
+    # ── startup backfill / reconcile (D-20) ──────────────────────────────────────
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Run the startup reconcile once (``on_ready`` can re-fire on reconnects)."""
+        if self._backfilled:
+            return
+        self._backfilled = True
+        try:
+            await self._backfill()
+        except Exception:
+            log.exception("gallery startup backfill failed")
+
+    async def _backfill(self):
+        """Scan channel history after the persisted cursor and replay anything the bot
+        missed while down — missed ✅ prompts, staff approvals, and 🌙 removals (D-20).
+
+        The cursor advances per message (T-05-17) so a restart never re-scans the whole
+        channel. Published-state during reconcile is derived from the 🟢 marker + the
+        live gallery.json entries (D-14) — the entries guard against a duplicate publish
+        if the bot crashed after committing but before adding 🟢. Tolerates an empty
+        channel and an empty/missing gallery.json.
+        """
+        channel = self.bot.get_channel(config.PHOTO_CHANNEL_ID) or \
+            await self.bot.fetch_channel(config.PHOTO_CHANNEL_ID)
+        if channel is None:
+            log.warning("gallery backfill: photo channel %s not found", config.PHOTO_CHANNEL_ID)
+            return
+
+        cursor = db.get_cursor()
+        after = discord.Object(id=cursor) if cursor else None
+        entries = await self._fetch_entries()               # once for the whole scan (D-14)
+
+        scanned = 0
+        async for message in channel.history(after=after, limit=None, oldest_first=True):
+            try:
+                await self._reconcile(message, entries)
+            except Exception:
+                log.exception("gallery backfill: reconcile failed for msg %s", message.id)
+            db.set_cursor(message.id)                        # advance even past a failed message
+            scanned += 1
+        log.info("gallery backfill: reconciled %d message(s) after cursor %s", scanned, cursor)
+
+    async def _fetch_entries(self):
+        """The live gallery.json array (for entry-derived published-state, D-14).
+
+        Reuses the 05-02 transport's read path off the event loop; any failure degrades
+        to ``[]`` so a startup with GitHub unreachable still adds prompts / falls back to
+        the 🟢 marker rather than crashing the backfill.
+        """
+        try:
+            return await asyncio.to_thread(
+                github_publish._fetch_gallery, config.WEBSITE_REPO, config.WEBSITE_BRANCH)
+        except Exception:
+            log.exception("gallery backfill: could not fetch gallery.json; assuming []")
+            return []
+
+    async def _reconcile(self, message: discord.Message, entries=None):
+        """Replay one history message into the correct state during backfill (D-20).
+
+        Only staff photo posts are managed. Dispatch (honoring the SAME staff gate as live
+        operation, D-08): a staff 🌙 -> unpublish/dismiss; a staff ✅ on an unpublished
+        message -> publish; a staff image post with no ✅ prompt at all -> add the prompt.
+        A message already published (🟢 marker or a matching gallery.json entry, D-14) is
+        left alone so the scan never double-publishes.
+        """
+        if getattr(message.author, "bot", False) or not _is_staff(message.author):
+            return                                           # community / bot post — not managed
+        if not _image_attachments(message):
+            return                                           # staff text-only post — no photos
+
+        # A staff 🌙 (removal/dismiss that arrived while down) takes priority over publish.
+        if await self._reaction_by_staff(message, "🌙"):
+            await self._unpublish(message)
+            return
+
+        if _is_published(message, entries):
+            return                                           # already live — nothing to do (D-14)
+
+        # A staff ✅ approval we missed -> publish now.
+        if await self._reaction_by_staff(message, "✅"):
+            await self._publish(message)
+            return
+
+        # No ✅ prompt at all (we were down when it was posted) -> add the approve control.
+        if not any(str(r.emoji) == "✅" for r in getattr(message, "reactions", [])):
+            await message.add_reaction("✅")
+
+    async def _reaction_by_staff(self, message: discord.Message, emoji: str) -> bool:
+        """True iff a staff member (not the bot) has reacted with ``emoji`` (D-08 gate).
+
+        History messages carry reaction *counts*, not reactors, so the reactor list is
+        fetched via ``reaction.users()`` and each non-bot user is role-checked against the
+        guild — a non-staff ✅/🌙 during downtime can never trigger a publish/unpublish.
+        """
+        for reaction in getattr(message, "reactions", []):
+            if str(reaction.emoji) != emoji:
+                continue
+            users = getattr(reaction, "users", None)
+            if users is None:
+                continue
+            async for user in users():
+                if getattr(user, "bot", False):
+                    continue
+                member = message.guild.get_member(user.id) if message.guild else None
+                if member is not None and _is_staff(member):
+                    return True
+        return False
 
 
 async def setup(bot: commands.Bot):

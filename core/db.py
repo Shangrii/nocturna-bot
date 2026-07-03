@@ -52,6 +52,32 @@ def init_gallery_state():
         """)
 
 
+def get_cursor() -> int | None:
+    """Return the persisted last-processed-message-id for the gallery backfill (D-20).
+
+    ``None`` when the cursor has never been set (fresh db / first run) — the caller then
+    scans the channel from the beginning. Reads the single ``id = 1`` ``gallery_state`` row.
+    """
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT last_processed_message_id FROM gallery_state WHERE id = 1"
+        ).fetchone()
+    return row["last_processed_message_id"] if row else None
+
+
+def set_cursor(message_id: int):
+    """Advance the gallery backfill cursor to ``message_id`` (D-20 / T-05-17).
+
+    ``INSERT OR REPLACE`` keeps the single ``id = 1`` row so a restart only ever scans
+    history *after* the last message the bot processed, never the whole channel again.
+    """
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO gallery_state (id, last_processed_message_id) VALUES (1, ?)",
+            (message_id,),
+        )
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 def save_post(thread_id: int, title: str, author_id: int, avatars: list[str],
               image_url: str = "", source_url: str = ""):

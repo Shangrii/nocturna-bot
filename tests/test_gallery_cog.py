@@ -371,17 +371,19 @@ def test_reconcile_non_staff_check_does_not_publish(cog_with_user):
 
 
 # ── backfill tolerates an empty channel + empty [] gallery.json ───────────────────
-def test_backfill_empty_channel_is_tolerated(cog_with_user, monkeypatch, tmp_path):
+def test_backfill_empty_channel_is_tolerated(monkeypatch, tmp_path):
+    # Real init (not the no-op fixture) so gallery_state exists in the temp db.
     monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
-    db.init_gallery_state()
+    bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
+    cog = GalleryCog(bot=bot)
 
     async def _empty_history(**_kw):
         for _ in ():                                     # empty async generator
             yield  # pragma: no cover
 
-    channel = types.SimpleNamespace(history=lambda **kw: _empty_history(**kw))
-    cog_with_user.bot.get_channel = lambda cid: channel
+    bot.get_channel = lambda cid: types.SimpleNamespace(
+        history=lambda **kw: _empty_history(**kw))
     monkeypatch.setattr(gallery.github_publish, "_fetch_gallery", lambda *a, **k: [])
 
-    asyncio.run(cog_with_user._backfill())
+    asyncio.run(cog._backfill())
     assert db.get_cursor() is None                       # empty channel -> cursor never advances
