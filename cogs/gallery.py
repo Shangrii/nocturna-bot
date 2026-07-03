@@ -13,6 +13,7 @@ and a module-level ``async def setup(bot)``. The two proven cores are wired here
 and ``core.github_publish.publish_message`` (one atomic commit per approved message).
 """
 
+import asyncio
 import logging
 from datetime import timezone
 
@@ -20,7 +21,8 @@ import discord
 from discord.ext import commands
 
 import config
-from core import db
+from core import db, github_publish
+from core.image_optimize import optimize_to_webp
 
 log = logging.getLogger(__name__)
 
@@ -80,8 +82,65 @@ class GalleryCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        # Publish orchestration implemented in Task 3.
-        return
+        # RAW event (Pattern 1): works even when the message isn't cached (post-restart /
+        # backfill). The role gate on payload.member is the trust boundary in the public
+        # channel — a non-staff or bot reaction can never trigger a publish (D-01/D-08).
+        if payload.channel_id != config.PHOTO_CHANNEL_ID:
+            return
+        if payload.member is None or payload.member.bot:   # member present for guild reactions
+            return
+        if not _is_staff(payload.member):                  # D-01/D-08 (self-approval OK, D-02)
+            return
+        if str(payload.emoji) != "✅":
+            return
+
+        channel = self.bot.get_channel(payload.channel_id) or \
+            await self.bot.fetch_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)  # fetch: not guaranteed cached
+        await self._publish(message)
+
+    async def _publish(self, message: discord.Message):
+        """Optimize every image attachment and commit it live in ONE commit (BOT-02/D-16).
+
+        Idempotent (D-05): a message already carrying the bot's 🟢 marker is skipped, so a
+        second ✅ never double-publishes. The message text becomes the caption (BOT-06).
+        """
+        if any(str(r.emoji) == "🟢" and r.me for r in message.reactions):
+            return                                          # already published (D-05)
+
+        images = _image_attachments(message)                # D-13: non-images skipped silently
+        if not images:
+            return
+
+        # Match the shipped gallery.json date shape exactly: ISO 8601, millisecond
+        # precision, 'Z' suffix (e.g. 2026-07-03T14:05:09.000Z).
+        date = message.created_at.astimezone(timezone.utc).isoformat(timespec="milliseconds")
+        date = date.replace("+00:00", "Z")
+        caption = _caption(message.content)                 # BOT-06/D-06 (omitted when empty)
+
+        entries = []
+        for index, attachment in enumerate(images, start=1):
+            raw = await attachment.read()
+            # Keep Pillow's CPU re-encode off the event loop (Anti-Pattern otherwise).
+            webp, width, height = await asyncio.to_thread(optimize_to_webp, raw)
+            filename = _build_filename(message.id, message.created_at, index)  # D-14
+            entries.append((webp, width, height, filename, caption))
+
+        try:
+            result = await github_publish.publish_message(message.id, entries, date=date)
+        except Exception:
+            # Persistent-error UX (D-19) lands in 05-04; here just log + propagate so the
+            # 05-04 handler can wrap it. Do NOT add the 🟢 marker on failure.
+            log.exception("gallery publish failed for discord msg %s", message.id)
+            raise
+
+        count = result.get("count", len(entries)) if isinstance(result, dict) else len(entries)
+        await message.add_reaction("🟢")                    # persistent published marker (D-05)
+        await message.reply(                                # auto-deleting confirmation (D-04)
+            f"📸 Publiqué {count} foto{'s' if count != 1 else ''} en la galería — "
+            "la web tarda un par de minutos en actualizarse.",
+            delete_after=60,
+        )
 
 
 async def setup(bot: commands.Bot):
