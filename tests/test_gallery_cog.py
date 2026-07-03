@@ -20,6 +20,7 @@ import pytest
 import config
 from cogs import gallery
 from cogs.gallery import GalleryCog
+from core import db
 
 FILENAME_RE = re.compile(r"^\d{8}-\d+-\d+\.webp$")
 
@@ -269,3 +270,118 @@ def test_moon_reaction_staff_dispatches_unpublish(cog_with_user, monkeypatch):
     )
     asyncio.run(cog_with_user.on_raw_reaction_add(payload))
     cog_with_user._unpublish.assert_awaited_once_with(fake_msg)
+
+
+# ── 05-04 Task 3: startup backfill cursor + reconcile scan (D-20) ─────────────────
+def _user(uid, is_bot=False):
+    return types.SimpleNamespace(id=uid, bot=is_bot)
+
+
+def _full_reaction(emoji, me=False, users=()):
+    """A history-message reaction whose ``users()`` is an async iterator of reactors."""
+    async def _aiter():
+        for u in users:
+            yield u
+    return types.SimpleNamespace(emoji=emoji, me=me, users=_aiter)
+
+
+def _history_message(msg_id=600, staff_author=True, images=1, reactions=None, members=None):
+    author = _member([STAFF_ROLE_ID] if staff_author else [OTHER_ROLE_ID])
+    guild = types.SimpleNamespace(get_member=lambda uid: (members or {}).get(uid))
+    return types.SimpleNamespace(
+        id=msg_id,
+        author=author,
+        attachments=[_attachment("image/png")] * images,
+        reactions=list(reactions) if reactions else [],
+        guild=guild,
+        add_reaction=AsyncMock(),
+    )
+
+
+# ── get_cursor / set_cursor round-trip (D-20 / T-05-17) ───────────────────────────
+def test_cursor_round_trip_and_fresh_db_returns_none(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
+    db.init_gallery_state()
+    assert db.get_cursor() is None                      # fresh db -> no cursor yet
+    db.set_cursor(1416329356426481717)
+    assert db.get_cursor() == 1416329356426481717
+    db.set_cursor(42)                                    # single row: INSERT OR REPLACE overwrites
+    assert db.get_cursor() == 42
+
+
+# ── _reconcile dispatch table (D-20) ──────────────────────────────────────────────
+def test_reconcile_staff_post_without_prompt_adds_check(cog_with_user):
+    msg = _history_message(reactions=[])                 # posted while down, no ✅ prompt
+    asyncio.run(cog_with_user._reconcile(msg))
+    msg.add_reaction.assert_awaited_once_with("✅")
+
+
+def test_reconcile_staff_check_unpublished_triggers_publish(cog_with_user):
+    cog_with_user._publish = AsyncMock()
+    msg = _history_message(                              # bot's ✅ prompt + a staff approval
+        reactions=[_full_reaction("✅", me=True, users=[_user(42, is_bot=True), _user(7)])],
+        members={7: _member([STAFF_ROLE_ID])},
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_awaited_once_with(msg)
+
+
+def test_reconcile_staff_moon_triggers_unpublish(cog_with_user):
+    cog_with_user._unpublish = AsyncMock()
+    msg = _history_message(
+        reactions=[_full_reaction("🌙", users=[_user(8)])],
+        members={8: _member([STAFF_ROLE_ID])},
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._unpublish.assert_awaited_once_with(msg)
+
+
+def test_reconcile_published_message_is_left_alone(cog_with_user):
+    cog_with_user._publish = AsyncMock()                 # 🟢 already present -> no republish (D-14)
+    msg = _history_message(
+        reactions=[_full_reaction("🟢", me=True),
+                   _full_reaction("✅", me=True, users=[_user(5)])],
+        members={5: _member([STAFF_ROLE_ID])},
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_not_awaited()
+    msg.add_reaction.assert_not_awaited()
+
+
+def test_reconcile_community_post_is_noop(cog_with_user):
+    cog_with_user._publish = AsyncMock()
+    cog_with_user._unpublish = AsyncMock()
+    msg = _history_message(staff_author=False,
+                           reactions=[_full_reaction("✅", users=[_user(9)])])
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_not_awaited()
+    cog_with_user._unpublish.assert_not_awaited()
+    msg.add_reaction.assert_not_awaited()
+
+
+def test_reconcile_non_staff_check_does_not_publish(cog_with_user):
+    # D-08 gate holds during backfill too: a NON-staff ✅ must not trigger a publish.
+    cog_with_user._publish = AsyncMock()
+    msg = _history_message(
+        reactions=[_full_reaction("✅", me=True, users=[_user(3)])],
+        members={3: _member([OTHER_ROLE_ID])},           # reactor is not staff
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_not_awaited()
+
+
+# ── backfill tolerates an empty channel + empty [] gallery.json ───────────────────
+def test_backfill_empty_channel_is_tolerated(cog_with_user, monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
+    db.init_gallery_state()
+
+    async def _empty_history(**_kw):
+        for _ in ():                                     # empty async generator
+            yield  # pragma: no cover
+
+    channel = types.SimpleNamespace(history=lambda **kw: _empty_history(**kw))
+    cog_with_user.bot.get_channel = lambda cid: channel
+    monkeypatch.setattr(gallery.github_publish, "_fetch_gallery", lambda *a, **k: [])
+
+    asyncio.run(cog_with_user._backfill())
+    assert db.get_cursor() is None                       # empty channel -> cursor never advances
