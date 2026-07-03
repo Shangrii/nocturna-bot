@@ -47,3 +47,24 @@ MEETINGS_FORUM_ID = int(os.getenv("MEETINGS_FORUM_ID", "1517386124044013588"))
 
 # Archivo donde se guardan las notas pedidas fuera de una reunión activa
 NOTES_FILE = Path(os.getenv("NOTES_FILE", "notas.md"))
+
+# ── Galería (Fase 5: cog de publicación de fotos) ─────────────────────────────────
+# El cog vigila un canal público de fotos, publica los adjuntos aprobados por staff
+# (reacción ✅) hacia el repo del sitio web vía la API de GitHub, y los quita con 🌙.
+# Canal público donde el staff sube las fotos de avatares (D-03).
+PHOTO_CHANNEL_ID = int(os.getenv("PHOTO_CHANNEL_ID", "1416329356426481717"))
+# Roles cuyas reacciones ✅/🌙 sí publican/quitan (frontera de confianza, D-01/D-08).
+# Cadena separada por comas en el .env → lista de ints; se ignoran valores en blanco.
+GALLERY_STAFF_ROLE_IDS = [
+    int(x) for x in os.getenv("GALLERY_STAFF_ROLE_IDS", "").split(",") if x.strip()
+]
+# Token de acceso personal de GitHub (fine-grained, Contents: read/write) para el push
+# cross-repo. SOLO se lee del entorno; nunca se registra en logs ni commits (D-17).
+GITHUB_PAT = os.getenv("GITHUB_PAT", "")
+# Repo del sitio web destino (owner/name) — confirmado desde el remote git del sitio.
+WEBSITE_REPO = os.getenv("WEBSITE_REPO", "Shangrii/Nocturna-Avatars")
+# Rama destino; se cambia en el cutover a producción sin tocar código (D-15).
+WEBSITE_BRANCH = os.getenv("WEBSITE_BRANCH", "revamp")
+# Ruta del JSON de la galería y del directorio de imágenes dentro del repo del sitio.
+WEBSITE_GALLERY_JSON = os.getenv("WEBSITE_GALLERY_JSON", "src/data/gallery.json")
+WEBSITE_IMAGE_DIR = os.getenv("WEBSITE_IMAGE_DIR", "public/gallery")

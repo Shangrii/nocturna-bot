@@ -12,3 +12,7 @@ discord-ext-voice-recv>=0.5.0a0   # recepción de audio para discord.py (pre-rel
 PyNaCl>=1.5.0                     # cifrado de voz (requerido para conectarse a voz)
 faster-whisper>=1.0.0            # transcripción local (descarga ctranslate2)
 # Ollama NO es un paquete pip: se instala aparte en el servidor (ver MEETING_SETUP.md)
+
+# ── Galería (Fase 5: cog de publicación de fotos) ────────────────────────────────
+Pillow>=12.0.0                   # optimiza los adjuntos de staff → WebP (BOT-03)
+pytest>=8.0.0                    # pruebas del pipeline de imágenes (core/image_optimize)
