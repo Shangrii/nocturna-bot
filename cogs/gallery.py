@@ -3,8 +3,10 @@
 Watches the public photos channel (``config.PHOTO_CHANNEL_ID``): when a staff-role
 member posts image attachments the cog adds a ✅ approve control (BOT-01/D-03); a staff
 ✅ optimizes every image to WebP and commits it live to the website repo in one
-cross-repo commit with the message text as caption (BOT-02/BOT-06). Removal (🌙),
-resilience, and startup backfill land in 05-04.
+cross-repo commit with the message text as caption (BOT-02/BOT-06). A staff 🌙 unpublishes
+a live message's photos or dismisses a pending one (BOT-05/D-06..D-09), and deleting a
+published message auto-unpublishes it (D-10). Persistent-error UX (D-19) and startup
+backfill (D-20) complete the cog.
 
 Mirrors the repo's cog conventions (``cogs/forum.py``): a ``commands.Cog`` subclass with
 ``@commands.Cog.listener()`` handlers, ``import config``, ``log = logging.getLogger(__name__)``
@@ -62,6 +64,28 @@ def _caption(message_content) -> str:
     return (message_content or "").strip()
 
 
+def _is_published(message, entries=None) -> bool:
+    """True iff the message is already published — Discord-native derived state (D-05/D-14).
+
+    A message counts as published when it carries the bot's own 🟢 marker reaction, OR
+    (during startup reconcile, where the supplied ``entries`` are the live gallery.json)
+    when an entry's filename has the EXACT ``{msgID}`` middle segment of ``message.id``.
+    The match splits ``{YYYYMMDD}-{msgID}-{index}.webp`` on ``-`` and compares the middle
+    segment exactly — never a substring — so a snowflake sharing a prefix cannot collide
+    (D-14). No per-message DB row is needed: published-state is always derivable.
+    """
+    if any(str(r.emoji) == "🟢" and getattr(r, "me", False)
+           for r in getattr(message, "reactions", [])):
+        return True
+    if entries:
+        target = str(message.id)
+        for entry in entries:
+            parts = (entry.get("file", "") or "").split("-")
+            if len(parts) >= 3 and parts[1] == target:
+                return True
+    return False
+
+
 class GalleryCog(commands.Cog):
     """Detects staff photo posts and publishes approved images to the live gallery."""
 
@@ -91,13 +115,17 @@ class GalleryCog(commands.Cog):
             return
         if not _is_staff(payload.member):                  # D-01/D-08 (self-approval OK, D-02)
             return
-        if str(payload.emoji) != "✅":
-            return
+        emoji = str(payload.emoji)
+        if emoji not in ("✅", "🌙"):                       # ✅ publishes; 🌙 unpublishes/dismisses
+            return                                          # (🌙 shares the SAME staff gate, D-08)
 
         channel = self.bot.get_channel(payload.channel_id) or \
             await self.bot.fetch_channel(payload.channel_id)
         message = await channel.fetch_message(payload.message_id)  # fetch: not guaranteed cached
-        await self._publish(message)
+        if emoji == "✅":
+            await self._publish(message)
+        else:                                               # 🌙 removal / dismiss (D-06/D-07/D-09)
+            await self._unpublish(message)
 
     async def _publish(self, message: discord.Message):
         """Optimize every image attachment and commit it live in ONE commit (BOT-02/D-16).
@@ -141,6 +169,44 @@ class GalleryCog(commands.Cog):
             "la web tarda un par de minutos en actualizarse.",
             delete_after=60,
         )
+
+    async def _unpublish(self, message: discord.Message):
+        """🌙 removal (published) or dismiss (pending) — the safe, judgment-free counterpart
+        to publish (BOT-05).
+
+        Published (has the bot's 🟢 marker): remove the message's photos + gallery.json
+        entries in ONE commit (D-07 via ``github_publish.remove_message``), clear the 🟢
+        marker so the message returns to pending — a later ✅ republishes it (D-09) — and
+        send a Spanish-first ``delete_after`` reply that mirrors the publish feedback.
+        Pending (never published — no 🟢): dismiss by clearing the bot's own ✅ prompt so
+        it can't be published, and commit NOTHING (D-07).
+        """
+        if _is_published(message):
+            result = await github_publish.remove_message(message.id)  # photos + entries, 1 commit
+            count = result.get("count", 0) if isinstance(result, dict) else 0
+            await message.remove_reaction("🟢", self.bot.user)  # back to pending (D-09)
+            await message.reply(                            # mirrored auto-deleting feedback (D-09)
+                f"🌙 Quité {count} foto{'s' if count != 1 else ''} de la galería — "
+                "la web tarda un par de minutos en actualizarse.",
+                delete_after=60,
+            )
+        else:
+            # Pending: clear the ✅ prompt so it won't be published; no commit (D-07).
+            await message.remove_reaction("✅", self.bot.user)
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        """Deleting a published message auto-unpublishes its photos (D-10).
+
+        The channel is the source of truth: a deleted photo message drops its gallery
+        entries. ``remove_message`` derives the files statelessly from the message id
+        (D-14) and is a safe no-op when nothing was published (text/non-photo deletes),
+        so this never creates an empty commit. Accepted risk (T-05-11): an accidental
+        delete removes the live photos — documented for the human-verification plan.
+        """
+        if payload.channel_id != config.PHOTO_CHANNEL_ID:
+            return
+        await github_publish.remove_message(payload.message_id)
 
 
 async def setup(bot: commands.Bot):
