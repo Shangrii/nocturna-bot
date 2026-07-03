@@ -158,3 +158,114 @@ def test_on_message_ignores_bot_author(cog):
     msg = _message(_member([STAFF_ROLE_ID], is_bot=True), attachments=[_attachment("image/png")])
     asyncio.run(cog.on_message(msg))
     msg.add_reaction.assert_not_awaited()
+
+
+# ── 05-04 Task 1: 🌙 unpublish/dismiss + auto-unpublish-on-delete (BOT-05) ────────
+def _reaction(emoji, me=False):
+    return types.SimpleNamespace(emoji=emoji, me=me)
+
+
+def _live_message(msg_id=555, reactions=None):
+    return types.SimpleNamespace(
+        id=msg_id,
+        reactions=list(reactions) if reactions is not None else [],
+        remove_reaction=AsyncMock(),
+        add_reaction=AsyncMock(),
+        reply=AsyncMock(),
+    )
+
+
+@pytest.fixture
+def cog_with_user(monkeypatch):
+    """A cog whose bot exposes ``.user`` (needed to remove the bot's own markers)."""
+    monkeypatch.setattr(gallery.db, "init_gallery_state", lambda: None)
+    bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
+    return GalleryCog(bot=bot)
+
+
+# ── _is_published (derived from 🟢 marker / entries, D-05/D-14) ───────────────────
+def test_is_published_true_with_green_marker():
+    assert gallery._is_published(_live_message(reactions=[_reaction("🟢", me=True)])) is True
+
+
+def test_is_published_false_without_marker():
+    assert gallery._is_published(_live_message(reactions=[_reaction("✅", me=True)])) is False
+
+
+def test_is_published_true_from_matching_entries():
+    msg = _live_message(msg_id=1416329356426481717, reactions=[])
+    entries = [{"file": "20260703-1416329356426481717-1.webp"}]
+    assert gallery._is_published(msg, entries) is True
+
+
+def test_is_published_false_for_prefix_collision_entries():
+    # D-14: exact middle-segment match — a snowflake sharing a prefix must NOT collide.
+    msg = _live_message(msg_id=987654321, reactions=[])
+    entries = [{"file": "20260703-9876543210-1.webp"}]
+    assert gallery._is_published(msg, entries) is False
+
+
+# ── 🌙 unpublish / dismiss (D-06/D-07/D-09) ───────────────────────────────────────
+def test_unpublish_published_removes_and_replies(cog_with_user, monkeypatch):
+    remove = AsyncMock(return_value={"committed": True, "count": 2})
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=555, reactions=[_reaction("🟢", me=True)])
+    asyncio.run(cog_with_user._unpublish(msg))
+    remove.assert_awaited_once_with(555)
+    msg.remove_reaction.assert_any_await("🟢", cog_with_user.bot.user)   # back to pending
+    msg.reply.assert_awaited_once()
+    assert msg.reply.await_args.kwargs.get("delete_after")               # mirrored auto-delete
+
+
+def test_unpublish_pending_dismisses_without_commit(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=556, reactions=[_reaction("✅", me=True)])
+    asyncio.run(cog_with_user._unpublish(msg))
+    remove.assert_not_awaited()                                          # D-07: no commit
+    msg.remove_reaction.assert_any_await("✅", cog_with_user.bot.user)   # clears the prompt
+    msg.reply.assert_not_awaited()
+
+
+# ── auto-unpublish on message delete (D-10) ───────────────────────────────────────
+def test_message_delete_in_photo_channel_unpublishes(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    payload = types.SimpleNamespace(channel_id=PHOTO_CHANNEL, message_id=777)
+    asyncio.run(cog_with_user.on_raw_message_delete(payload))
+    remove.assert_awaited_once_with(777)
+
+
+def test_message_delete_other_channel_noop(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    payload = types.SimpleNamespace(channel_id=PHOTO_CHANNEL + 1, message_id=778)
+    asyncio.run(cog_with_user.on_raw_message_delete(payload))
+    remove.assert_not_awaited()
+
+
+# ── 🌙 role gate + dispatch (D-08) ────────────────────────────────────────────────
+def test_moon_reaction_non_staff_ignored(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    cog_with_user._unpublish = AsyncMock()
+    payload = types.SimpleNamespace(
+        emoji="🌙", member=_member([OTHER_ROLE_ID]),
+        channel_id=PHOTO_CHANNEL, message_id=779,
+    )
+    asyncio.run(cog_with_user.on_raw_reaction_add(payload))
+    cog_with_user._unpublish.assert_not_awaited()
+    remove.assert_not_awaited()
+
+
+def test_moon_reaction_staff_dispatches_unpublish(cog_with_user, monkeypatch):
+    fake_msg = _live_message(msg_id=780, reactions=[_reaction("🟢", me=True)])
+    channel = types.SimpleNamespace(fetch_message=AsyncMock(return_value=fake_msg))
+    cog_with_user.bot.get_channel = lambda cid: channel
+    cog_with_user._unpublish = AsyncMock()
+    payload = types.SimpleNamespace(
+        emoji="🌙", member=_member([STAFF_ROLE_ID]),
+        channel_id=PHOTO_CHANNEL, message_id=780,
+    )
+    asyncio.run(cog_with_user.on_raw_reaction_add(payload))
+    cog_with_user._unpublish.assert_awaited_once_with(fake_msg)
