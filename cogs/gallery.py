@@ -182,6 +182,9 @@ class GalleryCog(commands.Cog):
 
         count = result.get("count", len(entries)) if isinstance(result, dict) else len(entries)
         await message.add_reaction("🟢")                    # persistent published marker (D-05)
+        await message.add_reaction("🌙")                    # visible unpublish control (05-05 UX):
+        # the bot's own 🌙 never triggers anything (bot reactions are gated out everywhere);
+        # it exists so staff can SEE the unpublish gesture instead of having to know it.
         await self._clear_warning(message)                  # drop a stale ⚠️ from a prior failure
         await message.reply(                                # auto-deleting confirmation (D-04)
             f"📸 Publiqué {count} foto{'s' if count != 1 else ''} en la galería — "
@@ -211,6 +214,7 @@ class GalleryCog(commands.Cog):
                 return
             count = result.get("count", 0) if isinstance(result, dict) else 0
             await message.remove_reaction("🟢", self.bot.user)  # back to pending (D-09)
+            await self._remove_own_reaction(message, "🌙")  # clear the visible control (05-05 UX)
             await self._clear_warning(message)              # drop a stale ⚠️ from a prior failure
             await message.reply(                            # mirrored auto-deleting feedback (D-09)
                 f"🌙 Quité {count} foto{'s' if count != 1 else ''} de la galería — "
@@ -220,6 +224,19 @@ class GalleryCog(commands.Cog):
         else:
             # Pending: clear the ✅ prompt so it won't be published; no commit (D-07).
             await message.remove_reaction("✅", self.bot.user)
+            await self._remove_own_reaction(message, "🌙")  # in case a stale control lingers
+
+    async def _remove_own_reaction(self, message: discord.Message, emoji: str):
+        """Clear one of the bot's own reactions, tolerating its absence (05-05 UX).
+
+        Legacy messages published before the visible 🌙 control existed carry 🟢 but no
+        bot 🌙 — clearing the absent reaction raises ``NotFound``, which must never fail
+        an unpublish/dismiss that already committed.
+        """
+        try:
+            await message.remove_reaction(emoji, self.bot.user)
+        except Exception:
+            pass                                            # absent reaction — nothing to clear
 
     async def _surface_failure(self, message: discord.Message, verbo: str):
         """D-19 persistent-error UX: when github_publish exhausts its retries and raises,
