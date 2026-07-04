@@ -15,6 +15,7 @@ import types
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
+import discord
 import pytest
 
 import config
@@ -387,3 +388,88 @@ def test_backfill_empty_channel_is_tolerated(monkeypatch, tmp_path):
 
     asyncio.run(cog._backfill())
     assert db.get_cursor() is None                       # empty channel -> cursor never advances
+
+
+# ── 05-05 Fix A: inverse reconcile — orphaned entries whose message was deleted ────
+# channel.history() never yields DELETED messages, so a delete the bot missed (or whose
+# on_raw_message_delete failed) leaves the entry published forever. The backfill must
+# probe each bot-shaped entry's message id and remove entries whose message is gone —
+# while NEVER treating a transient error as a deletion (T-05-11-adjacent hazard) and
+# NEVER touching sample/manual entries whose filename doesn't parse.
+
+def _not_found():
+    return discord.NotFound(
+        types.SimpleNamespace(status=404, reason="Not Found"), "Unknown Message")
+
+
+def _orphan_channel(fetch_message):
+    async def _empty_history(**_kw):
+        for _ in ():                                     # empty async generator
+            yield  # pragma: no cover
+    return types.SimpleNamespace(history=lambda **kw: _empty_history(**kw),
+                                 fetch_message=fetch_message)
+
+
+def _orphan_cog(monkeypatch, tmp_path, entries, fetch_message):
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
+    bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
+    cog = GalleryCog(bot=bot)
+    bot.get_channel = lambda cid: _orphan_channel(fetch_message)
+    monkeypatch.setattr(gallery.github_publish, "_fetch_gallery", lambda *a, **k: entries)
+    remove = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    return cog, remove
+
+
+# ── _entry_message_id (bot-shaped filenames only) ─────────────────────────────────
+def test_entry_message_id_parses_bot_filenames():
+    entry = {"file": "20260704-1522761603005550683-1.webp"}
+    assert gallery._entry_message_id(entry) == 1522761603005550683
+
+
+def test_entry_message_id_rejects_sample_and_malformed_names():
+    for name in ("nocturna-sample-01.webp", "sample.webp", "", "2026-123-1.webp",
+                 "20260704-abc-1.webp", "20260704-123.webp", "20260704-12-3-4.png"):
+        assert gallery._entry_message_id({"file": name}) is None, name
+    assert gallery._entry_message_id({}) is None
+
+
+# ── orphan pass through _backfill ─────────────────────────────────────────────────
+def test_backfill_removes_orphan_entry_when_message_deleted(monkeypatch, tmp_path):
+    entries = [{"file": "20260704-1522761603005550683-1.webp"},
+               {"file": "nocturna-sample-01.webp"}]      # sample must never be probed
+    fetch_message = AsyncMock(side_effect=_not_found())
+    cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+    asyncio.run(cog._backfill())
+    remove.assert_awaited_once_with(1522761603005550683)          # orphan healed
+    fetch_message.assert_awaited_once_with(1522761603005550683)   # sample skipped
+
+
+def test_backfill_orphan_pass_dedupes_multi_image_entries(monkeypatch, tmp_path):
+    entries = [{"file": "20260704-555-1.webp"}, {"file": "20260704-555-2.webp"}]
+    fetch_message = AsyncMock(side_effect=_not_found())
+    cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+    asyncio.run(cog._backfill())
+    fetch_message.assert_awaited_once_with(555)          # one probe per message id
+    remove.assert_awaited_once_with(555)                 # remove_message handles all files
+
+
+def test_backfill_live_entry_message_left_alone(monkeypatch, tmp_path):
+    entries = [{"file": "20260704-556-1.webp"}]
+    fetch_message = AsyncMock(return_value=types.SimpleNamespace(id=556))
+    cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+    asyncio.run(cog._backfill())
+    remove.assert_not_awaited()                          # message exists -> entry stays
+
+
+def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch, tmp_path):
+    # Rate limit / permission / network failures mean "unknown", NOT "deleted" — a
+    # transient outage must never mass-remove the live gallery (T-05-11 hazard).
+    for boom in (discord.HTTPException(
+                     types.SimpleNamespace(status=503, reason="unavailable"), "err"),
+                 RuntimeError("network down")):
+        entries = [{"file": "20260704-557-1.webp"}]
+        fetch_message = AsyncMock(side_effect=boom)
+        cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+        asyncio.run(cog._backfill())
+        remove.assert_not_awaited()                      # left alone, logged as unknown
