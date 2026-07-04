@@ -288,7 +288,11 @@ def _full_reaction(emoji, me=False, users=()):
 
 def _history_message(msg_id=600, staff_author=True, images=1, reactions=None, members=None):
     author = _member([STAFF_ROLE_ID] if staff_author else [OTHER_ROLE_ID])
-    guild = types.SimpleNamespace(get_member=lambda uid: (members or {}).get(uid))
+    guild = types.SimpleNamespace(
+        get_member=lambda uid: (members or {}).get(uid),
+        # cold-cache REST fallback (CR-03): the default fake knows no extra members
+        fetch_member=AsyncMock(side_effect=_not_found()),
+    )
     return types.SimpleNamespace(
         id=msg_id,
         author=author,
@@ -368,6 +372,61 @@ def test_reconcile_non_staff_check_does_not_publish(cog_with_user):
         members={3: _member([OTHER_ROLE_ID])},           # reactor is not staff
     )
     asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_not_awaited()
+
+
+# ── CR-03: cold-cache member resolution — the backfill must not silently no-op ─────
+# Without the privileged members intent the guild cache is empty after a restart, and
+# history/REST payloads carry authors/reactors as plain users with NO role data. The
+# backfill must upgrade them via fetch_member instead of skipping every staff post.
+
+def test_reconcile_upgrades_uncached_staff_author_via_fetch_member(cog_with_user):
+    plain_author = types.SimpleNamespace(id=77, roles=[], bot=False)   # user payload, no roles
+    guild = types.SimpleNamespace(
+        get_member=lambda uid: None,                                   # cold cache
+        fetch_member=AsyncMock(return_value=_member([STAFF_ROLE_ID])),
+    )
+    msg = types.SimpleNamespace(
+        id=610, author=plain_author, attachments=[_attachment("image/png")],
+        reactions=[], guild=guild, add_reaction=AsyncMock(),
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    guild.fetch_member.assert_awaited_once_with(77)
+    msg.add_reaction.assert_awaited_once_with("✅")      # staff post recognized cold
+
+
+def test_reconcile_uncached_community_author_still_noop(cog_with_user):
+    # fetch_member resolves a genuinely non-staff member -> still not managed.
+    plain_author = types.SimpleNamespace(id=78, roles=[], bot=False)
+    guild = types.SimpleNamespace(
+        get_member=lambda uid: None,
+        fetch_member=AsyncMock(return_value=_member([OTHER_ROLE_ID])),
+    )
+    msg = types.SimpleNamespace(
+        id=611, author=plain_author, attachments=[_attachment("image/png")],
+        reactions=[], guild=guild, add_reaction=AsyncMock(),
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    msg.add_reaction.assert_not_awaited()
+
+
+def test_reaction_by_staff_falls_back_to_fetch_member(cog_with_user):
+    # A staff ✅ from a reactor missing from the cache must still be honored (CR-03).
+    cog_with_user._publish = AsyncMock()
+    msg = _history_message(
+        reactions=[_full_reaction("✅", me=True, users=[_user(7)])], members={})
+    msg.guild.fetch_member = AsyncMock(return_value=_member([STAFF_ROLE_ID]))
+    asyncio.run(cog_with_user._reconcile(msg))
+    msg.guild.fetch_member.assert_awaited_once_with(7)
+    cog_with_user._publish.assert_awaited_once_with(msg)
+
+
+def test_reaction_by_staff_fetch_member_not_found_fails_closed(cog_with_user):
+    # A reactor who left the guild (fetch_member -> NotFound) can never publish (D-01).
+    cog_with_user._publish = AsyncMock()
+    msg = _history_message(
+        reactions=[_full_reaction("✅", me=True, users=[_user(9)])], members={})
+    asyncio.run(cog_with_user._reconcile(msg))          # default fake fetch -> NotFound
     cog_with_user._publish.assert_not_awaited()
 
 

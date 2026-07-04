@@ -398,10 +398,21 @@ class GalleryCog(commands.Cog):
         A message already published (🟢 marker or a matching gallery.json entry, D-14) is
         left alone so the scan never double-publishes.
         """
-        if getattr(message.author, "bot", False) or not _is_staff(message.author):
-            return                                           # community / bot post — not managed
         if not _image_attachments(message):
-            return                                           # staff text-only post — no photos
+            return                                           # no photos — nothing to manage
+        if getattr(message.author, "bot", False):
+            return                                           # bot post — not managed
+        if not _is_staff(message.author):
+            # History/REST payloads carry the author as a plain user with NO role data;
+            # with a cold member cache (no members intent, no chunking after a restart)
+            # `_is_staff` would be False for EVERY author and the whole D-20 backfill
+            # would silently no-op. Upgrade to a real Member before concluding
+            # "community post" (CR-03). The image gate above keeps this REST fetch
+            # off text-only messages.
+            member = await self._resolve_member(
+                message.guild, getattr(message.author, "id", None))
+            if member is None or not _is_staff(member):
+                return                                       # community post — not managed
 
         # A staff 🌙 (removal/dismiss that arrived while down) takes priority over publish.
         if await self._reaction_by_staff(message, "🌙"):
@@ -420,12 +431,32 @@ class GalleryCog(commands.Cog):
         if not any(str(r.emoji) == "✅" for r in getattr(message, "reactions", [])):
             await message.add_reaction("✅")
 
+    async def _resolve_member(self, guild, user_id):
+        """Resolve a guild member with a REST fallback for cold caches (CR-03 / D-20).
+
+        History/REST payloads carry plain users with no role data, and without the
+        privileged members intent the guild member cache is essentially empty after a
+        restart — so backfill role checks must be able to fetch the member explicitly.
+        ``NotFound`` (left the guild) and any other API failure resolve to ``None``;
+        callers treat that as "not staff" (fail closed, D-01).
+        """
+        if guild is None or user_id is None:
+            return None
+        member = guild.get_member(user_id)
+        if member is not None:
+            return member
+        try:
+            return await guild.fetch_member(user_id)
+        except discord.HTTPException:       # NotFound / Forbidden / transient API error
+            return None
+
     async def _reaction_by_staff(self, message: discord.Message, emoji: str) -> bool:
         """True iff a staff member (not the bot) has reacted with ``emoji`` (D-08 gate).
 
         History messages carry reaction *counts*, not reactors, so the reactor list is
-        fetched via ``reaction.users()`` and each non-bot user is role-checked against the
-        guild — a non-staff ✅/🌙 during downtime can never trigger a publish/unpublish.
+        fetched via ``reaction.users()`` and each non-bot user is role-checked against
+        the guild — cache first, REST ``fetch_member`` on a cold cache (CR-03) — so a
+        non-staff ✅/🌙 during downtime can never trigger a publish/unpublish.
         """
         for reaction in getattr(message, "reactions", []):
             if str(reaction.emoji) != emoji:
@@ -436,7 +467,8 @@ class GalleryCog(commands.Cog):
             async for user in users():
                 if getattr(user, "bot", False):
                     continue
-                member = message.guild.get_member(user.id) if message.guild else None
+                member = await self._resolve_member(
+                    message.guild, getattr(user, "id", None))
                 if member is not None and _is_staff(member):
                     return True
         return False

@@ -26,6 +26,13 @@ for _noisy in ("discord.ext.voice_recv.gateway",
 # ── Intents ───────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True   # Para leer la respuesta del usuario en el foro
+# NOTA (CR-03): el intent privilegiado `members` queda APAGADO a propósito — activarlo
+# en código sin el toggle "Server Members Intent" del Developer Portal tumbaría el bot
+# al arrancar (PrivilegedIntentsRequired). El backfill de la galería resuelve members
+# con fetch_member() cuando la caché está fría (cogs/gallery.py::_resolve_member), así
+# que los role-checks funcionan sin el intent. Si algún día se activa el toggle en el
+# portal, añadir aquí `intents.members = True` convierte esos fetch REST en lookups
+# de caché (optimización, no requisito).
 
 
 class NocturnaBot(commands.Bot):
