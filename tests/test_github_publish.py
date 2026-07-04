@@ -59,6 +59,7 @@ class FakeGitHub:
     def __init__(self, base_gallery, patch_statuses=None, blob_shas=None):
         self.base_gallery = base_gallery
         self.calls = []            # (method, url, headers, json_payload)
+        self.timeouts = []         # the timeout kwarg of every call (CR-02)
         self.ref_get_count = 0
         self.blob_payloads = []
         self.tree_payloads = []
@@ -75,6 +76,7 @@ class FakeGitHub:
     # -- request verbs ------------------------------------------------------------
     def get(self, url, headers=None, **kw):
         self.calls.append(("GET", url, headers, None))
+        self.timeouts.append(kw.get("timeout"))
         if "/git/ref/heads/" in url:
             self.ref_get_count += 1
             return _Resp(200, {"object": {"sha": "PARENT_SHA"}})
@@ -86,6 +88,7 @@ class FakeGitHub:
 
     def post(self, url, headers=None, json=None, **kw):
         self.calls.append(("POST", url, headers, json))
+        self.timeouts.append(kw.get("timeout"))
         if url.endswith("/git/blobs"):
             self.blob_payloads.append(json)
             if self._blob_i < len(self._blob_shas):
@@ -104,6 +107,7 @@ class FakeGitHub:
 
     def patch(self, url, headers=None, json=None, **kw):
         self.calls.append(("PATCH", url, headers, json))
+        self.timeouts.append(kw.get("timeout"))
         self.patch_payloads.append(json)
         status = self._patch_statuses.pop(0) if self._patch_statuses else 200
         return _Resp(status, {"object": {"sha": "NEW_COMMIT_SHA"}})
@@ -425,3 +429,17 @@ def test_commit_lock_released_after_network_failure(wire, monkeypatch):
     result = asyncio.run(github_publish.publish_message(
         987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
     assert result["committed"] is True         # lock was released by the typed failure
+
+
+# ── CR-02: every HTTP call carries an explicit timeout (requests has NO default) ───
+def test_every_http_call_carries_an_explicit_timeout(wire):
+    # A black-holed connection with no timeout would hold _commit_lock forever and
+    # silently disable the whole pipeline — publish AND removal paths must be covered.
+    fake = wire(FakeGitHub(base_gallery=_remove_gallery()))
+
+    asyncio.run(github_publish.publish_message(
+        987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+    asyncio.run(github_publish.remove_message(987654321))
+
+    assert fake.timeouts, "no HTTP calls were recorded"
+    assert all(t not in (None, 0) for t in fake.timeouts)

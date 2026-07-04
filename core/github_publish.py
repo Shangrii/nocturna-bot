@@ -56,6 +56,11 @@ _MODE = "100644"                    # regular non-executable blob
 _MAX_ATTEMPTS = 4                   # ref-conflict retries (D-18)
 _BACKOFF_BASE = 0.5                 # seconds; exponential: 0.5, 1.0, 2.0 ...
 _RETRY_STATUSES = frozenset({409, 422})   # "ref moved / not a fast forward"
+# (connect, read) seconds — requests has NO default timeout, and every commit runs
+# under _commit_lock: one black-holed connection would otherwise hold the lock forever
+# and silently disable the entire publish pipeline (CR-02). Blob POSTs of ~1-2 MB
+# images need generous read headroom.
+_TIMEOUT = (10, 60)
 
 # Serializes the whole read-modify-commit so concurrent publishes don't race the ref.
 # The single-process bot uses one event loop; uncontended acquires take the fast path
@@ -100,7 +105,12 @@ def _http(method, url, what, headers=None, **kw):
     network-level failures into the typed error the D-19 failure UX depends on.
     Only the exception CLASS NAME is interpolated (never ``str(exc)``) so a URL or
     header value can never leak into the error text or the logs.
+
+    Every call carries an explicit ``_TIMEOUT`` (CR-02): a timeout expiry raises
+    ``requests.Timeout``, which the wrapper converts to ``GitHubPublishError`` —
+    releasing ``_commit_lock`` and triggering the ⚠️ retry UX instead of hanging.
     """
+    kw.setdefault("timeout", _TIMEOUT)
     try:
         return getattr(requests, method)(url, headers=headers or _headers(), **kw)
     except requests.RequestException as exc:
