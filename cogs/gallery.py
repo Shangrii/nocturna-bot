@@ -278,7 +278,20 @@ class GalleryCog(commands.Cog):
         """
         if payload.channel_id != config.PHOTO_CHANNEL_ID:
             return
-        await github_publish.remove_message(payload.message_id)
+        # Defensive diagnostics (05-05, live acceptance (c)): log entry + outcome so a
+        # failed delete-unpublish is visible in journalctl instead of only discord.py's
+        # generic "Ignoring exception in on_raw_message_delete".
+        log.info("gallery delete event: msg %s deleted in photo channel -> reconciling",
+                 payload.message_id)
+        try:
+            result = await github_publish.remove_message(payload.message_id)
+        except Exception:
+            log.exception("gallery delete-unpublish FAILED for msg %s "
+                          "(entries left live; backfill orphan pass will heal on restart)",
+                          payload.message_id)
+            return
+        log.info("gallery delete event: msg %s removal result: %s",
+                 payload.message_id, result)
 
     # ── startup backfill / reconcile (D-20) ──────────────────────────────────────
     @commands.Cog.listener()

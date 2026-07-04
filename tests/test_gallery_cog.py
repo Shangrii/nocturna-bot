@@ -529,3 +529,18 @@ def test_dismiss_also_clears_any_bot_moon(cog_with_user, monkeypatch):
     remove.assert_not_awaited()                          # dismiss still commits nothing
     msg.remove_reaction.assert_any_await("✅", cog_with_user.bot.user)
     msg.remove_reaction.assert_any_await("🌙", cog_with_user.bot.user)
+
+
+# ── 05-05: delete-unpublish failures are contained + logged (D-10 diagnostics) ────
+def test_message_delete_failure_is_contained_and_logged(cog_with_user, monkeypatch, caplog):
+    # Live acceptance (c) failed silently: an exception in on_raw_message_delete used to
+    # surface only as discord.py's generic "Ignoring exception..." — the handler must
+    # log entry + failure itself and never propagate.
+    remove = AsyncMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    payload = types.SimpleNamespace(channel_id=PHOTO_CHANNEL, message_id=888)
+    with caplog.at_level("INFO", logger="cogs.gallery"):
+        asyncio.run(cog_with_user.on_raw_message_delete(payload))   # must not raise
+    remove.assert_awaited_once_with(888)
+    assert any("888" in r.getMessage() for r in caplog.records)      # msg id in the logs
+    assert any(r.levelname == "ERROR" for r in caplog.records)       # failure recorded
