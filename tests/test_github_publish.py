@@ -29,6 +29,7 @@ import json
 import logging
 
 import pytest
+import requests
 
 import config
 from core import github_publish
@@ -367,3 +368,60 @@ def test_repeated_stale_ref_conflicts_eventually_raise_typed_error(wire):
     with pytest.raises(github_publish.GitHubPublishError):
         asyncio.run(github_publish.publish_message(
             987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+
+
+# ── CR-01: network-level failures surface as the typed error, never escape raw ─────
+def test_publish_network_error_surfaces_as_typed_publish_error(wire, monkeypatch):
+    # A ConnectionError (DNS down, refused, reset) — the most common real-world failure
+    # for a bot on a home/VPS link — must reach the cog as GitHubPublishError so the
+    # D-19 ⚠️-retry UX fires instead of dying in discord.py's generic handler.
+    wire(FakeGitHub(base_gallery=[]))
+
+    def _dns_down(url, **kw):
+        raise requests.exceptions.ConnectionError(
+            "Name or service not known: https://api.github.com/should-not-leak")
+
+    monkeypatch.setattr(github_publish.requests, "get", _dns_down)
+
+    with pytest.raises(github_publish.GitHubPublishError) as excinfo:
+        asyncio.run(github_publish.publish_message(
+            987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+    # only the exception class name is interpolated — a URL must never leak (T-05-04)
+    assert "ConnectionError" in str(excinfo.value)
+    assert "api.github.com" not in str(excinfo.value)
+
+
+def test_remove_network_error_surfaces_as_typed_publish_error(wire, monkeypatch):
+    wire(FakeGitHub(base_gallery=_remove_gallery()))
+
+    def _hang_up(url, **kw):
+        raise requests.exceptions.ConnectTimeout("connect timed out")
+
+    monkeypatch.setattr(github_publish.requests, "get", _hang_up)
+
+    with pytest.raises(github_publish.GitHubPublishError):
+        asyncio.run(github_publish.remove_message(987654321))
+
+
+def test_commit_lock_released_after_network_failure(wire, monkeypatch):
+    # A typed failure must release _commit_lock so the NEXT publish still works —
+    # otherwise one bad request would disable the whole pipeline until restart.
+    fake = wire(FakeGitHub(base_gallery=[]))
+    real_get = fake.get
+    state = {"down": True}
+
+    def _flaky(url, **kw):
+        if state["down"]:
+            raise requests.exceptions.ConnectionError("network down")
+        return real_get(url, **kw)
+
+    monkeypatch.setattr(github_publish.requests, "get", _flaky)
+
+    with pytest.raises(github_publish.GitHubPublishError):
+        asyncio.run(github_publish.publish_message(
+            987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+
+    state["down"] = False
+    result = asyncio.run(github_publish.publish_message(
+        987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+    assert result["committed"] is True         # lock was released by the typed failure

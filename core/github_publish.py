@@ -91,6 +91,23 @@ def _require(resp, what):
     return resp
 
 
+def _http(method, url, what, headers=None, **kw):
+    """Issue one HTTP request, keeping the typed-error contract airtight (CR-01).
+
+    ``requests`` raises untyped ``RequestException`` subclasses on DNS failures,
+    refused/reset connections and timeouts — the cog only catches
+    ``GitHubPublishError``, so every transport call is routed here to convert
+    network-level failures into the typed error the D-19 failure UX depends on.
+    Only the exception CLASS NAME is interpolated (never ``str(exc)``) so a URL or
+    header value can never leak into the error text or the logs.
+    """
+    try:
+        return getattr(requests, method)(url, headers=headers or _headers(), **kw)
+    except requests.RequestException as exc:
+        raise GitHubPublishError(
+            f"{what} failed: network error ({exc.__class__.__name__})") from exc
+
+
 def _entry_message_id(filename):
     """Extract the message-id segment from ``{YYYYMMDD}-{message.id}-{index}.webp``.
 
@@ -106,20 +123,20 @@ def _entry_message_id(filename):
 
 def _fetch_parent_sha(repo, branch):
     url = f"{_API}/repos/{repo}/git/ref/heads/{branch}"
-    resp = _require(requests.get(url, headers=_headers()), "GET git/ref")
+    resp = _require(_http("get", url, "GET git/ref"), "GET git/ref")
     return resp.json()["object"]["sha"]
 
 
 def _fetch_base_tree_sha(repo, parent_sha):
     url = f"{_API}/repos/{repo}/git/commits/{parent_sha}"
-    resp = _require(requests.get(url, headers=_headers()), "GET git/commits")
+    resp = _require(_http("get", url, "GET git/commits"), "GET git/commits")
     return resp.json()["tree"]["sha"]
 
 
 def _fetch_gallery(repo, branch):
     """GET the current ``gallery.json`` array; tolerates an empty file and a 404."""
     url = f"{_API}/repos/{repo}/contents/{config.WEBSITE_GALLERY_JSON}"
-    resp = requests.get(url, headers=_headers(), params={"ref": branch})
+    resp = _http("get", url, "GET contents gallery.json", params={"ref": branch})
     if resp.status_code == 404:
         return []                              # not-yet-created gallery.json
     _require(resp, "GET contents gallery.json")
@@ -131,21 +148,21 @@ def _fetch_gallery(repo, branch):
 def _create_blob(repo, raw_bytes):
     url = f"{_API}/repos/{repo}/git/blobs"
     payload = {"content": base64.b64encode(raw_bytes).decode("ascii"), "encoding": "base64"}
-    resp = _require(requests.post(url, headers=_headers(), json=payload), "POST git/blobs")
+    resp = _require(_http("post", url, "POST git/blobs", json=payload), "POST git/blobs")
     return resp.json()["sha"]
 
 
 def _create_tree(repo, base_tree_sha, tree_entries):
     url = f"{_API}/repos/{repo}/git/trees"
     payload = {"base_tree": base_tree_sha, "tree": tree_entries}
-    resp = _require(requests.post(url, headers=_headers(), json=payload), "POST git/trees")
+    resp = _require(_http("post", url, "POST git/trees", json=payload), "POST git/trees")
     return resp.json()["sha"]
 
 
 def _create_commit(repo, message, tree_sha, parent_sha):
     url = f"{_API}/repos/{repo}/git/commits"
     payload = {"message": message, "tree": tree_sha, "parents": [parent_sha]}
-    resp = _require(requests.post(url, headers=_headers(), json=payload), "POST git/commits")
+    resp = _require(_http("post", url, "POST git/commits", json=payload), "POST git/commits")
     return resp.json()["sha"]
 
 
@@ -153,7 +170,7 @@ def _update_ref(repo, branch, commit_sha):
     """PATCH the branch to the new commit. Returns the raw response so the retry loop
     can distinguish a stale-ref conflict (409/422) from a hard failure."""
     url = f"{_API}/repos/{repo}/git/refs/heads/{branch}"
-    return requests.patch(url, headers=_headers(), json={"sha": commit_sha})
+    return _http("patch", url, "PATCH git/refs", json={"sha": commit_sha})
 
 
 def _serialize_gallery(array):
