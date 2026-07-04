@@ -473,3 +473,59 @@ def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch, tmp_
         cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
         asyncio.run(cog._backfill())
         remove.assert_not_awaited()                      # left alone, logged as unknown
+
+
+# ── 05-05 Fix B: visible 🌙 control (discoverability UX) ──────────────────────────
+# The 🌙 gesture was undiscoverable: after a publish the bot now ADDS its own 🌙 next
+# to the 🟢 marker as a visible unpublish control, and removes it when the message is
+# unpublished/dismissed. The staff gate is untouched — the bot's own 🌙 never triggers
+# anything (bot reactions are already skipped in the live handler and the backfill).
+
+def test_publish_adds_visible_moon_control(cog_with_user, monkeypatch):
+    publish = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
+    monkeypatch.setattr(gallery, "optimize_to_webp", lambda raw: (b"webp", 10, 10))
+    msg = _live_message(msg_id=900, reactions=[])
+    msg.attachments = [types.SimpleNamespace(content_type="image/png",
+                                             read=AsyncMock(return_value=b"raw"))]
+    msg.content = "luna fit"
+    msg.created_at = datetime(2026, 7, 4, tzinfo=timezone.utc)
+    asyncio.run(cog_with_user._publish(msg))
+    msg.add_reaction.assert_any_await("🟢")
+    msg.add_reaction.assert_any_await("🌙")              # the visible unpublish control
+
+
+def test_unpublish_clears_moon_control(cog_with_user, monkeypatch):
+    remove = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=901, reactions=[_reaction("🟢", me=True),
+                                               _reaction("🌙", me=True)])
+    asyncio.run(cog_with_user._unpublish(msg))
+    msg.remove_reaction.assert_any_await("🟢", cog_with_user.bot.user)
+    msg.remove_reaction.assert_any_await("🌙", cog_with_user.bot.user)
+
+
+def test_unpublish_tolerates_legacy_message_without_moon(cog_with_user, monkeypatch):
+    # Messages published BEFORE the 🌙 control existed carry 🟢 but no bot 🌙 — the
+    # clear of the absent 🌙 must be tolerated, never failing after the commit.
+    remove = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=902, reactions=[_reaction("🟢", me=True)])
+
+    async def _remove_reaction(emoji, user):
+        if emoji == "🌙":
+            raise discord.NotFound(
+                types.SimpleNamespace(status=404, reason="Not Found"), "Unknown Reaction")
+    msg.remove_reaction = AsyncMock(side_effect=_remove_reaction)
+    asyncio.run(cog_with_user._unpublish(msg))
+    msg.reply.assert_awaited_once()                      # flow completed despite missing 🌙
+
+
+def test_dismiss_also_clears_any_bot_moon(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=903, reactions=[_reaction("✅", me=True)])
+    asyncio.run(cog_with_user._unpublish(msg))
+    remove.assert_not_awaited()                          # dismiss still commits nothing
+    msg.remove_reaction.assert_any_await("✅", cog_with_user.bot.user)
+    msg.remove_reaction.assert_any_await("🌙", cog_with_user.bot.user)
