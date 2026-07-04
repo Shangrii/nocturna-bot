@@ -144,14 +144,31 @@ def _fetch_base_tree_sha(repo, parent_sha):
 
 
 def _fetch_gallery(repo, branch):
-    """GET the current ``gallery.json`` array; tolerates an empty file and a 404."""
+    """GET the current ``gallery.json`` array; tolerates an empty file and a 404.
+
+    Files between 1 MB and 100 MB come back from the Contents API with
+    ``"content": "", "encoding": "none"`` — mistaking that for an empty gallery
+    would make the next publish rewrite ``gallery.json`` with ONLY the new entries,
+    silently wiping every existing tile (WR-01). When the inline content is
+    unreadable the array is re-fetched via the raw media type instead; if THAT
+    fails, the typed error propagates — never an empty list.
+    """
     url = f"{_API}/repos/{repo}/contents/{config.WEBSITE_GALLERY_JSON}"
     resp = _http("get", url, "GET contents gallery.json", params={"ref": branch})
     if resp.status_code == 404:
         return []                              # not-yet-created gallery.json
     _require(resp, "GET contents gallery.json")
-    raw = base64.b64decode(resp.json()["content"])
-    text = raw.decode("utf-8").strip()
+    data = resp.json()
+    if data.get("encoding") == "none" or (data.get("size", 0) > 0 and not data.get("content")):
+        raw_resp = _http(
+            "get", url, "GET contents gallery.json (raw)",
+            headers={**_headers(), "Accept": "application/vnd.github.raw+json"},
+            params={"ref": branch})
+        _require(raw_resp, "GET contents gallery.json (raw)")
+        text = raw_resp.text.strip()
+    else:
+        raw = base64.b64decode(data.get("content", ""))
+        text = raw.decode("utf-8").strip()
     return json.loads(text) if text else []
 
 

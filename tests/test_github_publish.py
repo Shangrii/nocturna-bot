@@ -431,6 +431,54 @@ def test_commit_lock_released_after_network_failure(wire, monkeypatch):
     assert result["committed"] is True         # lock was released by the typed failure
 
 
+# ── WR-01: a >1MB gallery.json must NEVER be mistaken for an empty gallery ─────────
+# The Contents API returns content:"" + encoding:"none" for 1MB-100MB files; treating
+# that as [] would make the next publish rewrite gallery.json with only the new
+# entries, silently wiping every existing tile.
+def test_fetch_gallery_over_1mb_falls_back_to_raw_and_preserves_entries(wire, monkeypatch):
+    base = [{"file": "20260703-111-1.webp", "width": 5, "height": 5, "date": "D0"}]
+    fake = wire(FakeGitHub(base_gallery=base))
+    real_get = fake.get
+    raw_hits = []
+
+    def _get(url, headers=None, **kw):
+        if "/contents/" in url:
+            if headers.get("Accept") == "application/vnd.github.raw+json":
+                raw_hits.append(url)
+                return _Resp(200, base)          # .text is the raw JSON array
+            return _Resp(200, {"content": "", "encoding": "none", "size": 1_500_000})
+        return real_get(url, headers=headers, **kw)
+
+    monkeypatch.setattr(github_publish.requests, "get", _get)
+
+    asyncio.run(github_publish.publish_message(
+        987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+
+    assert raw_hits, "raw media-type fallback was never used"
+    files = {e["file"] for e in fake.new_gallery_array()}
+    assert "20260703-111-1.webp" in files        # existing entries preserved
+    assert "20260703-987654321-1.webp" in files  # new entries appended
+
+
+def test_fetch_gallery_unreadable_and_raw_failing_raises_never_commits(wire, monkeypatch):
+    fake = wire(FakeGitHub(base_gallery=[]))
+    real_get = fake.get
+
+    def _get(url, headers=None, **kw):
+        if "/contents/" in url:
+            if headers.get("Accept") == "application/vnd.github.raw+json":
+                return _Resp(500, {})            # raw path also broken
+            return _Resp(200, {"content": "", "encoding": "none", "size": 1_500_000})
+        return real_get(url, headers=headers, **kw)
+
+    monkeypatch.setattr(github_publish.requests, "get", _get)
+
+    with pytest.raises(github_publish.GitHubPublishError):
+        asyncio.run(github_publish.publish_message(
+            987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+    assert fake.commits_posted() == []           # nothing destructive was committed
+
+
 # ── CR-02: every HTTP call carries an explicit timeout (requests has NO default) ───
 def test_every_http_call_carries_an_explicit_timeout(wire):
     # A black-holed connection with no timeout would hold _commit_lock forever and
