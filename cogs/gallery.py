@@ -17,6 +17,7 @@ and ``core.github_publish.publish_message`` (one atomic commit per approved mess
 
 import asyncio
 import logging
+import re
 from datetime import timezone
 
 import discord
@@ -62,6 +63,21 @@ def _caption(message_content) -> str:
     """Trimmed caption text (BOT-06); empty string for whitespace-only/None so the
     published entry omits the ``caption`` key entirely (Phase 4 contract)."""
     return (message_content or "").strip()
+
+
+# The exact D-14 bot filename shape: {YYYYMMDD}-{msgID}-{index}.webp — nothing else.
+_BOT_FILE_RE = re.compile(r"^\d{8}-(\d+)-\d+\.webp$")
+
+
+def _entry_message_id(entry):
+    """The Discord message id encoded in a gallery entry's filename, or ``None``.
+
+    Only the exact bot shape ``{YYYYMMDD}-{msgID}-{index}.webp`` (D-14) parses;
+    sample/manually-committed entries (any other name) return ``None`` so the
+    orphan reconcile can never touch them.
+    """
+    match = _BOT_FILE_RE.match(((entry or {}).get("file") or ""))
+    return int(match.group(1)) if match else None
 
 
 def _is_published(message, entries=None) -> bool:
@@ -288,6 +304,46 @@ class GalleryCog(commands.Cog):
             db.set_cursor(message.id)                        # advance even past a failed message
             scanned += 1
         log.info("gallery backfill: reconciled %d message(s) after cursor %s", scanned, cursor)
+
+        # Inverse pass (05-05 Fix A): history never yields DELETED messages, so a delete
+        # the bot missed leaves its entries published forever — probe them explicitly.
+        await self._reconcile_orphans(channel, entries)
+
+    async def _reconcile_orphans(self, channel, entries):
+        """Remove published entries whose Discord message no longer exists (D-10/D-20).
+
+        ``channel.history()`` cannot surface deletions, so the forward scan alone never
+        reconciles a message deleted while the bot was down (or whose live
+        ``on_raw_message_delete`` failed). For every entry whose filename parses to the
+        exact bot shape (``_entry_message_id``), fetch the message once per id:
+
+        - ``discord.NotFound`` -> the message is gone -> ``remove_message(id)`` drops all
+          of its files + entries in one commit (self-heals live orphans on restart).
+        - ANY other error (rate limit, permissions, network) means "unknown", NOT
+          "deleted" — the entry is left alone and logged, so a transient outage can
+          never mass-remove the live gallery (T-05-11-adjacent hazard).
+
+        Sample/manually-committed entries whose filename doesn't parse are skipped.
+        """
+        probed = set()
+        for entry in entries or []:
+            msg_id = _entry_message_id(entry)
+            if msg_id is None or msg_id in probed:
+                continue
+            probed.add(msg_id)
+            try:
+                await channel.fetch_message(msg_id)
+            except discord.NotFound:
+                log.info("gallery orphan reconcile: msg %s deleted -> removing its photos",
+                         msg_id)
+                try:
+                    await github_publish.remove_message(msg_id)
+                except Exception:
+                    log.exception("gallery orphan reconcile: removal failed for msg %s",
+                                  msg_id)
+            except Exception:
+                log.warning("gallery orphan reconcile: could not verify msg %s; "
+                            "leaving its entries untouched", msg_id)
 
     async def _fetch_entries(self):
         """The live gallery.json array (for entry-derived published-state, D-14).
