@@ -540,15 +540,25 @@ def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch, tmp_
 # unpublished/dismissed. The staff gate is untouched — the bot's own 🌙 never triggers
 # anything (bot reactions are already skipped in the live handler and the backfill).
 
-def test_publish_adds_visible_moon_control(cog_with_user, monkeypatch):
-    publish = AsyncMock(return_value={"committed": True, "count": 1})
-    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
-    monkeypatch.setattr(gallery, "optimize_to_webp", lambda raw: (b"webp", 10, 10))
-    msg = _live_message(msg_id=900, reactions=[])
+def _staff_authored_publishable(cog, monkeypatch, msg_id=900):
+    """A staff-authored, image-carrying live message that passes the WR-03 author gate."""
+    msg = _live_message(msg_id=msg_id, reactions=[])
+    msg.guild = types.SimpleNamespace(id=1)
+    msg.author = types.SimpleNamespace(id=77, bot=False)
     msg.attachments = [types.SimpleNamespace(content_type="image/png",
                                              read=AsyncMock(return_value=b"raw"))]
     msg.content = "luna fit"
     msg.created_at = datetime(2026, 7, 4, tzinfo=timezone.utc)
+    monkeypatch.setattr(cog, "_resolve_member",
+                        AsyncMock(return_value=_member([STAFF_ROLE_ID])))
+    return msg
+
+
+def test_publish_adds_visible_moon_control(cog_with_user, monkeypatch):
+    publish = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
+    monkeypatch.setattr(gallery, "optimize_to_webp", lambda raw: (b"webp", 10, 10))
+    msg = _staff_authored_publishable(cog_with_user, monkeypatch, msg_id=900)
     asyncio.run(cog_with_user._publish(msg))
     msg.add_reaction.assert_any_await("🟢")
     msg.add_reaction.assert_any_await("🌙")              # the visible unpublish control
@@ -603,3 +613,76 @@ def test_message_delete_failure_is_contained_and_logged(cog_with_user, monkeypat
     remove.assert_awaited_once_with(888)
     assert any("888" in r.getMessage() for r in caplog.records)      # msg id in the logs
     assert any(r.levelname == "ERROR" for r in caplog.records)       # failure recorded
+
+
+# ── WR-03: only staff-AUTHORED posts are publishable (live path author gate) ──────
+def test_publish_refuses_community_authored_post(cog_with_user, monkeypatch):
+    # Live path used to accept a staff ✅ on ANY post; the author gate must match
+    # on_message (✅ prompt) and the backfill reconcile: staff authors only.
+    publish = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
+    msg = _staff_authored_publishable(cog_with_user, monkeypatch, msg_id=910)
+    monkeypatch.setattr(cog_with_user, "_resolve_member",
+                        AsyncMock(return_value=_member([OTHER_ROLE_ID])))  # community author
+    asyncio.run(cog_with_user._publish(msg))
+    publish.assert_not_awaited()
+    msg.add_reaction.assert_not_awaited()                # no 🟢/🌙 — nothing happened
+
+
+def test_publish_unresolvable_author_fails_closed(cog_with_user, monkeypatch):
+    publish = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
+    msg = _staff_authored_publishable(cog_with_user, monkeypatch, msg_id=911)
+    monkeypatch.setattr(cog_with_user, "_resolve_member",
+                        AsyncMock(return_value=None))    # left the guild / API failure
+    asyncio.run(cog_with_user._publish(msg))
+    publish.assert_not_awaited()                         # fail closed (D-01)
+
+
+# ── WR-04(a): pre-commit Discord failures fire the D-19 surface ───────────────────
+def test_publish_attachment_read_failure_surfaces_warning(cog_with_user, monkeypatch):
+    publish = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
+    msg = _staff_authored_publishable(cog_with_user, monkeypatch, msg_id=912)
+    msg.attachments = [types.SimpleNamespace(
+        content_type="image/png",
+        read=AsyncMock(side_effect=discord.HTTPException(
+            types.SimpleNamespace(status=500, reason="CDN boom"), "CDN boom")))]
+    asyncio.run(cog_with_user._publish(msg))             # must not raise
+    publish.assert_not_awaited()                         # nothing was committed
+    msg.add_reaction.assert_any_await("⚠️")              # retry to-do surfaced
+    assert msg.reply.await_args.kwargs.get("delete_after") is None   # persistent reply
+
+
+# ── WR-04(b): post-commit bookkeeping failures never re-surface as failures ───────
+def test_publish_postcommit_reaction_failure_is_tolerated(cog_with_user, monkeypatch):
+    publish = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "publish_message", publish)
+    monkeypatch.setattr(gallery, "optimize_to_webp", lambda raw: (b"webp", 10, 10))
+    msg = _staff_authored_publishable(cog_with_user, monkeypatch, msg_id=913)
+    msg.add_reaction = AsyncMock(side_effect=discord.HTTPException(
+        types.SimpleNamespace(status=403, reason="perms"), "perms"))
+    asyncio.run(cog_with_user._publish(msg))             # must not raise
+    publish.assert_awaited_once()                        # the commit DID happen
+    msg.reply.assert_not_awaited()                       # no ⚠️ surface — not a failure
+
+
+def test_unpublish_postcommit_failure_is_tolerated(cog_with_user, monkeypatch):
+    remove = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=914, reactions=[_reaction("🟢", me=True)])
+    msg.remove_reaction = AsyncMock(side_effect=discord.HTTPException(
+        types.SimpleNamespace(status=403, reason="perms"), "perms"))
+    asyncio.run(cog_with_user._unpublish(msg))           # must not raise
+    remove.assert_awaited_once()                         # removal committed regardless
+
+
+# ── WR-05: dismiss tolerates an already-absent ✅ prompt ──────────────────────────
+def test_dismiss_tolerates_missing_check_prompt(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(gallery.github_publish, "remove_message", remove)
+    msg = _live_message(msg_id=915, reactions=[])        # pending, prompt already gone
+    msg.remove_reaction = AsyncMock(side_effect=discord.NotFound(
+        types.SimpleNamespace(status=404, reason="Not Found"), "Unknown Reaction"))
+    asyncio.run(cog_with_user._unpublish(msg))           # must not raise
+    remove.assert_not_awaited()                          # dismiss commits nothing (D-07)

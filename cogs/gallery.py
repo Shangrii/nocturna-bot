@@ -17,7 +17,6 @@ and ``core.github_publish.publish_message`` (one atomic commit per approved mess
 
 import asyncio
 import logging
-import re
 from datetime import timezone
 
 import discord
@@ -65,8 +64,8 @@ def _caption(message_content) -> str:
     return (message_content or "").strip()
 
 
-# The exact D-14 bot filename shape: {YYYYMMDD}-{msgID}-{index}.webp — nothing else.
-_BOT_FILE_RE = re.compile(r"^\d{8}-(\d+)-\d+\.webp$")
+# The exact D-14 bot filename shape lives in ONE place (WR-06): the transport module.
+_BOT_FILE_RE = github_publish._BOT_FILE_RE
 
 
 def _entry_message_id(entry):
@@ -74,10 +73,11 @@ def _entry_message_id(entry):
 
     Only the exact bot shape ``{YYYYMMDD}-{msgID}-{index}.webp`` (D-14) parses;
     sample/manually-committed entries (any other name) return ``None`` so the
-    orphan reconcile can never touch them.
+    orphan reconcile can never touch them. Delegates to the transport's strict
+    parser so there is exactly one filename grammar (WR-06).
     """
-    match = _BOT_FILE_RE.match(((entry or {}).get("file") or ""))
-    return int(match.group(1)) if match else None
+    raw = github_publish._entry_message_id(((entry or {}).get("file") or ""))
+    return int(raw) if raw is not None else None
 
 
 def _is_published(message, entries=None) -> bool:
@@ -94,10 +94,9 @@ def _is_published(message, entries=None) -> bool:
            for r in getattr(message, "reactions", [])):
         return True
     if entries:
-        target = str(message.id)
+        target = message.id
         for entry in entries:
-            parts = (entry.get("file", "") or "").split("-")
-            if len(parts) >= 3 and parts[1] == target:
+            if _entry_message_id(entry) == target:   # strict bot-shape parse only (WR-06)
                 return True
     return False
 
@@ -136,9 +135,15 @@ class GalleryCog(commands.Cog):
         if emoji not in ("✅", "🌙"):                       # ✅ publishes; 🌙 unpublishes/dismisses
             return                                          # (🌙 shares the SAME staff gate, D-08)
 
-        channel = self.bot.get_channel(payload.channel_id) or \
-            await self.bot.fetch_channel(payload.channel_id)
-        message = await channel.fetch_message(payload.message_id)  # fetch: not guaranteed cached
+        try:
+            channel = self.bot.get_channel(payload.channel_id) or \
+                await self.bot.fetch_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)  # not guaranteed cached
+        except discord.HTTPException:
+            # WR-04: message deleted between reaction and fetch, or perms changed — there
+            # is no message to surface a ⚠️ on, so log loudly instead of dying silently.
+            log.exception("gallery: could not fetch reacted message %s", payload.message_id)
+            return
         if emoji == "✅":
             await self._publish(message)
         else:                                               # 🌙 removal / dismiss (D-06/D-07/D-09)
@@ -153,6 +158,15 @@ class GalleryCog(commands.Cog):
         if any(str(r.emoji) == "🟢" and r.me for r in message.reactions):
             return                                          # already published (D-05)
 
+        # WR-03: only staff-AUTHORED posts are publishable — the same author gate that
+        # on_message (✅ prompt) and the backfill reconcile already enforce. REST-fetched
+        # messages carry a plain user, so resolve the member (CR-03) before the check;
+        # unresolvable or non-staff authors fail closed (D-01).
+        author = await self._resolve_member(
+            getattr(message, "guild", None), getattr(message.author, "id", None))
+        if author is None or not _is_staff(author):
+            return                                          # community/bot post — not publishable
+
         images = _image_attachments(message)                # D-13: non-images skipped silently
         if not images:
             return
@@ -163,13 +177,20 @@ class GalleryCog(commands.Cog):
         date = date.replace("+00:00", "Z")
         caption = _caption(message.content)                 # BOT-06/D-06 (omitted when empty)
 
-        entries = []
-        for index, attachment in enumerate(images, start=1):
-            raw = await attachment.read()
-            # Keep Pillow's CPU re-encode off the event loop (Anti-Pattern otherwise).
-            webp, width, height = await asyncio.to_thread(optimize_to_webp, raw)
-            filename = _build_filename(message.id, message.created_at, index)  # D-14
-            entries.append((webp, width, height, filename, caption))
+        try:
+            entries = []
+            for index, attachment in enumerate(images, start=1):
+                raw = await attachment.read()
+                # Keep Pillow's CPU re-encode off the event loop (Anti-Pattern otherwise).
+                webp, width, height = await asyncio.to_thread(optimize_to_webp, raw)
+                filename = _build_filename(message.id, message.created_at, index)  # D-14
+                entries.append((webp, width, height, filename, caption))
+        except discord.HTTPException:
+            # WR-04(a): CDN hiccup / expired attachment — nothing was committed, so this
+            # is a real publish failure and must fire the D-19 retry UX, not die silently.
+            log.exception("gallery: attachment download failed for msg %s", message.id)
+            await self._surface_failure(message, "publicar")
+            return
 
         try:
             result = await github_publish.publish_message(message.id, entries, date=date)
@@ -181,16 +202,24 @@ class GalleryCog(commands.Cog):
             return
 
         count = result.get("count", len(entries)) if isinstance(result, dict) else len(entries)
-        await message.add_reaction("🟢")                    # persistent published marker (D-05)
-        await message.add_reaction("🌙")                    # visible unpublish control (05-05 UX):
-        # the bot's own 🌙 never triggers anything (bot reactions are gated out everywhere);
-        # it exists so staff can SEE the unpublish gesture instead of having to know it.
-        await self._clear_warning(message)                  # drop a stale ⚠️ from a prior failure
-        await message.reply(                                # auto-deleting confirmation (D-04)
-            f"📸 Publiqué {count} foto{'s' if count != 1 else ''} en la galería — "
-            "la web tarda un par de minutos en actualizarse.",
-            delete_after=60,
-        )
+        try:
+            await message.add_reaction("🟢")                # persistent published marker (D-05)
+            await message.add_reaction("🌙")                # visible unpublish control (05-05 UX):
+            # the bot's own 🌙 never triggers anything (bot reactions are gated out
+            # everywhere); it exists so staff can SEE the unpublish gesture.
+            await self._clear_warning(message)              # drop a stale ⚠️ from a prior failure
+            await message.reply(                            # auto-deleting confirmation (D-04)
+                f"📸 Publiqué {count} foto{'s' if count != 1 else ''} en la galería — "
+                "la web tarda un par de minutos en actualizarse.",
+                delete_after=60,
+            )
+        except discord.HTTPException:
+            # WR-04(b): the COMMIT SUCCEEDED — a failed 🟢/reply must not look like a
+            # publish failure (no ⚠️). A lost 🟢 is harmless: the WR-02 commit-level
+            # dedupe makes a re-✅ a clean republish, but it must reach the log.
+            log.exception(
+                "gallery: publish committed for msg %s but post-commit bookkeeping "
+                "failed (🟢/🌙/reply may be missing)", message.id)
 
     async def _unpublish(self, message: discord.Message):
         """🌙 removal (published) or dismiss (pending) — the safe, judgment-free counterpart
@@ -213,17 +242,27 @@ class GalleryCog(commands.Cog):
                 await self._surface_failure(message, "quitar")
                 return
             count = result.get("count", 0) if isinstance(result, dict) else 0
-            await message.remove_reaction("🟢", self.bot.user)  # back to pending (D-09)
-            await self._remove_own_reaction(message, "🌙")  # clear the visible control (05-05 UX)
-            await self._clear_warning(message)              # drop a stale ⚠️ from a prior failure
-            await message.reply(                            # mirrored auto-deleting feedback (D-09)
-                f"🌙 Quité {count} foto{'s' if count != 1 else ''} de la galería — "
-                "la web tarda un par de minutos en actualizarse.",
-                delete_after=60,
-            )
+            try:
+                await message.remove_reaction("🟢", self.bot.user)  # back to pending (D-09)
+                await self._remove_own_reaction(message, "🌙")  # clear the visible control
+                await self._clear_warning(message)          # drop a stale ⚠️ from a prior failure
+                await message.reply(                        # mirrored auto-deleting feedback (D-09)
+                    f"🌙 Quité {count} foto{'s' if count != 1 else ''} de la galería — "
+                    "la web tarda un par de minutos en actualizarse.",
+                    delete_after=60,
+                )
+            except discord.HTTPException:
+                # WR-04(b): removal COMMITTED — a stale 🟢 the bot failed to clear makes
+                # the message merely LOOK published; log loudly, never re-surface as a
+                # removal failure (the photos are already gone from the site).
+                log.exception(
+                    "gallery: removal committed for msg %s but post-commit bookkeeping "
+                    "failed (stale 🟢/🌙 may remain)", message.id)
         else:
             # Pending: clear the ✅ prompt so it won't be published; no commit (D-07).
-            await message.remove_reaction("✅", self.bot.user)
+            # Tolerant removal (WR-05): a NotFound on the absent prompt must not abort
+            # the dismiss — the helper exists for exactly this.
+            await self._remove_own_reaction(message, "✅")
             await self._remove_own_reaction(message, "🌙")  # in case a stale control lingers
 
     async def _remove_own_reaction(self, message: discord.Message, emoji: str):
@@ -250,10 +289,15 @@ class GalleryCog(commands.Cog):
             await message.add_reaction("⚠️")               # impossible-to-miss retry to-do
         except Exception:
             log.exception("could not add ⚠️ marker to discord msg %s", message.id)
-        await message.reply(                                # NO delete_after: this must persist
-            f"⚠️ No pude {verbo} las fotos: GitHub falló tras varios intentos. "
-            "Quita y vuelve a poner ✅ para reintentar."
-        )
+        try:
+            await message.reply(                            # NO delete_after: this must persist
+                f"⚠️ No pude {verbo} las fotos: GitHub falló tras varios intentos. "
+                "Quita y vuelve a poner ✅ para reintentar."
+            )
+        except Exception:
+            # WR-04: even the failure reply can fail (perms/deleted message) — the ⚠️ (or
+            # at minimum this log line) is the remaining signal; never raise from here.
+            log.exception("could not send failure reply for discord msg %s", message.id)
 
     async def _clear_warning(self, message: discord.Message):
         """Remove a stale ⚠️ retry marker on a later success so it doesn't linger (D-19).
