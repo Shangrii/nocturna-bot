@@ -491,3 +491,47 @@ def test_every_http_call_carries_an_explicit_timeout(wire):
 
     assert fake.timeouts, "no HTTP calls were recorded"
     assert all(t not in (None, 0) for t in fake.timeouts)
+
+
+# ── WR-06: ONE strict filename parser — deletion can never match non-bot files ─────
+def test_entry_message_id_accepts_only_the_exact_bot_shape():
+    assert github_publish._entry_message_id("20260703-987654321-1.webp") == "987654321"
+    # loose-split bait: middle dash-segment equals a msg id but the shape is NOT ours
+    assert github_publish._entry_message_id("manual-987654321-shot.png") is None
+    assert github_publish._entry_message_id("goo.jpg") is None
+    assert github_publish._entry_message_id("") is None
+    assert github_publish._entry_message_id(None) is None
+
+
+def test_remove_ignores_non_bot_filenames_with_matching_segment(wire):
+    # A manually-committed file whose middle dash-segment happens to equal the message
+    # id must NEVER be deleted — deletion uses the same strict parser as identification.
+    base = [{"file": "manual-987654321-shot.png", "width": 1, "height": 1, "date": "D0"}]
+    fake = wire(FakeGitHub(base_gallery=base))
+
+    result = asyncio.run(github_publish.remove_message(987654321))
+
+    assert result["committed"] is False                    # no-op — nothing matched
+    assert fake.commits_posted() == []                     # and no commit was created
+
+
+# ── WR-02: publish is commit-level idempotent (replace, never append-duplicate) ────
+def test_publish_replaces_existing_entries_for_same_message(wire):
+    # A double-✅ race or a re-✅ after a lost 🟢 must republish cleanly: existing
+    # entries for THIS message are dropped before the fresh ones are appended.
+    base = [
+        {"file": "20260703-987654321-1.webp", "width": 1, "height": 1, "date": "D0"},
+        {"file": "manual-987654321-shot.png", "width": 2, "height": 2, "date": "D0"},
+    ]
+    fake = wire(FakeGitHub(base_gallery=base))
+
+    asyncio.run(github_publish.publish_message(
+        987654321, _publish_entries(), date="2026-07-03T18:30:00.000Z"))
+
+    arr = fake.new_gallery_array()
+    files = [e["file"] for e in arr]
+    assert files.count("20260703-987654321-1.webp") == 1   # replaced, not duplicated
+    assert "manual-987654321-shot.png" in files            # non-bot filename untouched
+    assert len(arr) == 3                                   # manual + 2 fresh entries
+    by_file = {e["file"]: e for e in arr}
+    assert by_file["20260703-987654321-1.webp"]["width"] == 1600   # the FRESH entry won

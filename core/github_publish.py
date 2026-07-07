@@ -42,6 +42,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 
@@ -118,17 +119,21 @@ def _http(method, url, what, headers=None, **kw):
             f"{what} failed: network error ({exc.__class__.__name__})") from exc
 
 
-def _entry_message_id(filename):
-    """Extract the message-id segment from ``{YYYYMMDD}-{message.id}-{index}.webp``.
+# The exact D-14 bot filename shape: {YYYYMMDD}-{msgID}-{index}.webp — nothing else.
+# Single source of truth for the parser (WR-06); cogs/gallery.py imports it from here.
+_BOT_FILE_RE = re.compile(r"^\d{8}-(\d+)-\d+\.webp$")
 
-    Splits on ``-`` and returns the EXACT middle segment — never a substring — so a
-    snowflake that merely shares a prefix (e.g. ``9876543210`` vs ``987654321``) does
-    not collide (D-14).
+
+def _entry_message_id(filename):
+    """The ``{msgID}`` segment of the EXACT bot filename shape, or ``None`` (WR-06).
+
+    Only ``{YYYYMMDD}-{msgID}-{index}.webp`` parses — sample or manually-committed
+    files (any other name) return ``None``, so publish dedupe and DELETION can never
+    match them. The full-segment match also means a snowflake that merely shares a
+    prefix (``9876543210`` vs ``987654321``) cannot collide (D-14).
     """
-    parts = filename.split("-")
-    if len(parts) < 3:
-        return None
-    return parts[1]
+    match = _BOT_FILE_RE.match(filename or "")
+    return match.group(1) if match else None
 
 
 def _fetch_parent_sha(repo, branch):
@@ -276,7 +281,13 @@ def _publish_sync(message_id, entries, date):
     message = f"gallery: publish {len(entries)} photos (discord msg {message_id})"
 
     def build_tree(current):
-        updated = list(current) + new_entries    # append order is irrelevant (site sorts by date)
+        # Idempotent commit (WR-02): drop any existing entries for THIS message before
+        # appending, so a double-✅ race or a re-✅ after a lost 🟢 marker republishes
+        # cleanly instead of duplicating tiles. Non-bot filenames parse to None and are
+        # always kept. Append order is irrelevant (site sorts by date).
+        target = str(message_id)
+        kept = [e for e in current if _entry_message_id(e.get("file", "")) != target]
+        updated = kept + new_entries
         gallery_entry = {
             "path": gallery_path,
             "mode": _MODE,
