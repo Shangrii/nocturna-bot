@@ -199,6 +199,25 @@ def test_publish_failure_surfaces_warning_and_no_green(cog_with_user, monkeypatc
     assert msg.reply.await_args.kwargs.get("delete_after") is None   # persistent reply
 
 
+# ── WR-04: non-typed failures still drive the ⚠️ retry UX (last-resort backstop) ──
+def test_publish_unexpected_error_still_surfaces_warning(cog_with_user, monkeypatch):
+    publish = AsyncMock(side_effect=TypeError("malformed entry"))
+    monkeypatch.setattr(reviews.github_publish, "publish_review", publish)
+    msg = _live_message(msg_id=903, reactions=[])
+    asyncio.run(cog_with_user._publish(msg))     # must not raise
+    msg.add_reaction.assert_any_await("⚠️")      # retry to-do surfaced
+    assert not any(call.args == ("🟢",) for call in msg.add_reaction.await_args_list)
+
+
+def test_unpublish_unexpected_error_still_surfaces_warning(cog_with_user, monkeypatch):
+    remove = AsyncMock(side_effect=TypeError("malformed entry"))
+    monkeypatch.setattr(reviews.github_publish, "remove_review", remove)
+    msg = _live_message(msg_id=904, reactions=[_reaction("🟢", me=True)])
+    asyncio.run(cog_with_user._unpublish(msg))   # must not raise
+    msg.add_reaction.assert_any_await("⚠️")
+    msg.remove_reaction.assert_not_awaited()     # 🟢 kept — review may still be live
+
+
 # ── WR-01: non-review bot messages are never publishable, even by a staff ✅ ──────
 def test_publish_skips_non_review_bot_message(cog_with_user, monkeypatch):
     # The cog's own persistent ⚠️ failure reply is a bot message with text content — a
@@ -529,6 +548,17 @@ def test_backfill_skips_malformed_entry_id(monkeypatch):
     asyncio.run(cog._backfill())
     fetch_message.assert_not_awaited()                            # malformed ids never probed
     remove.assert_not_awaited()
+
+
+def test_backfill_skips_non_dict_entries_without_aborting(monkeypatch):
+    # WR-04: a truthy non-dict entry (hand-edited reviews.json) must not abort the whole
+    # orphan pass with an AttributeError — later valid orphans are still healed.
+    entries = ["abc", {"id": "1453534905706221600", "author": "L", "text": "x", "date": "d"}]
+    fetch_message = AsyncMock(side_effect=_not_found())
+    cog, remove = _orphan_cog(monkeypatch, entries, fetch_message)
+    asyncio.run(cog._backfill())
+    fetch_message.assert_awaited_once_with(1453534905706221600)   # valid entry still probed
+    remove.assert_awaited_once_with(1453534905706221600)          # …and healed
 
 
 def test_backfill_live_entry_message_left_alone(monkeypatch):

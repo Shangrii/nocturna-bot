@@ -174,7 +174,17 @@ def _fetch_json(repo, branch, path):
     else:
         raw = base64.b64decode(data.get("content", ""))
         text = raw.decode("utf-8").strip()
-    return json.loads(text) if text else []
+    # Normalize JSON-shape failures into the typed error (WR-04): a malformed file
+    # (manual edit, partial write) or a non-array body must drive the same ⚠️ retry UX
+    # as any other transport failure instead of escaping as JSONDecodeError/AttributeError.
+    try:
+        parsed = json.loads(text) if text else []
+    except ValueError as exc:
+        raise GitHubPublishError(
+            f"GET contents json failed: invalid JSON ({exc.__class__.__name__})") from exc
+    if not isinstance(parsed, list):
+        raise GitHubPublishError("GET contents json failed: expected a JSON array")
+    return parsed
 
 
 def _fetch_gallery(repo, branch):

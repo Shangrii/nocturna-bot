@@ -360,3 +360,48 @@ def test_every_http_call_carries_an_explicit_timeout(wire):
 
     assert fake.timeouts, "no HTTP calls were recorded"
     assert all(t not in (None, 0) for t in fake.timeouts)
+
+
+# ── WR-04: malformed reviews.json is normalized into the typed error ────────────────
+def _raw_contents_get(raw_bytes):
+    """A ``requests.get`` stand-in serving arbitrary raw bytes on ``/contents/``."""
+    def get(url, headers=None, **kw):
+        assert "/contents/" in url
+        return _Resp(200, {"content": base64.b64encode(raw_bytes).decode("ascii"),
+                           "encoding": "base64"})
+    return get
+
+
+def test_fetch_json_invalid_json_raises_typed_error(wire, monkeypatch):
+    # A manually-edited/partially-written file must raise GitHubPublishError (the cog's
+    # ⚠️ retry UX), never a bare JSONDecodeError escaping the typed-error contract.
+    wire(FakeGitHub(base_reviews=[]))
+    monkeypatch.setattr(github_publish.requests, "get", _raw_contents_get(b"{ not json !"))
+    with pytest.raises(github_publish.GitHubPublishError, match="invalid JSON"):
+        github_publish._fetch_json("Shangrii/Nocturna-Avatars", "revamp",
+                                   "src/data/reviews.json")
+
+
+def test_fetch_json_non_array_body_raises_typed_error(wire, monkeypatch):
+    # A non-array body (e.g. someone commits {}) would make build_tree raise
+    # AttributeError on e.get("id") — reject it at the transport boundary instead.
+    wire(FakeGitHub(base_reviews=[]))
+    monkeypatch.setattr(github_publish.requests, "get", _raw_contents_get(b'{"id": "1"}'))
+    with pytest.raises(github_publish.GitHubPublishError, match="expected a JSON array"):
+        github_publish._fetch_json("Shangrii/Nocturna-Avatars", "revamp",
+                                   "src/data/reviews.json")
+
+
+def test_publish_over_malformed_reviews_json_raises_typed_error(wire, monkeypatch):
+    # End-to-end through publish_review: corruption surfaces as the typed error.
+    fake = wire(FakeGitHub(base_reviews=[]))
+
+    def bad_contents_get(url, headers=None, **kw):
+        if "/contents/" in url:
+            return _Resp(200, {"content": base64.b64encode(b"[oops").decode("ascii"),
+                               "encoding": "base64"})
+        return fake.get(url, headers=headers, **kw)
+
+    monkeypatch.setattr(github_publish.requests, "get", bad_contents_get)
+    with pytest.raises(github_publish.GitHubPublishError):
+        asyncio.run(github_publish.publish_review(_entry()))

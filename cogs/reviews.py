@@ -329,6 +329,13 @@ class ReviewsCog(commands.Cog):
             log.exception("reviews publish failed for discord msg %s", message.id)
             await self._surface_failure(message, "publicar la reseña")
             return
+        except Exception:
+            # Last-resort backstop (WR-04): an unexpected non-typed failure (e.g. a
+            # malformed entry the transport didn't normalize) must still surface the ⚠️
+            # retry UX instead of dying in discord.py's generic exception handler.
+            log.exception("reviews publish failed unexpectedly for discord msg %s", message.id)
+            await self._surface_failure(message, "publicar la reseña")
+            return
 
         try:
             await message.add_reaction("🟢")                # persistent published marker
@@ -366,6 +373,12 @@ class ReviewsCog(commands.Cog):
                 # Removal exhausted its retries -> persistent surface. Leave the 🟢 marker:
                 # the review is still live, so it stays published.
                 log.exception("reviews unpublish failed for discord msg %s", message.id)
+                await self._surface_failure(message, "quitar la reseña")
+                return
+            except Exception:
+                # Last-resort backstop (WR-04): same ⚠️ UX for non-typed failures.
+                log.exception("reviews unpublish failed unexpectedly for discord msg %s",
+                              message.id)
                 await self._surface_failure(message, "quitar la reseña")
                 return
             try:
@@ -530,7 +543,9 @@ class ReviewsCog(commands.Cog):
         """
         probed = set()
         for entry in entries or []:
-            raw_id = (entry or {}).get("id")
+            # isinstance guard (WR-04): a truthy non-dict entry (e.g. a bare string in a
+            # hand-edited reviews.json) must be skipped, not abort the whole orphan pass.
+            raw_id = entry.get("id") if isinstance(entry, dict) else None
             try:
                 msg_id = int(raw_id)
             except (TypeError, ValueError):
