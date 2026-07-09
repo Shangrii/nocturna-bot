@@ -43,6 +43,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.encoding")
         await self.load_extension("cogs.forum")
         await self.load_extension("cogs.gallery")
+        await self.load_extension("cogs.reviews")
         await self.load_extension("cogs.help")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
@@ -94,6 +95,12 @@ def main():
         sys.exit(1)
     if not config.GALLERY_STAFF_ROLE_IDS:
         log.error("GALLERY_STAFF_ROLE_IDS no configurado en el .env (roles que aprueban fotos)")
+        sys.exit(1)
+    # ── Reseñas (Fase 7): el cog de reseñas necesita su canal. El PAT/repo ya están
+    #    validados arriba (mismo destino que la galería) y REVIEWS_STAFF_ROLE_IDS cae en
+    #    GALLERY_STAFF_ROLE_IDS cuando no se define, así que no hace falta un check aparte.
+    if not config.REVIEWS_CHANNEL_ID:
+        log.error("REVIEWS_CHANNEL_ID no configurado en el .env (canal de reseñas)")
         sys.exit(1)
 
     bot = NocturnaBot()

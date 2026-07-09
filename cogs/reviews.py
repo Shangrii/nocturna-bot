@@ -272,6 +272,179 @@ class ReviewsCog(commands.Cog):
         log.info("reviews delete event: msg %s removal result: %s",
                  payload.message_id, result)
 
+    # ── startup backfill / reconcile ─────────────────────────────────────────────
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Run the startup reconcile once (``on_ready`` can re-fire on reconnects)."""
+        if self._backfilled:
+            return
+        self._backfilled = True
+        try:
+            await self._backfill()
+        except Exception:
+            log.exception("reviews startup backfill failed")
+
+    async def _backfill(self):
+        """Scan channel history after the reviews cursor and replay anything the bot missed
+        while down — missed ✅ prompts, staff approvals, and 🌙 removals.
+
+        The reviews cursor (separate from the gallery cursor) advances per message so a
+        restart never re-scans the whole channel. Published-state during reconcile is derived
+        from the 🟢 marker + the live ``reviews.json`` entries. Tolerates an empty channel and
+        an empty/missing ``reviews.json``.
+        """
+        channel = self.bot.get_channel(config.REVIEWS_CHANNEL_ID) or \
+            await self.bot.fetch_channel(config.REVIEWS_CHANNEL_ID)
+        if channel is None:
+            log.warning("reviews backfill: reviews channel %s not found",
+                        config.REVIEWS_CHANNEL_ID)
+            return
+
+        cursor = db.get_reviews_cursor()
+        after = discord.Object(id=cursor) if cursor else None
+        entries = await self._fetch_entries()               # once for the whole scan
+
+        scanned = 0
+        async for message in channel.history(after=after, limit=None, oldest_first=True):
+            try:
+                await self._reconcile(message, entries)
+            except Exception:
+                log.exception("reviews backfill: reconcile failed for msg %s", message.id)
+            db.set_reviews_cursor(message.id)                # advance even past a failed message
+            scanned += 1
+        log.info("reviews backfill: reconciled %d message(s) after cursor %s", scanned, cursor)
+
+        # Inverse pass: history never yields DELETED messages, so a delete the bot missed
+        # leaves its entry published forever — probe them explicitly.
+        await self._reconcile_orphans(channel, entries)
+
+    async def _reconcile_orphans(self, channel, entries):
+        """Remove published entries whose Discord message no longer exists.
+
+        ``channel.history()`` cannot surface deletions, so the forward scan alone never
+        reconciles a message deleted while the bot was down (or whose live
+        ``on_raw_message_delete`` failed). For every entry, fetch the message once per id:
+
+        - ``discord.NotFound`` -> the message is gone -> ``remove_review(id)`` drops its entry.
+        - ANY other error (rate limit, permissions, network) means "unknown", NOT "deleted" —
+          the entry is left alone and logged, so a transient outage can never mass-remove the
+          live reviews (T-07-06).
+
+        Entries with a non-numeric/malformed id are skipped.
+        """
+        probed = set()
+        for entry in entries or []:
+            raw_id = (entry or {}).get("id")
+            try:
+                msg_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue                                     # malformed id — never probe
+            if msg_id in probed:
+                continue
+            probed.add(msg_id)
+            try:
+                await channel.fetch_message(msg_id)
+            except discord.NotFound:
+                log.info("reviews orphan reconcile: msg %s deleted -> removing its entry",
+                         msg_id)
+                try:
+                    await github_publish.remove_review(msg_id)
+                except Exception:
+                    log.exception("reviews orphan reconcile: removal failed for msg %s",
+                                  msg_id)
+            except Exception:
+                log.warning("reviews orphan reconcile: could not verify msg %s; "
+                            "leaving its entry untouched", msg_id)
+
+    async def _fetch_entries(self):
+        """The live ``reviews.json`` array (for entry-derived published-state).
+
+        Reuses the 07-02 transport's generic read path off the event loop; any failure
+        degrades to ``[]`` so a startup with GitHub unreachable still adds prompts / falls
+        back to the 🟢 marker rather than crashing the backfill.
+        """
+        try:
+            return await asyncio.to_thread(
+                github_publish._fetch_json,
+                config.WEBSITE_REPO, config.WEBSITE_BRANCH, config.WEBSITE_REVIEWS_JSON)
+        except Exception:
+            log.exception("reviews backfill: could not fetch reviews.json; assuming []")
+            return []
+
+    async def _reconcile(self, message: discord.Message, entries=None):
+        """Replay one history message into the correct state during backfill.
+
+        Only plain client text reviews are managed. Bot messages are skipped in this plan
+        (07-04 refines this to manage the cog's own review embeds). Dispatch (honoring the
+        SAME staff gate as live operation): a staff 🌙 -> unpublish/dismiss; a staff ✅ on an
+        unpublished review -> publish; a plain client review with no ✅ prompt -> add it. A
+        review already published (🟢 marker or a matching ``reviews.json`` entry) is left alone.
+        """
+        if getattr(message.author, "bot", False):
+            return                                           # bot post — not managed (07-04)
+        _, text = _review_author_and_text(message)
+        if not text:
+            return                                           # no client text — nothing to manage
+
+        # A staff 🌙 (removal/dismiss that arrived while down) takes priority over publish.
+        if await self._reaction_by_staff(message, "🌙"):
+            await self._unpublish(message)
+            return
+
+        if _is_published(message, entries):
+            return                                           # already live — nothing to do
+
+        # A staff ✅ approval we missed -> publish now.
+        if await self._reaction_by_staff(message, "✅"):
+            await self._publish(message)
+            return
+
+        # No ✅ prompt at all (we were down when it was posted) -> add the approve control.
+        if not any(str(r.emoji) == "✅" for r in getattr(message, "reactions", [])):
+            await message.add_reaction("✅")
+
+    async def _resolve_member(self, guild, user_id):
+        """Resolve a guild member with a REST fallback for cold caches.
+
+        History/REST payloads carry plain users with no role data, and without the
+        privileged members intent the guild member cache is essentially empty after a
+        restart — so backfill role checks must be able to fetch the member explicitly.
+        ``NotFound`` (left the guild) and any other API failure resolve to ``None``;
+        callers treat that as "not staff" (fail closed).
+        """
+        if guild is None or user_id is None:
+            return None
+        member = guild.get_member(user_id)
+        if member is not None:
+            return member
+        try:
+            return await guild.fetch_member(user_id)
+        except discord.HTTPException:       # NotFound / Forbidden / transient API error
+            return None
+
+    async def _reaction_by_staff(self, message: discord.Message, emoji: str) -> bool:
+        """True iff a staff member (not the bot) has reacted with ``emoji`` (T-07-03 gate).
+
+        History messages carry reaction *counts*, not reactors, so the reactor list is
+        fetched via ``reaction.users()`` and each non-bot user is role-checked against the
+        guild — cache first, REST ``fetch_member`` on a cold cache — so a non-staff ✅/🌙
+        during downtime can never trigger a publish/unpublish.
+        """
+        for reaction in getattr(message, "reactions", []):
+            if str(reaction.emoji) != emoji:
+                continue
+            users = getattr(reaction, "users", None)
+            if users is None:
+                continue
+            async for user in users():
+                if getattr(user, "bot", False):
+                    continue
+                member = await self._resolve_member(
+                    message.guild, getattr(user, "id", None))
+                if member is not None and _is_staff(member):
+                    return True
+        return False
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ReviewsCog(bot))
