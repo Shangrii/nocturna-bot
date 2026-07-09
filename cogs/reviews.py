@@ -352,7 +352,9 @@ class ReviewsCog(commands.Cog):
         Published (has the bot's 🟢 marker): remove the entry from ``reviews.json`` in ONE
         commit, clear the 🟢 marker so the message returns to pending — a later ✅ republishes
         it — and send a mirrored ``delete_after`` reply. Pending (never published — no 🟢):
-        dismiss by clearing the bot's own ✅ prompt so it can't be published; commit NOTHING.
+        dismiss by clearing the bot's own ✅ prompt so it can't be published, then call
+        ``remove_review`` defensively — a no-op for a truly-pending message (no commit),
+        but it heals a published review whose 🟢 marker was lost (WR-02).
         """
         # Same policy as _publish/_reconcile (WR-01): never act on a bot message that is
         # not the cog's own marked review embed.
@@ -382,10 +384,18 @@ class ReviewsCog(commands.Cog):
                     "reviews: removal committed for msg %s but post-commit bookkeeping "
                     "failed (stale 🟢/🌙 may remain)", message.id)
         else:
-            # Pending: clear the ✅ prompt so it won't be published; no commit. Tolerant
+            # Pending: clear the ✅ prompt so it won't be published. Tolerant
             # removal: a NotFound on the absent prompt must not abort the dismiss.
             await self._remove_own_reaction(message, "✅")
             await self._remove_own_reaction(message, "🌙")  # in case a stale control lingers
+            # Defensive (WR-02): heal a lost-🟢 desync — a published review whose marker
+            # was lost would otherwise stay live forever while looking dismissed here.
+            # remove_review has a no-op guard, so a truly-pending message costs one GET
+            # and never creates an empty commit.
+            try:
+                await github_publish.remove_review(message.id)
+            except Exception:
+                log.exception("reviews: defensive removal failed for msg %s", message.id)
 
     async def _remove_own_reaction(self, message: discord.Message, emoji: str):
         """Clear one of the bot's own reactions, tolerating its absence.

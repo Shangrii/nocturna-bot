@@ -239,13 +239,26 @@ def test_unpublish_published_removes_and_replies(cog_with_user, monkeypatch):
     assert msg.reply.await_args.kwargs.get("delete_after")               # mirrored auto-delete
 
 
-def test_unpublish_pending_dismisses_without_commit(cog_with_user, monkeypatch):
-    remove = AsyncMock()
+def test_unpublish_pending_dismisses_and_heals_lost_marker(cog_with_user, monkeypatch):
+    # WR-02: the dismiss path still calls the transport defensively — remove_review is a
+    # no-op (no commit) for a truly-pending message, but heals a published review whose
+    # 🟢 marker was lost, instead of leaving it live forever while looking dismissed.
+    remove = AsyncMock(return_value={"committed": False, "commit_sha": None, "count": 0})
     monkeypatch.setattr(reviews.github_publish, "remove_review", remove)
     msg = _live_message(msg_id=556, reactions=[_reaction("✅", me=True)])
     asyncio.run(cog_with_user._unpublish(msg))
-    remove.assert_not_awaited()                                          # no commit
+    remove.assert_awaited_once_with(556)                                 # defensive removal
     msg.remove_reaction.assert_any_await("✅", cog_with_user.bot.user)   # clears the prompt
+    msg.reply.assert_not_awaited()
+
+
+def test_unpublish_pending_defensive_removal_failure_is_tolerated(cog_with_user, monkeypatch):
+    # A failed defensive removal must never abort the dismiss (logged, not surfaced).
+    remove = AsyncMock(side_effect=reviews.github_publish.GitHubPublishError("boom"))
+    monkeypatch.setattr(reviews.github_publish, "remove_review", remove)
+    msg = _live_message(msg_id=558, reactions=[_reaction("✅", me=True)])
+    asyncio.run(cog_with_user._unpublish(msg))   # must not raise
+    msg.remove_reaction.assert_any_await("✅", cog_with_user.bot.user)   # dismiss still done
     msg.reply.assert_not_awaited()
 
 
