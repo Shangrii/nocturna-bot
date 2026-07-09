@@ -203,6 +203,30 @@ def test_publish_failure_surfaces_warning_and_no_green(cog_with_user, monkeypatc
     assert msg.reply.await_args.kwargs.get("delete_after") is None   # persistent reply
 
 
+# ── WR-01: non-review bot messages are never publishable, even by a staff ✅ ──────
+def test_publish_skips_non_review_bot_message(cog_with_user, monkeypatch):
+    # The cog's own persistent ⚠️ failure reply is a bot message with text content — a
+    # mis-tapped staff ✅ on it must NOT publish the error text to the website.
+    publish = AsyncMock()
+    monkeypatch.setattr(reviews.github_publish, "publish_review", publish)
+    msg = _live_message(msg_id=930, content="⚠️ No pude publicar la reseña: GitHub falló…")
+    msg.author = _author(display_name="NocturnaBot", is_bot=True)
+    asyncio.run(cog_with_user._publish(msg))
+    publish.assert_not_awaited()                 # never committed
+    msg.add_reaction.assert_not_awaited()        # no 🟢/🌙 markers either
+
+
+def test_unpublish_skips_non_review_bot_message(cog_with_user, monkeypatch):
+    remove = AsyncMock()
+    monkeypatch.setattr(reviews.github_publish, "remove_review", remove)
+    msg = _live_message(msg_id=931, content="mensaje de otro bot",
+                        reactions=[_reaction("✅", me=True)])
+    msg.author = _author(display_name="ForeignBot", is_bot=True)
+    asyncio.run(cog_with_user._unpublish(msg))
+    remove.assert_not_awaited()
+    msg.remove_reaction.assert_not_awaited()     # left completely untouched
+
+
 # ── 🌙 unpublish / dismiss ────────────────────────────────────────────────────────
 def test_unpublish_published_removes_and_replies(cog_with_user, monkeypatch):
     remove = AsyncMock(return_value={"committed": True, "count": 1})

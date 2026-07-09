@@ -305,6 +305,11 @@ class ReviewsCog(commands.Cog):
         Idempotent: a message already carrying the bot's 🟢 marker is skipped, so a second
         ✅ never double-publishes. Author/text come from the seam; empty text is skipped.
         """
+        # Mirror the _reconcile guard (WR-01): a bot message that is NOT the cog's own
+        # marked review embed — a foreign bot/webhook post, or the cog's own persistent
+        # ⚠️ failure reply — must never be publishable, even by a staff ✅.
+        if getattr(message.author, "bot", False) and not _is_own_review_embed(message):
+            return                                          # non-review bot post — never publish
         if any(str(r.emoji) == "🟢" and r.me for r in message.reactions):
             return                                          # already published
 
@@ -349,6 +354,10 @@ class ReviewsCog(commands.Cog):
         it — and send a mirrored ``delete_after`` reply. Pending (never published — no 🟢):
         dismiss by clearing the bot's own ✅ prompt so it can't be published; commit NOTHING.
         """
+        # Same policy as _publish/_reconcile (WR-01): never act on a bot message that is
+        # not the cog's own marked review embed.
+        if getattr(message.author, "bot", False) and not _is_own_review_embed(message):
+            return                                          # non-review bot post — never touch
         if _is_published(message):
             try:
                 await github_publish.remove_review(message.id)  # single reviews.json commit
