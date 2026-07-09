@@ -78,6 +78,50 @@ def set_cursor(message_id: int):
         )
 
 
+# ── Reseñas (Fase 7): cursor de backfill ──────────────────────────────────────
+def init_reviews_state():
+    """Create the 1-row backfill-cursor table for the reviews cog (Fase 7).
+
+    The reviews channel needs its OWN cursor — separate from ``gallery_state`` — so a
+    restart of the reviews backfill never disturbs (or is disturbed by) the gallery
+    cursor. Mirrors ``init_gallery_state`` exactly: ``CHECK (id = 1)`` keeps it a
+    single-row store, following the repo's ``CREATE TABLE IF NOT EXISTS`` idiom.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reviews_state (
+                id                        INTEGER PRIMARY KEY CHECK (id = 1),
+                last_processed_message_id INTEGER
+            )
+        """)
+
+
+def get_reviews_cursor() -> int | None:
+    """Return the persisted last-processed-message-id for the reviews backfill.
+
+    ``None`` when the cursor has never been set (fresh db / first run) — the caller then
+    scans the channel from the beginning. Reads the single ``id = 1`` ``reviews_state`` row.
+    """
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT last_processed_message_id FROM reviews_state WHERE id = 1"
+        ).fetchone()
+    return row["last_processed_message_id"] if row else None
+
+
+def set_reviews_cursor(message_id: int):
+    """Advance the reviews backfill cursor to ``message_id``.
+
+    ``INSERT OR REPLACE`` keeps the single ``id = 1`` row so a restart only ever scans
+    history *after* the last message the bot processed, never the whole channel again.
+    """
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO reviews_state (id, last_processed_message_id) VALUES (1, ?)",
+            (message_id,),
+        )
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 def save_post(thread_id: int, title: str, author_id: int, avatars: list[str],
               image_url: str = "", source_url: str = ""):

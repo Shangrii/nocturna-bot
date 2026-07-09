@@ -68,3 +68,17 @@ WEBSITE_BRANCH = os.getenv("WEBSITE_BRANCH", "revamp")
 # Ruta del JSON de la galería y del directorio de imágenes dentro del repo del sitio.
 WEBSITE_GALLERY_JSON = os.getenv("WEBSITE_GALLERY_JSON", "src/data/gallery.json")
 WEBSITE_IMAGE_DIR = os.getenv("WEBSITE_IMAGE_DIR", "public/gallery")
+
+# ── Reseñas (Fase 7: cog de publicación de reseñas) ───────────────────────────────
+# El cog vigila el canal de reseñas, publica las reseñas aprobadas por staff (✅) hacia
+# src/data/reviews.json en el repo del sitio, y las quita con 🌙 — mismo transporte y
+# mismo PAT/repo/rama que la galería (no hay imágenes: solo un blob JSON por commit).
+# Canal donde los clientes dejan sus reseñas.
+REVIEWS_CHANNEL_ID = int(os.getenv("REVIEWS_CHANNEL_ID", "1453534905706221600"))
+# Roles cuyas reacciones ✅/🌙 publican/quitan reseñas. Cadena separada por comas → lista
+# de ints; si queda vacía, cae en los mismos roles de staff de la galería (CONTEXT L29).
+REVIEWS_STAFF_ROLE_IDS = [
+    int(x) for x in os.getenv("REVIEWS_STAFF_ROLE_IDS", "").split(",") if x.strip()
+] or GALLERY_STAFF_ROLE_IDS
+# Ruta del JSON de reseñas dentro del repo del sitio (mismo repo/rama que la galería).
+WEBSITE_REVIEWS_JSON = os.getenv("WEBSITE_REVIEWS_JSON", "src/data/reviews.json")
