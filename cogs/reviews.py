@@ -23,6 +23,7 @@ import logging
 from datetime import timezone
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import config
@@ -31,7 +32,56 @@ from core import db, github_publish
 log = logging.getLogger(__name__)
 
 
+# ── review-embed contract (07-04) ────────────────────────────────────────────────
+# The guided collection flow posts the review as a BOT embed. A single fixed marker
+# (the embed footer text) identifies the cog's own review embeds so BOTH the author
+# seam and the startup reconcile recognize them with one definition. The two button
+# custom_ids are stable strings so the persistent view survives a restart and Discord
+# can route button clicks back to a re-registered ``ReviewCollectView`` (T-07-07).
+REVIEW_EMBED_FOOTER = "reseña"                 # marker: the cog's own review embeds
+REVIEW_EMBED_COLOR = 0xC0192C                  # brand red (fixed; identity-free)
+REVIEW_ANON_LABEL = "Anónimo"                  # fixed anonymous label — NEVER the user's name
+REVIEW_BTN_NAMED = "reviews:collect:named"     # stable custom_id (persistence contract)
+REVIEW_BTN_ANON = "reviews:collect:anon"       # stable custom_id (persistence contract)
+
+
 # ── pure helpers (import without a running bot; unit-proven in test_reviews_cog) ──
+def _is_own_review_embed(message) -> bool:
+    """True iff ``message`` is one of the cog's OWN posted review embeds (07-04).
+
+    Recognized by two facts: the message is authored by a bot AND it carries an embed
+    whose footer text equals ``REVIEW_EMBED_FOOTER``. This single predicate is reused by
+    ``_review_author_and_text`` (author/text resolution) and ``_reconcile`` (so a restart
+    converges the guided flow instead of blanket-skipping every bot message, REV-05).
+    """
+    if not getattr(message.author, "bot", False):
+        return False
+    for embed in getattr(message, "embeds", []):
+        footer = getattr(embed, "footer", None)
+        if footer is not None and getattr(footer, "text", None) == REVIEW_EMBED_FOOTER:
+            return True
+    return False
+
+
+def _build_review_embed(text: str, author_name):
+    """Build the review embed. ``author_name`` None ⇒ ANONYMOUS (identity eliminated).
+
+    Named: the display name goes in the embed author. Anonymous: NO author is set and a
+    fixed ``REVIEW_ANON_LABEL`` title is used instead — the submitter's name/id/mention is
+    never written anywhere in the embed (T-07-02). Both carry the marker footer so the
+    embed is later recognizable by ``_is_own_review_embed`` and resolvable by the seam.
+    The review text is embed *content* — Discord never executes it and the website escapes
+    it (never ``set:html``), so it is data end-to-end (T-07-01).
+    """
+    embed = discord.Embed(description=text, color=REVIEW_EMBED_COLOR)
+    if author_name is not None:
+        embed.set_author(name=author_name)
+    else:
+        embed.title = REVIEW_ANON_LABEL
+    embed.set_footer(text=REVIEW_EMBED_FOOTER)
+    return embed
+
+
 def _is_staff(member) -> bool:
     """True iff the member holds a configured reviews-staff role (trust boundary, T-07-03).
 
@@ -47,10 +97,24 @@ def _review_author_and_text(message):
 
     For a plain client message the author is the message author's own display name (they
     typed publicly) and the text is the stripped message content. Whitespace-only/empty
-    content returns ``(None, "")`` so the caller skips it. 07-04 extends this to also read
-    the bot's own review embeds (anonymous → ``author = None``); the transport stays dumb
-    about identity and writes whatever author it is handed (``author: null`` for anonymous).
+    content returns ``(None, "")`` so the caller skips it.
+
+    FIRST branch (07-04): the cog's OWN review embed (guided 2-button/modal flow). The text
+    is the embed description; the author is the embed author name if one is set, else ``None``
+    (the anonymous path). This single "no embed author → author None" mapping is what carries
+    anonymity through ``_publish`` into ``author: null`` in ``reviews.json`` — the transport
+    stays dumb about identity and writes whatever author it is handed.
     """
+    if _is_own_review_embed(message):
+        embed = next(
+            e for e in message.embeds
+            if getattr(getattr(e, "footer", None), "text", None) == REVIEW_EMBED_FOOTER
+        )
+        text = (getattr(embed, "description", "") or "").strip()
+        embed_author = getattr(embed, "author", None)
+        author_name = getattr(embed_author, "name", None) if embed_author is not None else None
+        return (author_name or None, text)
+
     text = (getattr(message, "content", "") or "").strip()
     if not text:
         return (None, "")
@@ -77,6 +141,87 @@ def _is_published(message, entries=None) -> bool:
     return False
 
 
+# ── guided collection UI (07-04): persistent 2-button view + 500-char modal ───────
+class ReviewModal(discord.ui.Modal):
+    """One-field review modal opened by a collection-embed button.
+
+    ``anonymous`` decides identity handling: named → the embed carries the submitter's
+    display name; anonymous → the embed carries NO identity at all (T-07-02). The single
+    text field is capped at 500 chars by Discord itself (T-07-01). On submit the bot posts
+    the formatted review embed into the reviews channel and marks it ✅ pending so it
+    publishes through the SAME staff-gated pipeline as a plain typed review; on_message
+    skips bot messages, so the modal MUST add the ✅ itself.
+    """
+
+    def __init__(self, anonymous: bool, title: str = "Escribe tu reseña"):
+        super().__init__(title=title)
+        self.anonymous = anonymous
+        self.review_text = discord.ui.TextInput(
+            label="Tu reseña",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+            required=True,
+            placeholder="Cuéntanos tu experiencia con Nocturna Avatars…",
+        )
+        self.add_item(self.review_text)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        text = str(self.review_text.value).strip()
+        if self.anonymous:
+            # ANONYMITY CONTRACT (T-07-02): never read the submitter's identity here.
+            embed = _build_review_embed(text, None)
+        else:
+            embed = _build_review_embed(text, interaction.user.display_name)
+
+        try:
+            channel = interaction.client.get_channel(config.REVIEWS_CHANNEL_ID) or \
+                await interaction.client.fetch_channel(config.REVIEWS_CHANNEL_ID)
+            sent = await channel.send(embed=embed)
+            await sent.add_reaction("✅")            # the approve control (on_message skips bots)
+        except Exception:
+            log.exception("reviews: could not post collected review embed")
+            await self._reply(
+                interaction, "No pude enviar tu reseña ahora mismo. Inténtalo de nuevo más tarde.")
+            return
+        await self._reply(
+            interaction, "¡Gracias! Tu reseña fue enviada y está pendiente de aprobación.")
+
+    @staticmethod
+    async def _reply(interaction: discord.Interaction, content: str):
+        """Ephemeral confirmation, tolerant of an already-consumed interaction response."""
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(content, ephemeral=True)
+            else:
+                await interaction.response.send_message(content, ephemeral=True)
+        except Exception:
+            log.exception("reviews: could not send modal confirmation")
+
+
+class ReviewCollectView(discord.ui.View):
+    """Persistent (``timeout=None``) collection embed with two review buttons.
+
+    Persistence is the critical divergence from ``cogs/forum.py``'s transient views: stable
+    ``custom_id``s + ``bot.add_view(ReviewCollectView())`` on startup let Discord route button
+    clicks even when the original message is uncached after a restart (T-07-07). There is NO
+    ``interaction_check`` author lock — the collection embed is public; anyone may submit.
+    Each button only OPENS a modal; publication still passes the staff ✅ gate.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Reseña con nombre", style=discord.ButtonStyle.primary,
+                       custom_id=REVIEW_BTN_NAMED)
+    async def named(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(anonymous=False))
+
+    @discord.ui.button(label="Reseña anónima", style=discord.ButtonStyle.secondary,
+                       custom_id=REVIEW_BTN_ANON)
+    async def anonymous(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ReviewModal(anonymous=True))
+
+
 class ReviewsCog(commands.Cog):
     """Detects plain client reviews and publishes staff-approved ones to the live site."""
 
@@ -84,6 +229,34 @@ class ReviewsCog(commands.Cog):
         self.bot = bot
         self._backfilled = False   # startup reconcile runs once (on_ready can re-fire)
         db.init_reviews_state()    # backfill-cursor table (separate from gallery_state)
+
+    @app_commands.command(
+        name="panel_resenas",
+        description="Publica el panel de reseñas con botones para dejar una reseña (staff)",
+    )
+    async def panel_resenas(self, interaction: discord.Interaction):
+        """Staff-gated command that posts the persistent collection embed (REV-02).
+
+        Only a member holding a reviews-staff role or ``config.DISCORD_USER_ID`` may post the
+        panel (T-07-03); anyone else gets an ephemeral "Sin permisos." Publication of any
+        resulting review still passes the staff ✅ gate regardless of who submitted it.
+        """
+        member = interaction.user
+        if not (_is_staff(member) or getattr(member, "id", None) == config.DISCORD_USER_ID):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+        embed = discord.Embed(
+            title="Deja tu reseña ✍️",
+            description=(
+                "¿Trabajaste con **Nocturna Avatars**? Cuéntanos tu experiencia — se "
+                "mostrará en la web tras la aprobación del staff.\n\n"
+                "• **Reseña con nombre** — se publica con tu nombre de Discord.\n"
+                "• **Reseña anónima** — se publica sin ningún dato tuyo."
+            ),
+            color=REVIEW_EMBED_COLOR,
+        )
+        await interaction.channel.send(embed=embed, view=ReviewCollectView())
+        await interaction.response.send_message("Panel de reseñas publicado.", ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -279,6 +452,9 @@ class ReviewsCog(commands.Cog):
         if self._backfilled:
             return
         self._backfilled = True
+        # Re-register the persistent collection view so its buttons survive a restart even
+        # when the original panel message is uncached (idempotent per custom_id set, T-07-07).
+        self.bot.add_view(ReviewCollectView())
         try:
             await self._backfill()
         except Exception:
@@ -374,14 +550,17 @@ class ReviewsCog(commands.Cog):
     async def _reconcile(self, message: discord.Message, entries=None):
         """Replay one history message into the correct state during backfill.
 
-        Only plain client text reviews are managed. Bot messages are skipped in this plan
-        (07-04 refines this to manage the cog's own review embeds). Dispatch (honoring the
-        SAME staff gate as live operation): a staff 🌙 -> unpublish/dismiss; a staff ✅ on an
-        unpublished review -> publish; a plain client review with no ✅ prompt -> add it. A
-        review already published (🟢 marker or a matching ``reviews.json`` entry) is left alone.
+        Two kinds of message are managed: a plain client text review, AND the cog's OWN
+        review embed from the guided 2-button/modal flow (recognized by ``_is_own_review_embed``
+        via the marker — REV-05). Any OTHER bot message (foreign bots, the cog's own non-review
+        posts) is still skipped. Dispatch (honoring the SAME staff gate as live operation): a
+        staff 🌙 -> unpublish/dismiss; a review already published (🟢 marker or a matching
+        ``reviews.json`` entry) is left alone; a staff ✅ on an unpublished review -> publish;
+        a review with no ✅ prompt -> add it. This lifts 07-03's blanket bot-skip so a restart
+        converges bot-posted reviews too.
         """
-        if getattr(message.author, "bot", False):
-            return                                           # bot post — not managed (07-04)
+        if getattr(message.author, "bot", False) and not _is_own_review_embed(message):
+            return                                           # foreign / non-review bot post — skip
         _, text = _review_author_and_text(message)
         if not text:
             return                                           # no client text — nothing to manage

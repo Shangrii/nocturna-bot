@@ -497,3 +497,203 @@ def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch, tmp_
         cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
         asyncio.run(cog._backfill())
         remove.assert_not_awaited()                               # left alone, logged as unknown
+
+
+# ── 07-04: guided collection flow (modal + persistent view + bot review embeds) ───
+def _embed(description="reseña top", author_name=None,
+           footer_text=reviews.REVIEW_EMBED_FOOTER):
+    """A faked review embed: footer marks it, author is None ⇒ anonymous."""
+    return types.SimpleNamespace(
+        description=description,
+        title=None,
+        author=types.SimpleNamespace(name=author_name),
+        footer=types.SimpleNamespace(text=footer_text),
+    )
+
+
+def _bot_review_message(msg_id=700, description="reseña top", author_name=None,
+                        footer_text=reviews.REVIEW_EMBED_FOOTER, reactions=None,
+                        created=None, members=None):
+    """The cog's OWN posted review embed (a bot message carrying a marked embed)."""
+    guild = types.SimpleNamespace(
+        get_member=lambda uid: (members or {}).get(uid),
+        fetch_member=AsyncMock(side_effect=_not_found()),
+    )
+    return types.SimpleNamespace(
+        id=msg_id,
+        author=_author(is_bot=True),
+        content="",
+        embeds=[_embed(description, author_name, footer_text)],
+        reactions=list(reactions) if reactions else [],
+        created_at=created or datetime(2026, 7, 9, 14, 5, 9, tzinfo=timezone.utc),
+        guild=guild,
+        add_reaction=AsyncMock(),
+        remove_reaction=AsyncMock(),
+        reply=AsyncMock(),
+    )
+
+
+# ── _is_own_review_embed marker recognition ───────────────────────────────────────
+def test_is_own_review_embed_requires_bot_and_marker_footer():
+    assert reviews._is_own_review_embed(_bot_review_message()) is True
+    # a bot message whose embed lacks the marker footer is NOT a cog review embed
+    assert reviews._is_own_review_embed(
+        _bot_review_message(footer_text="otro pie")) is False
+    # a non-bot message (even with a marked embed) is never a bot review embed
+    plain = _live_message(msg_id=1)
+    plain.embeds = [_embed()]
+    assert reviews._is_own_review_embed(plain) is False
+
+
+# ── seam extension: author/text resolved from the bot's own review embed ───────────
+def test_seam_bot_review_embed_with_author_returns_named():
+    msg = _bot_review_message(description="excelente servicio", author_name="Luna")
+    author, text = reviews._review_author_and_text(msg)
+    assert author == "Luna"
+    assert text == "excelente servicio"
+
+
+def test_seam_bot_review_embed_without_author_is_anonymous():
+    msg = _bot_review_message(description="todo perfecto", author_name=None)
+    author, text = reviews._review_author_and_text(msg)
+    assert author is None                              # anonymity contract (T-07-02)
+    assert text == "todo perfecto"
+
+
+# ── full publish: anonymous ⇒ author null, named ⇒ display name ────────────────────
+def test_anonymous_bot_review_publishes_with_author_none(cog_with_user, monkeypatch):
+    publish = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(reviews.github_publish, "publish_review", publish)
+    msg = _bot_review_message(msg_id=910, description="anónima pero real", author_name=None)
+    asyncio.run(cog_with_user._publish(msg))
+    entry = publish.await_args.args[0]
+    assert entry["author"] is None                     # null author flows into reviews.json
+    assert entry["text"] == "anónima pero real"
+    assert entry["id"] == "910"
+
+
+def test_named_bot_review_publishes_with_display_name(cog_with_user, monkeypatch):
+    publish = AsyncMock(return_value={"committed": True, "count": 1})
+    monkeypatch.setattr(reviews.github_publish, "publish_review", publish)
+    msg = _bot_review_message(msg_id=911, description="con mi nombre", author_name="Kira")
+    asyncio.run(cog_with_user._publish(msg))
+    entry = publish.await_args.args[0]
+    assert entry["author"] == "Kira"
+
+
+# ── persistence contract: stable button custom_ids on a timeout=None view ──────────
+def test_collect_view_button_custom_ids_are_stable_constants():
+    async def _mk():
+        return reviews.ReviewCollectView()             # View() needs a running loop
+    view = asyncio.run(_mk())
+    ids = {c.custom_id for c in view.children}
+    assert ids == {reviews.REVIEW_BTN_NAMED, reviews.REVIEW_BTN_ANON}
+    assert reviews.REVIEW_BTN_NAMED == "reviews:collect:named"
+    assert reviews.REVIEW_BTN_ANON == "reviews:collect:anon"
+    assert view.timeout is None                        # persistent (survives restart)
+
+
+# ── modal on_submit: named carries identity, anonymous eliminates it ───────────────
+def _modal_interaction(display_name, sent_capture):
+    sent = types.SimpleNamespace(add_reaction=AsyncMock())
+
+    async def _send(**kwargs):
+        sent_capture["embed"] = kwargs.get("embed")
+        return sent
+
+    channel = types.SimpleNamespace(send=_send)
+    client = types.SimpleNamespace(
+        get_channel=lambda cid: channel,
+        fetch_channel=AsyncMock(return_value=channel),
+    )
+    interaction = types.SimpleNamespace(
+        client=client,
+        user=types.SimpleNamespace(display_name=display_name, id=7, name=display_name),
+        response=types.SimpleNamespace(is_done=lambda: False, send_message=AsyncMock()),
+        followup=types.SimpleNamespace(send=AsyncMock()),
+    )
+    return interaction, sent
+
+
+def test_anonymous_modal_embed_omits_submitter_identity():
+    secret = "SecretUser1234"
+    captured = {}
+    interaction, sent = _modal_interaction(secret, captured)
+
+    async def _run():
+        modal = reviews.ReviewModal(anonymous=True)
+        modal.review_text._value = "trabajo espectacular"
+        await modal.on_submit(interaction)
+
+    asyncio.run(_run())
+    embed = captured["embed"]
+    assert "trabajo espectacular" in (embed.description or "")
+    # identity must appear NOWHERE in the embed the bot posts
+    assert (getattr(embed.author, "name", None) or "") != secret
+    assert secret not in (embed.description or "")
+    assert secret not in (embed.title or "")
+    sent.add_reaction.assert_awaited_once_with("✅")   # marks it ✅ pending itself
+
+
+def test_named_modal_embed_carries_display_name():
+    name = "Luna"
+    captured = {}
+    interaction, sent = _modal_interaction(name, captured)
+
+    async def _run():
+        modal = reviews.ReviewModal(anonymous=False)
+        modal.review_text._value = "gran experiencia"
+        await modal.on_submit(interaction)
+
+    asyncio.run(_run())
+    embed = captured["embed"]
+    assert embed.author.name == name
+    assert "gran experiencia" in (embed.description or "")
+    sent.add_reaction.assert_awaited_once_with("✅")
+
+
+# ── _reconcile over the cog's OWN review embed (REV-05 — no longer blanket-skipped) ─
+def test_reconcile_bot_review_embed_staff_check_publishes(cog_with_user):
+    cog_with_user._publish = AsyncMock()
+    msg = _bot_review_message(
+        msg_id=920,
+        reactions=[_full_reaction("✅", me=True, users=[_user(42, is_bot=True), _user(7)])],
+        members={7: _member([STAFF_ROLE_ID])},
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_awaited_once_with(msg)   # bot review embed IS reconciled
+
+
+def test_reconcile_bot_review_embed_staff_moon_unpublishes(cog_with_user):
+    cog_with_user._unpublish = AsyncMock()
+    msg = _bot_review_message(
+        msg_id=921,
+        reactions=[_full_reaction("🌙", users=[_user(8)])],
+        members={8: _member([STAFF_ROLE_ID])},
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._unpublish.assert_awaited_once_with(msg)
+
+
+def test_reconcile_bot_review_embed_already_published_left_alone(cog_with_user):
+    cog_with_user._publish = AsyncMock()
+    cog_with_user._unpublish = AsyncMock()
+    msg = _bot_review_message(
+        msg_id=922,
+        reactions=[_full_reaction("🟢", me=True),
+                   _full_reaction("✅", me=True, users=[_user(5)])],
+        members={5: _member([STAFF_ROLE_ID])},
+    )
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_not_awaited()            # 🟢 present -> not republished
+    cog_with_user._unpublish.assert_not_awaited()
+    msg.add_reaction.assert_not_awaited()
+
+
+def test_reconcile_bot_non_review_message_still_skipped(cog_with_user):
+    # A bot message WITHOUT the review marker is still skipped like any foreign bot post.
+    cog_with_user._publish = AsyncMock()
+    msg = _bot_review_message(msg_id=923, footer_text="otro pie", reactions=[])
+    asyncio.run(cog_with_user._reconcile(msg))
+    cog_with_user._publish.assert_not_awaited()
+    msg.add_reaction.assert_not_awaited()
