@@ -21,7 +21,6 @@ import pytest
 import config
 from cogs import reviews
 from cogs.reviews import ReviewsCog
-from core import db
 
 STAFF_ROLE_ID = 111
 OTHER_ROLE_ID = 222
@@ -74,16 +73,13 @@ def _reviews_config(monkeypatch):
 
 
 @pytest.fixture
-def cog(monkeypatch):
-    # Don't touch the sqlite DB during unit tests.
-    monkeypatch.setattr(reviews.db, "init_reviews_state", lambda: None)
+def cog():
     return ReviewsCog(bot=types.SimpleNamespace())
 
 
 @pytest.fixture
-def cog_with_user(monkeypatch):
+def cog_with_user():
     """A cog whose bot exposes ``.user`` (needed to remove the bot's own markers)."""
-    monkeypatch.setattr(reviews.db, "init_reviews_state", lambda: None)
     bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
     return ReviewsCog(bot=bot)
 
@@ -337,17 +333,6 @@ def test_moon_reaction_staff_dispatches_unpublish(cog_with_user):
     cog_with_user._unpublish.assert_awaited_once_with(fake_msg)
 
 
-# ── reviews cursor round-trip ─────────────────────────────────────────────────────
-def test_reviews_cursor_round_trip_and_fresh_db_returns_none(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
-    db.init_reviews_state()
-    assert db.get_reviews_cursor() is None               # fresh db -> no cursor yet
-    db.set_reviews_cursor(1453534905706221600)
-    assert db.get_reviews_cursor() == 1453534905706221600
-    db.set_reviews_cursor(42)                             # single row: overwrite
-    assert db.get_reviews_cursor() == 42
-
-
 # ── _reconcile dispatch table ─────────────────────────────────────────────────────
 def _user(uid, is_bot=False):
     return types.SimpleNamespace(id=uid, bot=is_bot)
@@ -471,20 +456,51 @@ def _empty_history(**_kw):
     return _gen()
 
 
-def test_backfill_empty_channel_is_tolerated(monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
+def test_backfill_empty_channel_is_tolerated(monkeypatch):
     bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
     cog = ReviewsCog(bot=bot)
     bot.get_channel = lambda cid: types.SimpleNamespace(
         history=lambda **kw: _empty_history(**kw),
         fetch_message=AsyncMock())
     monkeypatch.setattr(reviews.github_publish, "_fetch_json", lambda *a, **k: [])
-    asyncio.run(cog._backfill())
-    assert db.get_reviews_cursor() is None               # empty channel -> cursor never advances
+    asyncio.run(cog._backfill())                         # empty channel -> no error, no work
 
 
-def _orphan_cog(monkeypatch, tmp_path, entries, fetch_message):
-    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "backfill.db"), raising=False)
+def test_backfill_rescans_full_history_replaying_missed_approvals(monkeypatch):
+    # WR-03: approvals are REACTION events on EXISTING messages — a staff ✅ added while
+    # the bot was down, on a message already scanned by an earlier startup, must still be
+    # replayed. The backfill therefore scans the FULL history every time (no cursor).
+    bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
+    cog = ReviewsCog(bot=bot)
+    msg = _history_message(msg_id=650, reactions=[],
+                           members={7: _member([STAFF_ROLE_ID])})
+    history_kwargs = []
+
+    def history(**kw):
+        history_kwargs.append(kw)
+
+        async def _gen():
+            yield msg
+        return _gen()
+
+    bot.get_channel = lambda cid: types.SimpleNamespace(
+        history=history, fetch_message=AsyncMock(return_value=msg))
+    monkeypatch.setattr(reviews.github_publish, "_fetch_json", lambda *a, **k: [])
+    cog._publish = AsyncMock()
+
+    asyncio.run(cog._backfill())                          # first startup: pending, no ✅ yet
+    msg.add_reaction.assert_awaited_once_with("✅")
+    cog._publish.assert_not_awaited()
+
+    # …staff ✅ arrives while the bot is down…
+    msg.reactions = [_full_reaction("✅", me=True, users=[_user(7)])]
+
+    asyncio.run(cog._backfill())                          # next startup: approval replayed
+    cog._publish.assert_awaited_once_with(msg)
+    assert all("after" not in kw for kw in history_kwargs)   # never cursor-limited
+
+
+def _orphan_cog(monkeypatch, entries, fetch_message):
     bot = types.SimpleNamespace(user=types.SimpleNamespace(id=42))
     cog = ReviewsCog(bot=bot)
     channel = types.SimpleNamespace(history=lambda **kw: _empty_history(**kw),
@@ -496,34 +512,34 @@ def _orphan_cog(monkeypatch, tmp_path, entries, fetch_message):
     return cog, remove
 
 
-def test_backfill_removes_orphan_entry_when_message_deleted(monkeypatch, tmp_path):
+def test_backfill_removes_orphan_entry_when_message_deleted(monkeypatch):
     entries = [{"id": "1453534905706221600", "author": "Luna", "text": "x", "date": "d"}]
     fetch_message = AsyncMock(side_effect=_not_found())
-    cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+    cog, remove = _orphan_cog(monkeypatch, entries, fetch_message)
     asyncio.run(cog._backfill())
     remove.assert_awaited_once_with(1453534905706221600)          # orphan healed
     fetch_message.assert_awaited_once_with(1453534905706221600)
 
 
-def test_backfill_skips_malformed_entry_id(monkeypatch, tmp_path):
+def test_backfill_skips_malformed_entry_id(monkeypatch):
     entries = [{"id": None, "author": "x", "text": "y", "date": "d"},
                {"id": "not-a-number", "author": "x", "text": "y", "date": "d"}]
     fetch_message = AsyncMock(side_effect=_not_found())
-    cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+    cog, remove = _orphan_cog(monkeypatch, entries, fetch_message)
     asyncio.run(cog._backfill())
     fetch_message.assert_not_awaited()                            # malformed ids never probed
     remove.assert_not_awaited()
 
 
-def test_backfill_live_entry_message_left_alone(monkeypatch, tmp_path):
+def test_backfill_live_entry_message_left_alone(monkeypatch):
     entries = [{"id": "556", "author": "x", "text": "y", "date": "d"}]
     fetch_message = AsyncMock(return_value=types.SimpleNamespace(id=556))
-    cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+    cog, remove = _orphan_cog(monkeypatch, entries, fetch_message)
     asyncio.run(cog._backfill())
     remove.assert_not_awaited()                                   # message exists -> entry stays
 
 
-def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch, tmp_path):
+def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch):
     # Rate limit / permission / network failures mean "unknown", NOT "deleted" — a transient
     # outage must never mass-remove the live reviews (T-07-06).
     for boom in (discord.HTTPException(
@@ -531,7 +547,7 @@ def test_backfill_transient_error_is_never_treated_as_deletion(monkeypatch, tmp_
                  RuntimeError("network down")):
         entries = [{"id": "557", "author": "x", "text": "y", "date": "d"}]
         fetch_message = AsyncMock(side_effect=boom)
-        cog, remove = _orphan_cog(monkeypatch, tmp_path, entries, fetch_message)
+        cog, remove = _orphan_cog(monkeypatch, entries, fetch_message)
         asyncio.run(cog._backfill())
         remove.assert_not_awaited()                               # left alone, logged as unknown
 

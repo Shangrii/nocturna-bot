@@ -5,7 +5,7 @@ a plain text review the cog adds a ✅ approve control (REV-02); a staff ✅ com
 review to ``reviews.json`` in the website repo via the 07-02 cross-repo transport
 (REV-03), a staff 🌙 unpublishes a live review or dismisses a pending one, and deleting a
 published review auto-unpublishes it. Persistent-error UX (⚠️ + retry) and a startup
-backfill/reconcile (over the reviews cursor) complete the cog.
+backfill/reconcile (a full idempotent scan of the low-volume channel) complete the cog.
 
 Mirrors the repo's cog conventions (``cogs/forum.py``): a ``commands.Cog`` subclass with
 ``@commands.Cog.listener()`` handlers, ``import config``, ``log = logging.getLogger(__name__)``
@@ -27,7 +27,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
-from core import db, github_publish
+from core import github_publish
 
 log = logging.getLogger(__name__)
 
@@ -228,7 +228,6 @@ class ReviewsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._backfilled = False   # startup reconcile runs once (on_ready can re-fire)
-        db.init_reviews_state()    # backfill-cursor table (separate from gallery_state)
 
     @app_commands.command(
         name="panel_resenas",
@@ -480,13 +479,18 @@ class ReviewsCog(commands.Cog):
             log.exception("reviews startup backfill failed")
 
     async def _backfill(self):
-        """Scan channel history after the reviews cursor and replay anything the bot missed
-        while down — missed ✅ prompts, staff approvals, and 🌙 removals.
+        """Scan the FULL channel history and replay anything the bot missed while down —
+        missed ✅ prompts, staff approvals, and 🌙 removals.
 
-        The reviews cursor (separate from the gallery cursor) advances per message so a
-        restart never re-scans the whole channel. Published-state during reconcile is derived
-        from the 🟢 marker + the live ``reviews.json`` entries. Tolerates an empty channel and
-        an empty/missing ``reviews.json``.
+        Deliberately NO cursor (WR-03): approvals/removals are REACTION events on
+        existing messages, so any creation-ordered cursor would silently skip a staff
+        ✅/🌙 added during downtime to a message scanned on an earlier startup. There is
+        no terminal state either — even a published review can receive a 🌙 years later.
+        The reviews channel is low volume, so a full scan per startup is cheap, and
+        ``_reconcile`` is idempotent so re-scanning converges instead of duplicating
+        work. Published-state during reconcile is derived from the 🟢 marker + the live
+        ``reviews.json`` entries. Tolerates an empty channel and an empty/missing
+        ``reviews.json``.
         """
         channel = self.bot.get_channel(config.REVIEWS_CHANNEL_ID) or \
             await self.bot.fetch_channel(config.REVIEWS_CHANNEL_ID)
@@ -495,19 +499,16 @@ class ReviewsCog(commands.Cog):
                         config.REVIEWS_CHANNEL_ID)
             return
 
-        cursor = db.get_reviews_cursor()
-        after = discord.Object(id=cursor) if cursor else None
         entries = await self._fetch_entries()               # once for the whole scan
 
         scanned = 0
-        async for message in channel.history(after=after, limit=None, oldest_first=True):
+        async for message in channel.history(limit=None, oldest_first=True):
             try:
                 await self._reconcile(message, entries)
             except Exception:
                 log.exception("reviews backfill: reconcile failed for msg %s", message.id)
-            db.set_reviews_cursor(message.id)                # advance even past a failed message
             scanned += 1
-        log.info("reviews backfill: reconciled %d message(s) after cursor %s", scanned, cursor)
+        log.info("reviews backfill: reconciled %d message(s) (full scan)", scanned)
 
         # Inverse pass: history never yields DELETED messages, so a delete the bot missed
         # leaves its entry published forever — probe them explicitly.
