@@ -148,33 +148,42 @@ def _fetch_base_tree_sha(repo, parent_sha):
     return resp.json()["tree"]["sha"]
 
 
-def _fetch_gallery(repo, branch):
-    """GET the current ``gallery.json`` array; tolerates an empty file and a 404.
+def _fetch_json(repo, branch, path):
+    """GET the current JSON array at ``path``; tolerates an empty file and a 404.
 
-    Files between 1 MB and 100 MB come back from the Contents API with
-    ``"content": "", "encoding": "none"`` — mistaking that for an empty gallery
-    would make the next publish rewrite ``gallery.json`` with ONLY the new entries,
-    silently wiping every existing tile (WR-01). When the inline content is
-    unreadable the array is re-fetched via the raw media type instead; if THAT
-    fails, the typed error propagates — never an empty list.
+    The single generic reader for both transports (gallery + reviews). Files between
+    1 MB and 100 MB come back from the Contents API with ``"content": "", "encoding":
+    "none"`` — mistaking that for an empty array would make the next publish rewrite the
+    file with ONLY the new entries, silently wiping every existing entry (WR-01). When
+    the inline content is unreadable the array is re-fetched via the raw media type
+    instead; if THAT fails, the typed error propagates — never an empty list.
     """
-    url = f"{_API}/repos/{repo}/contents/{config.WEBSITE_GALLERY_JSON}"
-    resp = _http("get", url, "GET contents gallery.json", params={"ref": branch})
+    url = f"{_API}/repos/{repo}/contents/{path}"
+    resp = _http("get", url, "GET contents json", params={"ref": branch})
     if resp.status_code == 404:
-        return []                              # not-yet-created gallery.json
-    _require(resp, "GET contents gallery.json")
+        return []                              # not-yet-created file
+    _require(resp, "GET contents json")
     data = resp.json()
     if data.get("encoding") == "none" or (data.get("size", 0) > 0 and not data.get("content")):
         raw_resp = _http(
-            "get", url, "GET contents gallery.json (raw)",
+            "get", url, "GET contents json (raw)",
             headers={**_headers(), "Accept": "application/vnd.github.raw+json"},
             params={"ref": branch})
-        _require(raw_resp, "GET contents gallery.json (raw)")
+        _require(raw_resp, "GET contents json (raw)")
         text = raw_resp.text.strip()
     else:
         raw = base64.b64decode(data.get("content", ""))
         text = raw.decode("utf-8").strip()
     return json.loads(text) if text else []
+
+
+def _fetch_gallery(repo, branch):
+    """GET the current ``gallery.json`` array (backward-compatible thin wrapper).
+
+    Preserves the gallery transport's original signature/behavior byte-for-byte by
+    delegating to the generic ``_fetch_json`` with the gallery JSON path.
+    """
+    return _fetch_json(repo, branch, config.WEBSITE_GALLERY_JSON)
 
 
 def _create_blob(repo, raw_bytes):
@@ -210,19 +219,31 @@ def _serialize_gallery(array):
     return json.dumps(array, ensure_ascii=False, indent=2)
 
 
+# The reviews transport shares the exact same JSON shape (2-space indent, non-ASCII kept
+# readable so review text renders correctly). The body is already generic, so this is a
+# pure alias — no behavior change for the gallery.
+_serialize_json = _serialize_gallery
+
+
 # ── retryable read-modify-commit-ref core ─────────────────────────────────────────
-def _commit_with_retry(repo, branch, message, build_tree):
+def _commit_with_retry(repo, branch, message, build_tree, fetch=None):
     """Run the ref-relative part of the sequence, rebuilding on a stale-ref conflict.
 
-    ``build_tree(current_gallery)`` returns the tree-entry list to commit; it is called
-    fresh on every attempt with a freshly fetched ``gallery.json`` so a concurrent
-    commit's entries are merged rather than clobbered (D-18 / Pitfall 4).
+    ``build_tree(current)`` returns the tree-entry list to commit; it is called fresh on
+    every attempt with the freshly fetched current array so a concurrent commit's entries
+    are merged rather than clobbered (D-18 / Pitfall 4).
+
+    ``fetch`` is the callable that returns the current array on each attempt. It defaults
+    to the gallery fetch so existing gallery callers keep identical behavior; the reviews
+    transport passes ``fetch=lambda: _fetch_json(repo, branch, reviews_path)`` to point
+    the same retry core at ``reviews.json`` (backward-compatible generalization).
     """
+    fetch = fetch or (lambda: _fetch_gallery(repo, branch))
     last_status = None
     for attempt in range(_MAX_ATTEMPTS):
         parent_sha = _fetch_parent_sha(repo, branch)
         base_tree_sha = _fetch_base_tree_sha(repo, parent_sha)
-        current = _fetch_gallery(repo, branch)
+        current = fetch()
         tree_entries = build_tree(current)
         new_tree_sha = _create_tree(repo, base_tree_sha, tree_entries)
         commit_sha = _create_commit(repo, message, new_tree_sha, parent_sha)
@@ -375,3 +396,107 @@ async def remove_message(message_id):
     """
     async with _commit_lock:
         return await asyncio.to_thread(_remove_sync, message_id)
+
+
+# ── reviews transport (Fase 7): single reviews.json blob, no image blobs ────────────
+def _publish_review_sync(entry):
+    """Commit ONE ``reviews.json`` blob with ``entry`` appended, deduped by id.
+
+    Reviews have no images — the commit is a pure read-modify-write of ONE JSON file.
+    ``entry`` is a ready-built ``{"id", "author", "text", "date"}`` dict (the cog resolves
+    author/anonymity; the transport stays dumb and writes what it is handed — ``author:
+    null`` is preserved verbatim). Idempotent: any existing entry with the same ``id`` is
+    dropped before appending, so a re-✅ republishes cleanly instead of duplicating.
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    reviews_path = config.WEBSITE_REVIEWS_JSON
+    target = str(entry["id"])
+
+    message = f"reviews: publish review (discord msg {entry['id']})"
+
+    def build_tree(current):
+        kept = [e for e in current if str(e.get("id")) != target]
+        updated = kept + [entry]
+        review_entry = {
+            "path": reviews_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(updated),
+        }
+        return [review_entry]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, message, build_tree,
+        fetch=lambda: _fetch_json(repo, branch, reviews_path))
+    return {"committed": True, "commit_sha": commit_sha, "count": 1}
+
+
+def _remove_review_sync(message_id):
+    """Commit ONE ``reviews.json`` blob without the ``message_id`` entry.
+
+    Keyed by the discord message id (no filename parsing — reviews have no images).
+    A message with no matching entry is a no-op: no empty commit is created.
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    reviews_path = config.WEBSITE_REVIEWS_JSON
+    target = str(message_id)
+
+    # No-op guard: if nothing matches, do nothing — never create an empty commit.
+    current = _fetch_json(repo, branch, reviews_path)
+    keep = [e for e in current if str(e.get("id")) != target]
+    if len(keep) == len(current):
+        return {"committed": False, "commit_sha": None, "count": 0}
+
+    message = f"reviews: remove review (discord msg {message_id})"
+
+    def build_tree(cur):
+        kept = [e for e in cur if str(e.get("id")) != target]
+        review_entry = {
+            "path": reviews_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(kept),
+        }
+        return [review_entry]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, message, build_tree,
+        fetch=lambda: _fetch_json(repo, branch, reviews_path))
+    return {"committed": True, "commit_sha": commit_sha, "count": 1}
+
+
+async def publish_review(entry):
+    """Publish ONE review to ``reviews.json`` as a single atomic commit.
+
+    Args:
+        entry: a ready-built ``{"id", "author", "text", "date"}`` dict. ``id`` is the
+            Discord message snowflake (drives the commit message + dedupe); ``author`` is
+            the display name or ``None`` for anonymous (preserved verbatim, never derived
+            or logged here).
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "count": int}``.
+
+    Raises:
+        GitHubPublishError: transport failed after the retry budget (cog surfaces ⚠️).
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_publish_review_sync, entry)
+
+
+async def remove_review(message_id):
+    """Remove a review from ``reviews.json`` as a single atomic commit.
+
+    Keyed by the Discord message id; a message with no matching entry is a no-op
+    (no empty commit).
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "count": int}``.
+
+    Raises:
+        GitHubPublishError: transport failed after the retry budget.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_remove_review_sync, message_id)
