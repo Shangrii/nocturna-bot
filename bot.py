@@ -44,6 +44,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.forum")
         await self.load_extension("cogs.gallery")
         await self.load_extension("cogs.reviews")
+        await self.load_extension("cogs.reminders")
         await self.load_extension("cogs.help")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
@@ -101,6 +102,18 @@ def main():
     #    GALLERY_STAFF_ROLE_IDS cuando no se define, así que no hace falta un check aparte.
     if not config.REVIEWS_CHANNEL_ID:
         log.error("REVIEWS_CHANNEL_ID no configurado en el .env (canal de reseñas)")
+        sys.exit(1)
+    # ── Recordatorios (Fase 8): todo el schedule-math ancla en REMINDERS_TZ (D-07).
+    #    Si la zona IANA es inválida, ZoneInfo revienta en el primer tick del scheduler
+    #    en vez de al arrancar — así que fallamos rápido aquí. REMINDERS_STAFF_ROLE_IDS
+    #    cae en GALLERY_STAFF_ROLE_IDS cuando no se define (mismo motivo que reseñas).
+    try:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        ZoneInfo(config.REMINDERS_TZ)
+    except (ZoneInfoNotFoundError, KeyError, ValueError):
+        log.error(
+            "REMINDERS_TZ inválida en el .env (%s) — usa una zona IANA, "
+            "p. ej. America/Mexico_City", config.REMINDERS_TZ)
         sys.exit(1)
 
     bot = NocturnaBot()

@@ -19,9 +19,18 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
+
 import config
+from core import db
 
 log = logging.getLogger(__name__)
+
+# Brand red for the reminder embed (matches the reviews/gallery embeds).
+_BRAND_RED = 0xC0192C
+_NAME_MAX = 80
 
 # Spanish weekday labels (0 = Monday .. 6 = Sunday, matching datetime.weekday()).
 _WEEKDAYS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -186,3 +195,225 @@ def _is_staff(member) -> bool:
     """
     role_ids = {r.id for r in getattr(member, "roles", [])}
     return bool(role_ids & set(config.REMINDERS_STAFF_ROLE_IDS))
+
+
+# ══ Discord layer (08-03) ═══════════════════════════════════════════════════════════
+# Everything above is pure/import-safe (08-02). Below is the Discord wiring: the
+# multi-line message modal, the ``/recordatorio`` GroupCog with the staff-gated ``crear``
+# subcommand, the delivery helper, and the 1-minute background scheduler.
+
+
+def _next_fire_for(params: dict, now_utc: datetime) -> datetime:
+    """Compute the first ``next_fire_utc`` for a freshly-created reminder (dispatch by freq)."""
+    freq = params["frequency"]
+    tz = config.REMINDERS_TZ
+    if freq == "weekly":
+        return next_weekly_fire(now_utc, params["weekday"], params["hour"],
+                                params["minute"], tz)
+    if freq == "monthly":
+        return next_monthly_fire(now_utc, params["day_of_month"], params["hour"],
+                                 params["minute"], tz)
+    if freq == "oneoff":
+        return next_oneoff_fire(params["run_date"], params["hour"], params["minute"], tz)
+    raise ValueError(f"frecuencia desconocida: {freq!r}")
+
+
+class MensajeModal(discord.ui.Modal):
+    """Multi-line message capture for ``crear`` (and, via ``edit_id``, ``editar`` in 08-04).
+
+    ``crear`` validates every structured param first, then opens this modal as its FIRST
+    interaction response (RESEARCH Pattern 2 — no ``defer()`` before ``send_modal``). The
+    already-collected params ride in ``params``; ``on_submit`` strips the body and either
+    UPDATEs (edit path) or INSERTs a new reminder with a freshly-computed ``next_fire_utc``.
+    """
+
+    def __init__(self, *, params: dict, default_body: str = "",
+                 title: str = "Mensaje del recordatorio"):
+        super().__init__(title=title)
+        self.params = params
+        self.body = discord.ui.TextInput(
+            label="Mensaje",
+            style=discord.TextStyle.paragraph,     # multi-line free text
+            max_length=4000,                       # Discord TextInput hard cap
+            required=True,
+            default=default_body,                  # pre-fill for editar (D-15)
+        )
+        self.add_item(self.body)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        body = str(self.body.value).strip()
+        params = self.params
+        name = params.get("name", "")
+
+        if params.get("edit_id"):
+            # 08-04 edit path: change only the message body here; schedule edits land in 08-04.
+            db.update_reminder(params["edit_id"], message=body)
+            await self._reply(interaction, f"✅ Recordatorio actualizado: **{name}**")
+            return
+
+        next_fire = _next_fire_for(params, datetime.now(timezone.utc))
+        db.add_reminder(
+            name=name,
+            frequency=params["frequency"],
+            hour=params["hour"],
+            minute=params["minute"],
+            channel_id=params["channel_id"],
+            message=body,
+            created_by=params["created_by"],
+            weekday=params.get("weekday"),
+            day_of_month=params.get("day_of_month"),
+            run_date=params.get("run_date"),
+            mentions=params.get("mentions", ""),
+            reactions=params.get("reactions", ""),
+            next_fire_utc=next_fire.isoformat(),
+        )
+        summary = schedule_summary({
+            "frequency": params["frequency"], "weekday": params.get("weekday"),
+            "day_of_month": params.get("day_of_month"), "run_date": params.get("run_date"),
+            "hour": params["hour"], "minute": params["minute"],
+        })
+        await self._reply(interaction, f"✅ Recordatorio creado: **{name}** — {summary}")
+
+    @staticmethod
+    async def _reply(interaction: discord.Interaction, content: str):
+        """Ephemeral confirmation, tolerant of an already-consumed interaction response."""
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(content, ephemeral=True)
+            else:
+                await interaction.response.send_message(content, ephemeral=True)
+        except Exception:
+            log.exception("reminders: could not send modal confirmation")
+
+
+class RemindersCog(
+    commands.GroupCog,
+    name="Reminders",
+    group_name="recordatorio",
+    group_description="Recordatorios programados (juntas y más)",
+):
+    """The ``/recordatorio`` command group + the 1-minute background scheduler.
+
+    ``crear`` (this plan) is staff-gated, validates its schedule params, then opens
+    ``MensajeModal`` for the body. ``listar``/``borrar``/``editar`` land in 08-04. The
+    scheduler loop (fills in 08-03 Task 2) polls ``db.due_reminders`` every minute.
+    """
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        db.init_reminders()                        # repo idiom: ensure the table exists
+        self._scheduler.start()                    # start the tasks.loop cadence
+
+    async def cog_unload(self):
+        # Reload safety — mirrors encoding.cog_unload cleanup so a hot reload doesn't leave
+        # a second scheduler ticking.
+        self._scheduler.cancel()
+
+    # ── /recordatorio crear ──────────────────────────────────────────────────────────
+    @app_commands.command(name="crear",
+                          description="Crea un recordatorio programado (staff)")
+    @app_commands.describe(
+        nombre="Nombre corto del recordatorio (p. ej. 'Junta semanal')",
+        frecuencia="Cada cuánto se repite",
+        canal="Canal donde se enviará el recordatorio",
+        hora="Hora en formato 24h HH:MM (zona del equipo)",
+        dia_semana="Solo semanal: 0=lunes, 1=martes, 2=miércoles, 3=jueves, 4=viernes, "
+                   "5=sábado, 6=domingo",
+        dia_mes="Solo mensual: día del mes 1-31 (se ajusta al último día en meses cortos)",
+        fecha="Solo una vez: fecha en formato YYYY-MM-DD",
+        mencion="Rol opcional a mencionar (se ping-ea en una línea sobre el mensaje)",
+        emojis="Reacciones opcionales a sembrar, separadas por espacio (p. ej. '✅ ❌')",
+    )
+    @app_commands.choices(frecuencia=[
+        app_commands.Choice(name="Semanal", value="weekly"),
+        app_commands.Choice(name="Mensual", value="monthly"),
+        app_commands.Choice(name="Una vez", value="oneoff"),
+    ])
+    async def crear(self, interaction: discord.Interaction, nombre: str,
+                    frecuencia: app_commands.Choice[str], canal: discord.TextChannel,
+                    hora: str, dia_semana: int | None = None, dia_mes: int | None = None,
+                    fecha: str | None = None, mencion: discord.Role | None = None,
+                    emojis: str | None = None):
+        # 1. Staff gate FIRST (D-02, T-08-01) — nothing else runs for a non-staff member.
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # 2. Required name (D-05): non-blank after strip, capped length.
+        name = (nombre or "").strip()
+        if not name:
+            await interaction.response.send_message(
+                "❌ El nombre es obligatorio.", ephemeral=True)
+            return
+        if len(name) > _NAME_MAX:
+            await interaction.response.send_message(
+                f"❌ El nombre es demasiado largo (máx. {_NAME_MAX} caracteres).",
+                ephemeral=True)
+            return
+
+        # 3. Time (T-08-04): HH:MM 24h.
+        try:
+            hour, minute = parse_time(hora)
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Hora inválida. Usa el formato 24h HH:MM (p. ej. 09:30).", ephemeral=True)
+            return
+
+        # 4. Frequency-specific schedule field (exactly one applies).
+        freq = frecuencia.value
+        weekday = day_of_month = run_date = None
+        if freq == "weekly":
+            if dia_semana is None or not valid_weekday(dia_semana):
+                await interaction.response.send_message(
+                    "❌ Para un recordatorio semanal indica `dia_semana` (0=lunes .. 6=domingo).",
+                    ephemeral=True)
+                return
+            weekday = dia_semana
+        elif freq == "monthly":
+            if dia_mes is None or not valid_day_of_month(dia_mes):
+                await interaction.response.send_message(
+                    "❌ Para un recordatorio mensual indica `dia_mes` (1-31).", ephemeral=True)
+                return
+            day_of_month = dia_mes
+        elif freq == "oneoff":
+            if fecha is None:
+                await interaction.response.send_message(
+                    "❌ Para un recordatorio de una vez indica `fecha` (YYYY-MM-DD).",
+                    ephemeral=True)
+                return
+            try:
+                parse_date(fecha)
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ Fecha inválida. Usa el formato YYYY-MM-DD (p. ej. 2026-12-25).",
+                    ephemeral=True)
+                return
+            # Reject a date+time already in the past for the team timezone.
+            if next_oneoff_fire(fecha, hour, minute) <= datetime.now(timezone.utc):
+                await interaction.response.send_message(
+                    "❌ Esa fecha y hora ya pasaron.", ephemeral=True)
+                return
+            run_date = fecha
+
+        # 5. Optional mention (typed Role → its .mention string) + seeded emojis.
+        mentions = mencion.mention if mencion is not None else ""
+        reactions = " ".join(parse_emojis(emojis)) if emojis else ""
+
+        # 6. Open the modal as the FIRST response (RESEARCH Pattern 2 — never defer first).
+        params = {
+            "name": name, "frequency": freq, "hour": hour, "minute": minute,
+            "channel_id": canal.id, "weekday": weekday, "day_of_month": day_of_month,
+            "run_date": run_date, "mentions": mentions, "reactions": reactions,
+            "created_by": interaction.user.id,
+        }
+        await interaction.response.send_modal(MensajeModal(params=params))
+
+    # ── background scheduler (body filled in 08-03 Task 2) ───────────────────────────
+    @tasks.loop(minutes=1)
+    async def _scheduler(self):
+        # Filled in Task 2 (due-query → classify → deliver → advance/delete lifecycle).
+        pass
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(RemindersCog(bot))
