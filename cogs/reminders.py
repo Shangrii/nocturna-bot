@@ -505,6 +505,11 @@ class RemindersCog(
     @borrar.autocomplete("recordatorio")
     async def borrar_autocomplete(self, interaction: discord.Interaction,
                                   current: str) -> list[app_commands.Choice[str]]:
+        # Same trust boundary as listar — no store read for a non-staff member (D-02 / CR-01).
+        # An autocomplete callback cannot send an ephemeral reply, so a non-staff caller gets
+        # an empty Choice list (never reaches db.list_reminders()).
+        if not _is_staff(interaction.user):
+            return []
         return self._reminder_choices(current)
 
     # ── /recordatorio editar (D-04/D-15, T-08-04/T-08-10) ─────────────────────────────
@@ -633,6 +638,11 @@ class RemindersCog(
     @editar.autocomplete("recordatorio")
     async def editar_autocomplete(self, interaction: discord.Interaction,
                                   current: str) -> list[app_commands.Choice[str]]:
+        # Same trust boundary as listar — no store read for a non-staff member (D-02 / CR-01).
+        # An autocomplete callback cannot send an ephemeral reply, so a non-staff caller gets
+        # an empty Choice list (never reaches db.list_reminders()).
+        if not _is_staff(interaction.user):
+            return []
         return self._reminder_choices(current)
 
     # ── delivery (D-10/D-11/D-14) ────────────────────────────────────────────────────
