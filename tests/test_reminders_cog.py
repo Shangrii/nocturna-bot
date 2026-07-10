@@ -722,3 +722,116 @@ def test_listar_builds_embed_with_names_and_summaries(cog, monkeypatch):
     assert reminders.schedule_summary(rows[0], config.REMINDERS_TZ) in text
     assert "<#42>" in text                                     # target channel link
     assert kw.get("ephemeral") is True
+
+
+# ══ 08-04 Task 2: full editar — autocomplete pick + partial params + pre-filled modal ══
+#
+# editar merges None-defaulted optional params over the stored row, re-validates the MERGED
+# schedule (a partial edit can never persist an inconsistent schedule), recomputes
+# next_fire_utc, and opens MensajeModal pre-filled with the stored body (D-15). on_submit's
+# edit_id branch routes to db.update_reminder (never add_reminder) with the merged fields.
+
+
+async def _run_editar(cog, interaction, recordatorio="5", **kwargs):
+    defaults = dict(nombre=None, frecuencia=None, canal=None, hora=None, dia_semana=None,
+                    dia_mes=None, fecha=None, mencion=None, emojis=None)
+    defaults.update(kwargs)
+    await reminders.RemindersCog.editar.callback(cog, interaction, recordatorio, **defaults)
+
+
+def test_editar_non_staff_rejected_no_modal(cog, monkeypatch):
+    get = MagicMock()
+    monkeypatch.setattr(reminders.db, "get_reminder", get)
+    inter = _crear_interaction(_user([OTHER_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter))
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    inter.response.send_modal.assert_not_awaited()
+    get.assert_not_called()
+
+
+def test_editar_unknown_id_rejected_no_modal(cog, monkeypatch):
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=None))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="999"))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_editar_partial_hora_prefills_modal_and_merges(cog, monkeypatch):
+    stored = _row(id=5, name="Junta", frequency="weekly", weekday=0, hour=9, minute=0,
+                  message="Recuerden la junta")
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="5", hora="10:30"))
+    inter.response.send_modal.assert_awaited_once()
+    inter.response.send_message.assert_not_awaited()           # modal is the FIRST response
+    modal = inter.response.send_modal.await_args.args[0]
+    assert isinstance(modal, reminders.MensajeModal)
+    assert modal.body.default == "Recuerden la junta"          # D-15 pre-fill with stored body
+    p = modal.params
+    assert p["edit_id"] == 5
+    assert (p["hour"], p["minute"]) == (10, 30)                # hora override merged
+    assert p["weekday"] == 0                                   # kept from stored row
+    assert p["next_fire_utc"]                                  # recomputed, present
+
+
+def test_editar_on_submit_updates_not_adds_with_recompute(cog, monkeypatch):
+    stored = _row(id=5, name="Junta", frequency="weekly", weekday=0, hour=9, minute=0,
+                  message="viejo")
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    update, add = MagicMock(), MagicMock()
+    monkeypatch.setattr(reminders.db, "update_reminder", update)
+    monkeypatch.setattr(reminders.db, "add_reminder", add)
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="5", hora="10:30"))
+    modal = inter.response.send_modal.await_args.args[0]
+    modal.body._value = "cuerpo nuevo"
+    asyncio.run(modal.on_submit(_modal_interaction()))
+    update.assert_called_once()
+    add.assert_not_called()                                    # edit path never inserts
+    kw = update.call_args.kwargs
+    assert (kw["hour"], kw["minute"]) == (10, 30)
+    assert kw["message"] == "cuerpo nuevo"                     # stripped modal body
+    nf_local = datetime.fromisoformat(kw["next_fire_utc"]).astimezone(
+        ZoneInfo(config.REMINDERS_TZ))
+    assert (nf_local.hour, nf_local.minute) == (10, 30)        # next_fire reflects merge
+
+
+def test_editar_weekly_to_monthly_without_day_rejected(cog, monkeypatch):
+    stored = _row(id=5, frequency="weekly", weekday=0, day_of_month=None)
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="5", frecuencia=_choice("monthly")))
+    inter.response.send_modal.assert_not_awaited()             # merged-schedule validation
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_editar_canal_persists_new_channel(cog, monkeypatch):
+    stored = _row(id=5, frequency="weekly", weekday=0, channel_id=42)
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="5", canal=_channel(99)))
+    assert inter.response.send_modal.await_args.args[0].params["channel_id"] == 99
+
+
+def test_editar_emojis_persists_parsed_list(cog, monkeypatch):
+    stored = _row(id=5, frequency="weekly", weekday=0, reactions="")
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="5", emojis="✅ ✅ ❌"))
+    assert inter.response.send_modal.await_args.args[0].params["reactions"] == "✅ ❌"
+
+
+def test_editar_mencion_persists_role_mention(cog, monkeypatch):
+    stored = _row(id=5, frequency="weekly", weekday=0, mentions="")
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(cog, inter, recordatorio="5", mencion=_role("<@&99>")))
+    assert inter.response.send_modal.await_args.args[0].params["mentions"] == "<@&99>"
+
+
+def test_editar_autocomplete_delegates_to_reminder_choices(cog, monkeypatch):
+    rows = [_row(id=7, name="Junta")]
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
+    choices = asyncio.run(cog.editar_autocomplete(None, "jun"))
+    assert [c.value for c in choices] == ["7"]
