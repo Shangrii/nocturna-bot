@@ -408,6 +408,81 @@ class RemindersCog(
         }
         await interaction.response.send_modal(MensajeModal(params=params))
 
+    # ── shared autocomplete backing (RESEARCH Pattern 3, D-04/D-05) ────────────────────
+    @staticmethod
+    def _reminder_choices(current: str) -> list[app_commands.Choice[str]]:
+        """Live ``db.list_reminders`` → labelled Choices, case-insensitive name filter, ≤25.
+
+        Both ``borrar`` and ``editar`` autocomplete callbacks delegate here so staff pick a
+        reminder by its readable ``"{name} — {schedule summary}"`` label (D-04/D-05) instead of
+        memorizing ids. ``Choice.value`` carries the id as a string; the label is truncated to
+        Discord's 100-char cap and the whole list to the 25-choice cap.
+        """
+        current_l = (current or "").lower()
+        out: list[app_commands.Choice[str]] = []
+        for r in db.list_reminders():
+            if current_l in r["name"].lower():
+                label = f"{r['name']} — {schedule_summary(r, config.REMINDERS_TZ)}"[:100]
+                out.append(app_commands.Choice(name=label, value=str(r["id"])))
+            if len(out) >= 25:                     # Discord hard cap: max 25 choices
+                break
+        return out
+
+    # ── /recordatorio listar (D-01/D-05) ──────────────────────────────────────────────
+    @app_commands.command(name="listar",
+                          description="Lista los recordatorios programados (staff)")
+    async def listar(self, interaction: discord.Interaction):
+        # Staff gate FIRST (D-02, T-08-01) — no store read for a non-staff member.
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        rows = db.list_reminders()
+        if not rows:
+            await interaction.response.send_message(
+                "No hay recordatorios programados.", ephemeral=True)
+            return
+
+        # One readable line per reminder: **name** — schedule summary → #channel.
+        lines = [
+            f"**{r['name']}** — {schedule_summary(r, config.REMINDERS_TZ)} → <#{r['channel_id']}>"
+            for r in rows
+        ]
+        embed = discord.Embed(title="Recordatorios programados",
+                              description="\n".join(lines), color=_BRAND_RED)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── /recordatorio borrar (D-01/D-04, T-08-10) ─────────────────────────────────────
+    @app_commands.command(name="borrar",
+                          description="Borra un recordatorio (staff)")
+    @app_commands.describe(recordatorio="Elige el recordatorio")
+    async def borrar(self, interaction: discord.Interaction, recordatorio: str):
+        # Staff gate FIRST (D-02, T-08-01).
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # The autocomplete VALUE is attacker-choosable free text (T-08-10): parse defensively
+        # and confirm existence before deleting; both malformed and unknown → same ❌ ephemeral.
+        row = None
+        try:
+            row = db.get_reminder(int(recordatorio))
+        except (TypeError, ValueError):
+            row = None
+        if row is None:
+            await interaction.response.send_message(
+                "❌ No encontré ese recordatorio.", ephemeral=True)
+            return
+
+        db.delete_reminder(int(recordatorio))
+        await interaction.response.send_message(
+            f"🗑️ Recordatorio **{row['name']}** borrado.", ephemeral=True)
+
+    @borrar.autocomplete("recordatorio")
+    async def borrar_autocomplete(self, interaction: discord.Interaction,
+                                  current: str) -> list[app_commands.Choice[str]]:
+        return self._reminder_choices(current)
+
     # ── delivery (D-10/D-11/D-14) ────────────────────────────────────────────────────
     async def _deliver(self, r, atrasado: bool):
         """Send one reminder: mention line + branded embed, @everyone suppressed, seeded reactions.
