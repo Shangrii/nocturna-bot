@@ -82,3 +82,17 @@ REVIEWS_STAFF_ROLE_IDS = [
 ] or GALLERY_STAFF_ROLE_IDS
 # Ruta del JSON de reseñas dentro del repo del sitio (mismo repo/rama que la galería).
 WEBSITE_REVIEWS_JSON = os.getenv("WEBSITE_REVIEWS_JSON", "src/data/reviews.json")
+
+# ── Recordatorios (Fase 8: cog de recordatorios programados) ──────────────────────
+# El cog programa recordatorios semanales/mensuales/únicos y los publica en un canal.
+# Zona horaria IANA con la que se interpretan las horas del staff; se resuelve con
+# zoneinfo.ZoneInfo (tzdata la respalda en Windows/CI). Default America/Mexico_City (D-07).
+REMINDERS_TZ = os.getenv("REMINDERS_TZ", "America/Mexico_City")
+# Roles cuyos comandos gestionan recordatorios. Cadena separada por comas → lista de
+# ints; si queda vacía, cae en los mismos roles de staff de la galería (D-02).
+REMINDERS_STAFF_ROLE_IDS = [
+    int(x) for x in os.getenv("REMINDERS_STAFF_ROLE_IDS", "").split(",") if x.strip()
+] or GALLERY_STAFF_ROLE_IDS
+# Ventana de gracia (horas) para disparar recordatorios atrasados tras una caída del bot,
+# antes de saltarlos; default 6h, dentro de la banda 6–12h (D-13).
+REMINDERS_CATCHUP_GRACE_HOURS = int(os.getenv("REMINDERS_CATCHUP_GRACE_HOURS", "6"))

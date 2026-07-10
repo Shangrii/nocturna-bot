@@ -16,3 +16,9 @@ faster-whisper>=1.0.0            # transcripción local (descarga ctranslate2)
 # ── Galería (Fase 5: cog de publicación de fotos) ────────────────────────────────
 Pillow>=12.0.0                   # optimiza los adjuntos de staff → WebP (BOT-03)
 pytest>=8.0.0                    # pruebas del pipeline de imágenes (core/image_optimize)
+
+# ── Recordatorios (Fase 8: cog de recordatorios programados) ─────────────────────
+# Base de datos IANA de zonas horarias para zoneinfo cuando el SO no la trae (Windows/CI);
+# el host Linux "cinema" ya tiene una copia del sistema. discord.ext.tasks / sqlite3 /
+# zoneinfo / calendar ya vienen con discord.py o la stdlib — no hace falta pinearlos.
+tzdata>=2025.2                   # respaldo de la tz database para zoneinfo (REMINDERS_TZ)
