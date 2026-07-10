@@ -594,3 +594,131 @@ def test_before_loop_waits_until_ready(cog):
     cog.bot.wait_until_ready = AsyncMock()
     asyncio.run(cog._before_scheduler())
     cog.bot.wait_until_ready.assert_awaited_once()
+
+
+# ══ 08-04 Task 1: listar + borrar with autocomplete selection ═══════════════════════
+#
+# _reminder_choices is the shared autocomplete backing (RESEARCH Pattern 3): a live
+# db.list_reminders() query → case-insensitive substring filter on the name → labelled
+# Choices (name — schedule summary), capped at 25. borrar/listar are staff-gated app
+# commands driven directly through their .callback with SimpleNamespace / AsyncMock fakes.
+
+
+# ── _reminder_choices (autocomplete backing, RESEARCH Pattern 3) ────────────────────
+def test_reminder_choices_filters_case_insensitive(monkeypatch):
+    rows = [
+        _row(id=1, name="Junta semanal"),
+        _row(id=2, name="Pago mensual", frequency="monthly", weekday=None, day_of_month=15),
+        _row(id=3, name="Otra cosa"),
+    ]
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
+    choices = reminders.RemindersCog._reminder_choices("JUN")   # case-insensitive
+    assert [c.value for c in choices] == ["1"]                  # only 'Junta semanal' matches
+    assert all(isinstance(c.value, str) for c in choices)
+    assert all(len(c.name) <= 100 for c in choices)
+
+
+def test_reminder_choices_caps_at_25(monkeypatch):
+    rows = [_row(id=i, name=f"Recordatorio {i}") for i in range(30)]
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
+    choices = reminders.RemindersCog._reminder_choices("")      # '' matches every name
+    assert len(choices) == 25                                   # Discord hard cap
+
+
+def test_reminder_choices_label_capped_at_100_chars(monkeypatch):
+    rows = [_row(id=1, name="x" * 200)]
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
+    choices = reminders.RemindersCog._reminder_choices("x")
+    assert choices[0].value == "1"
+    assert len(choices[0].name) <= 100                         # Choice.name ≤ 100 (API)
+
+
+def test_borrar_autocomplete_delegates_to_reminder_choices(cog, monkeypatch):
+    rows = [_row(id=7, name="Junta"), _row(id=8, name="Pago", frequency="monthly",
+                                           weekday=None, day_of_month=15)]
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
+    choices = asyncio.run(cog.borrar_autocomplete(None, "jun"))
+    assert [c.value for c in choices] == ["7"]                  # 'jun' in 'junta'
+
+
+# ── borrar (staff-gated, autocomplete-picked, T-08-01 / T-08-10) ────────────────────
+def test_borrar_non_staff_rejected_no_db(cog, monkeypatch):
+    get, delete = MagicMock(), MagicMock()
+    monkeypatch.setattr(reminders.db, "get_reminder", get)
+    monkeypatch.setattr(reminders.db, "delete_reminder", delete)
+    inter = _crear_interaction(_user([OTHER_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.borrar.callback(cog, inter, recordatorio="1"))
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    get.assert_not_called()
+    delete.assert_not_called()
+
+
+def test_borrar_valid_id_deletes_and_confirms(cog, monkeypatch):
+    get = MagicMock(return_value=_row(id=5, name="Junta"))
+    delete = MagicMock()
+    monkeypatch.setattr(reminders.db, "get_reminder", get)
+    monkeypatch.setattr(reminders.db, "delete_reminder", delete)
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.borrar.callback(cog, inter, recordatorio="5"))
+    delete.assert_called_once_with(5)
+    msg = inter.response.send_message.await_args.args[0]
+    assert "Junta" in msg                                       # names the reminder
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+
+def test_borrar_unknown_id_errors_no_delete(cog, monkeypatch):
+    get = MagicMock(return_value=None)
+    delete = MagicMock()
+    monkeypatch.setattr(reminders.db, "get_reminder", get)
+    monkeypatch.setattr(reminders.db, "delete_reminder", delete)
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.borrar.callback(cog, inter, recordatorio="999"))
+    delete.assert_not_called()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_borrar_malformed_id_errors_no_delete(cog, monkeypatch):
+    get, delete = MagicMock(), MagicMock()
+    monkeypatch.setattr(reminders.db, "get_reminder", get)
+    monkeypatch.setattr(reminders.db, "delete_reminder", delete)
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.borrar.callback(cog, inter, recordatorio="abc"))
+    delete.assert_not_called()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+# ── listar (staff-gated readable overview, D-01/D-05) ───────────────────────────────
+def test_listar_non_staff_rejected_no_db(cog, monkeypatch):
+    lst = MagicMock()
+    monkeypatch.setattr(reminders.db, "list_reminders", lst)
+    inter = _crear_interaction(_user([OTHER_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.listar.callback(cog, inter))
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    lst.assert_not_called()
+
+
+def test_listar_empty_says_none(cog, monkeypatch):
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: [])
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.listar.callback(cog, inter))
+    msg = inter.response.send_message.await_args.args[0]
+    assert "No hay recordatorios" in msg
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+
+def test_listar_builds_embed_with_names_and_summaries(cog, monkeypatch):
+    rows = [
+        _row(id=1, name="Junta semanal"),
+        _row(id=2, name="Pago", frequency="monthly", weekday=None, day_of_month=15),
+    ]
+    monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(reminders.RemindersCog.listar.callback(cog, inter))
+    kw = inter.response.send_message.await_args.kwargs
+    embed = kw["embed"]
+    assert embed.color.value == 0xC0192C                       # brand red
+    text = embed.description
+    assert "Junta semanal" in text and "Pago" in text
+    assert reminders.schedule_summary(rows[0], config.REMINDERS_TZ) in text
+    assert "<#42>" in text                                     # target channel link
+    assert kw.get("ephemeral") is True
