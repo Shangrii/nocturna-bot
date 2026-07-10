@@ -408,11 +408,95 @@ class RemindersCog(
         }
         await interaction.response.send_modal(MensajeModal(params=params))
 
-    # ── background scheduler (body filled in 08-03 Task 2) ───────────────────────────
+    # ── delivery (D-10/D-11/D-14) ────────────────────────────────────────────────────
+    async def _deliver(self, r, atrasado: bool):
+        """Send one reminder: mention line + branded embed, @everyone suppressed, seeded reactions.
+
+        Resolves the target channel with the ``get_channel`` → ``fetch_channel`` fallback (the
+        encoding idiom); an unresolvable channel logs a Spanish warning and returns WITHOUT
+        raising, so the tick keeps going and the reminder's lifecycle still advances.
+        """
+        channel = self.bot.get_channel(r["channel_id"])
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(r["channel_id"])
+            except discord.HTTPException:
+                channel = None
+        if channel is None:
+            log.warning(
+                "reminders: canal %s no encontrado para el recordatorio '%s' (id=%s) — "
+                "¿el bot está en ese servidor y puede ver el canal?",
+                r["channel_id"], r["name"], r["id"])
+            return
+
+        description = r["message"]
+        if atrasado:
+            description = "⏰ **atrasado**\n\n" + description
+        embed = discord.Embed(title=r["name"], description=description, color=_BRAND_RED)
+        embed.timestamp = discord.utils.utcnow()
+        embed.set_footer(text="Nocturna · recordatorio")
+
+        # Mentions go on the plain content line (mentions inside an embed never ping, D-10);
+        # AllowedMentions is the hard API-level @everyone/@here suppression (D-11) regardless
+        # of what the staff-authored text contains.
+        content = r["mentions"] or None
+        allowed = discord.AllowedMentions(everyone=False, roles=True, users=True)
+        sent = await channel.send(content=content, embed=embed, allowed_mentions=allowed)
+
+        # D-14 seed-only: add each reaction, skipping (and logging) a bad emoji rather than
+        # letting one invalid token abort the rest.
+        for e in parse_emojis(r["reactions"] or ""):
+            try:
+                await sent.add_reaction(e)
+            except discord.HTTPException:
+                log.warning("reminders: emoji de reacción inválido %r omitido (id=%s)",
+                            e, r["id"])
+
+    # ── background scheduler ─────────────────────────────────────────────────────────
+    async def _process_due(self, now: datetime):
+        """Fire every due reminder for ``now`` (the testable body of the 1-minute tick).
+
+        LOCKED crash-semantics (RESEARCH Open Q1 / A3): the send happens BEFORE the cursor
+        advances (advance-after-send). A crash between the two causes a rare missed advance
+        (healed by the next tick's recompute) rather than a double ping; the D-13 grace window
+        covers recent misses. Each reminder is wrapped in its own try/except so one bad row
+        (deleted channel, bad role, unexpected error) can never sink the rest of the batch
+        (Pitfall 1 / T-08-05).
+        """
+        for r in db.due_reminders(now.isoformat()):
+            try:
+                cls = classify_fire(now, datetime.fromisoformat(r["next_fire_utc"]),
+                                    config.REMINDERS_CATCHUP_GRACE_HOURS)
+                if cls != "skip":
+                    await self._deliver(r, atrasado=(cls == "late"))
+                # Lifecycle AFTER the send (advance-after-send). A one-off is expired the
+                # moment it comes due — even a 'skip' one-off is deleted (D-16); a recurring
+                # reminder advances its cursor to the next occurrence.
+                if r["frequency"] == "oneoff":
+                    db.delete_reminder(r["id"])
+                else:
+                    db.set_next_fire(r["id"], compute_next(r, now).isoformat())
+            except Exception:
+                log.exception(
+                    "reminders: fallo al disparar id=%s (los demás continúan)", r["id"])
+
     @tasks.loop(minutes=1)
     async def _scheduler(self):
-        # Filled in Task 2 (due-query → classify → deliver → advance/delete lifecycle).
-        pass
+        await self._process_due(datetime.now(timezone.utc))
+
+    @_scheduler.before_loop
+    async def _before_scheduler(self):
+        # Wait until the gateway is ready so channels resolve. Catch-up needs no separate
+        # backfill: rows that came due during downtime are already <= now, so the first tick
+        # picks them up and classify_fire decides atrasado vs skip (D-13).
+        await self.bot.wait_until_ready()
+
+    @_scheduler.error
+    async def _on_scheduler_error(self, exc: Exception):
+        # A non-reconnect exception escaping the loop would otherwise kill it silently
+        # (Pitfall 1); log it and restart the loop.
+        log.exception("reminders: el scheduler se cayó, reiniciando", exc_info=exc)
+        self._scheduler.restart()
 
 
 async def setup(bot: commands.Bot):
