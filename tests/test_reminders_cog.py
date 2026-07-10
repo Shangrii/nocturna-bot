@@ -10,11 +10,15 @@ zone case, catch-up classification (ontime/late/skip), the input validators, the
 schedule summary, and the ``_is_staff`` role gate.
 """
 
+import asyncio
 import types
 from datetime import date, datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
+import discord
 import pytest
+from discord import app_commands
 
 import config
 from cogs import reminders
@@ -223,3 +227,212 @@ def test_is_staff_false_without_matching_role():
 
 def test_is_staff_false_for_roleless_member():
     assert reminders._is_staff(_member([])) is False
+
+
+# ══ 08-03 Task 1: Discord layer — cog shell + staff-gated crear + MensajeModal ══════
+#
+# These drive the app-command callback and the modal directly with SimpleNamespace /
+# AsyncMock fakes + asyncio.run (repo idiom, no pytest-asyncio). The scheduler loop and
+# db table are neutralized in the fixture so instantiating the cog has no side effects.
+
+STAFF_UID = 5
+
+
+def _user(role_ids, uid=STAFF_UID):
+    """A guild member fake carrying roles + an id (crear reads interaction.user.id)."""
+    return types.SimpleNamespace(
+        roles=[types.SimpleNamespace(id=r) for r in role_ids],
+        bot=False,
+        id=uid,
+    )
+
+
+def _crear_interaction(user):
+    return types.SimpleNamespace(
+        user=user,
+        response=types.SimpleNamespace(
+            send_message=AsyncMock(),
+            send_modal=AsyncMock(),
+            is_done=lambda: False,
+        ),
+        followup=types.SimpleNamespace(send=AsyncMock()),
+    )
+
+
+def _choice(value):
+    label = {"weekly": "Semanal", "monthly": "Mensual", "oneoff": "Una vez"}[value]
+    return app_commands.Choice(name=label, value=value)
+
+
+def _channel(cid=42):
+    return types.SimpleNamespace(id=cid, mention=f"<#{cid}>")
+
+
+def _role(mention="<@&123>"):
+    return types.SimpleNamespace(mention=mention)
+
+
+@pytest.fixture
+def cog(monkeypatch):
+    """A RemindersCog with the db table init + scheduler start neutralized."""
+    monkeypatch.setattr(reminders.db, "init_reminders", lambda: None)
+    monkeypatch.setattr(reminders.tasks.Loop, "start", lambda self, *a, **k: None)
+    return reminders.RemindersCog(bot=types.SimpleNamespace())
+
+
+async def _run_crear(cog, interaction, **kwargs):
+    defaults = dict(nombre="Junta", frecuencia=_choice("weekly"), canal=_channel(),
+                    hora="09:00", dia_semana=0, dia_mes=None, fecha=None,
+                    mencion=None, emojis=None)
+    defaults.update(kwargs)
+    await reminders.RemindersCog.crear.callback(cog, interaction, **defaults)
+
+
+# ── staff gate (D-02 / T-08-01) ────────────────────────────────────────────────────
+def test_crear_non_staff_rejected_no_persist(cog):
+    inter = _crear_interaction(_user([OTHER_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter))
+    inter.response.send_message.assert_awaited_once()
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+    inter.response.send_modal.assert_not_awaited()          # nothing persisted / no modal
+
+
+# ── required name (D-05) ────────────────────────────────────────────────────────────
+def test_crear_blank_name_rejected_before_modal(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, nombre="   "))
+    inter.response.send_modal.assert_not_awaited()
+    msg = inter.response.send_message.await_args.args[0]
+    assert msg.startswith("❌")
+
+
+def test_crear_overlong_name_rejected_before_modal(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, nombre="x" * 81))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+# ── schedule validation (T-08-04) ──────────────────────────────────────────────────
+def test_crear_weekly_missing_weekday_rejected(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, frecuencia=_choice("weekly"), dia_semana=None))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_crear_weekly_invalid_weekday_rejected(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, frecuencia=_choice("weekly"), dia_semana=9))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_crear_monthly_missing_day_rejected(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, frecuencia=_choice("monthly"),
+                           dia_semana=None, dia_mes=None))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_crear_malformed_time_rejected(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, hora="25:99"))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_crear_oneoff_past_date_rejected(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, frecuencia=_choice("oneoff"),
+                           dia_semana=None, fecha="2020-01-01"))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_crear_oneoff_malformed_date_rejected(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, frecuencia=_choice("oneoff"),
+                           dia_semana=None, fecha="nope"))
+    inter.response.send_modal.assert_not_awaited()
+    assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+# ── success path opens the modal as the FIRST response (no defer) ───────────────────
+def test_crear_valid_weekly_opens_modal_with_params(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, frecuencia=_choice("weekly"), dia_semana=2,
+                           hora="14:30", canal=_channel(77), mencion=_role("<@&99>")))
+    inter.response.send_modal.assert_awaited_once()
+    inter.response.send_message.assert_not_awaited()        # send_modal was the FIRST response
+    modal = inter.response.send_modal.await_args.args[0]
+    assert isinstance(modal, reminders.MensajeModal)
+    p = modal.params
+    assert p["frequency"] == "weekly" and p["weekday"] == 2
+    assert (p["hour"], p["minute"]) == (14, 30)
+    assert p["channel_id"] == 77
+    assert p["mentions"] == "<@&99>"
+    assert p["created_by"] == STAFF_UID
+
+
+def test_crear_emojis_routed_through_parse_emojis(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(cog, inter, emojis="✅ ✅ ❌"))    # dupes collapse via parse_emojis
+    modal = inter.response.send_modal.await_args.args[0]
+    assert modal.params["reactions"] == "✅ ❌"
+
+
+# ── MensajeModal.on_submit persists via db.add_reminder with a computed next_fire ────
+def _modal_interaction():
+    return types.SimpleNamespace(
+        response=types.SimpleNamespace(is_done=lambda: False, send_message=AsyncMock()),
+        followup=types.SimpleNamespace(send=AsyncMock()),
+    )
+
+
+def test_modal_submit_persists_reminder(monkeypatch):
+    add = MagicMock(return_value=1)
+    monkeypatch.setattr(reminders.db, "add_reminder", add)
+    params = {"name": "Junta", "frequency": "weekly", "hour": 9, "minute": 0,
+              "channel_id": 42, "weekday": 0, "day_of_month": None, "run_date": None,
+              "mentions": "<@&123>", "reactions": "✅ ❌", "created_by": STAFF_UID}
+    inter = _modal_interaction()
+
+    async def _run():
+        modal = reminders.MensajeModal(params=params)
+        modal.body._value = "  Recuerden la junta  "
+        await modal.on_submit(inter)
+
+    asyncio.run(_run())
+    add.assert_called_once()
+    kw = add.call_args.kwargs
+    assert kw["name"] == "Junta"
+    assert kw["frequency"] == "weekly"
+    assert kw["message"] == "Recuerden la junta"           # stripped body
+    assert kw["reactions"] == "✅ ❌"
+    assert kw["channel_id"] == 42
+    nf = datetime.fromisoformat(kw["next_fire_utc"])
+    assert nf > datetime.now(timezone.utc) - timedelta(minutes=1)   # a future cursor
+    inter.response.send_message.assert_awaited_once()      # ephemeral confirmation
+
+
+def test_modal_submit_edit_branch_updates(monkeypatch):
+    update = MagicMock()
+    add = MagicMock()
+    monkeypatch.setattr(reminders.db, "update_reminder", update)
+    monkeypatch.setattr(reminders.db, "add_reminder", add)
+    params = {"edit_id": 7, "name": "Junta", "frequency": "weekly", "hour": 9,
+              "minute": 0, "channel_id": 42, "weekday": 0, "day_of_month": None,
+              "run_date": None, "mentions": "", "reactions": "", "created_by": STAFF_UID}
+    inter = _modal_interaction()
+
+    async def _run():
+        modal = reminders.MensajeModal(params=params)
+        modal.body._value = "Nuevo cuerpo"
+        await modal.on_submit(inter)
+
+    asyncio.run(_run())
+    update.assert_called_once()                            # edit path routes to update_reminder
+    add.assert_not_called()
