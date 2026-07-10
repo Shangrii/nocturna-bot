@@ -637,8 +637,19 @@ def test_borrar_autocomplete_delegates_to_reminder_choices(cog, monkeypatch):
     rows = [_row(id=7, name="Junta"), _row(id=8, name="Pago", frequency="monthly",
                                            weekday=None, day_of_month=15)]
     monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
-    choices = asyncio.run(cog.borrar_autocomplete(None, "jun"))
+    inter = types.SimpleNamespace(user=_member([STAFF_ROLE_ID]))   # staff → full list
+    choices = asyncio.run(cog.borrar_autocomplete(inter, "jun"))
     assert [c.value for c in choices] == ["7"]                  # 'jun' in 'junta'
+
+
+def test_borrar_autocomplete_non_staff_returns_empty_no_db(cog, monkeypatch):
+    # D-02 / T-08-06: a non-staff caller gets [] and the store is never read.
+    list_reminders = MagicMock(return_value=[_row(id=7, name="Junta")])
+    monkeypatch.setattr(reminders.db, "list_reminders", list_reminders)
+    inter = types.SimpleNamespace(user=_member([OTHER_ROLE_ID]))   # non-staff
+    choices = asyncio.run(cog.borrar_autocomplete(inter, "jun"))
+    assert choices == []
+    list_reminders.assert_not_called()
 
 
 # ── borrar (staff-gated, autocomplete-picked, T-08-01 / T-08-10) ────────────────────
@@ -833,5 +844,16 @@ def test_editar_mencion_persists_role_mention(cog, monkeypatch):
 def test_editar_autocomplete_delegates_to_reminder_choices(cog, monkeypatch):
     rows = [_row(id=7, name="Junta")]
     monkeypatch.setattr(reminders.db, "list_reminders", lambda: rows)
-    choices = asyncio.run(cog.editar_autocomplete(None, "jun"))
+    inter = types.SimpleNamespace(user=_member([STAFF_ROLE_ID]))   # staff → full list
+    choices = asyncio.run(cog.editar_autocomplete(inter, "jun"))
     assert [c.value for c in choices] == ["7"]
+
+
+def test_editar_autocomplete_non_staff_returns_empty_no_db(cog, monkeypatch):
+    # D-02 / T-08-06: a non-staff caller gets [] and the store is never read.
+    list_reminders = MagicMock(return_value=[_row(id=7, name="Junta")])
+    monkeypatch.setattr(reminders.db, "list_reminders", list_reminders)
+    inter = types.SimpleNamespace(user=_member([OTHER_ROLE_ID]))   # non-staff
+    choices = asyncio.run(cog.editar_autocomplete(inter, "jun"))
+    assert choices == []
+    list_reminders.assert_not_called()
