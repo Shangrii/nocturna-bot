@@ -436,3 +436,161 @@ def test_modal_submit_edit_branch_updates(monkeypatch):
     asyncio.run(_run())
     update.assert_called_once()                            # edit path routes to update_reminder
     add.assert_not_called()
+
+
+# ══ 08-03 Task 2: scheduler tick + delivery + catch-up + D-16 lifecycle ═════════════
+
+NOW = datetime(2026, 7, 8, 15, 0, tzinfo=timezone.utc)
+
+
+def _row(**over):
+    base = dict(id=1, name="Junta", frequency="weekly", weekday=0, day_of_month=None,
+                run_date=None, hour=9, minute=0, channel_id=42,
+                message="Recuerden la junta", mentions="", reactions="",
+                next_fire_utc=NOW.isoformat(), created_by=STAFF_UID, created_at="")
+    base.update(over)
+    return base
+
+
+def _http_error(status=404, reason="nf"):
+    return discord.HTTPException(types.SimpleNamespace(status=status, reason=reason), "boom")
+
+
+def _sending_channel():
+    """A channel whose ``send`` returns a message we can assert reactions on."""
+    sent = types.SimpleNamespace(add_reaction=AsyncMock())
+    channel = types.SimpleNamespace(send=AsyncMock(return_value=sent))
+    return channel, sent
+
+
+def _patch_db(monkeypatch, rows):
+    setnf, delete = MagicMock(), MagicMock()
+    monkeypatch.setattr(reminders.db, "due_reminders", lambda iso: list(rows))
+    monkeypatch.setattr(reminders.db, "set_next_fire", setnf)
+    monkeypatch.setattr(reminders.db, "delete_reminder", delete)
+    return setnf, delete
+
+
+# ── lifecycle: advance-after-send (recurring) vs auto-delete (one-off, D-16) ────────
+def test_due_weekly_ontime_delivers_and_advances(cog, monkeypatch):
+    setnf, delete = _patch_db(monkeypatch, [_row(frequency="weekly")])
+    cog._deliver = AsyncMock()
+    asyncio.run(cog._process_due(NOW))
+    cog._deliver.assert_awaited_once()
+    assert cog._deliver.await_args.kwargs.get("atrasado") is False
+    setnf.assert_called_once()                             # recurring cursor advanced
+    delete.assert_not_called()
+
+
+def test_due_oneoff_delivers_once_then_deletes(cog, monkeypatch):
+    setnf, delete = _patch_db(
+        monkeypatch, [_row(frequency="oneoff", run_date="2026-07-08", weekday=None)])
+    cog._deliver = AsyncMock()
+    asyncio.run(cog._process_due(NOW))
+    cog._deliver.assert_awaited_once()
+    delete.assert_called_once_with(1)                      # D-16 auto-delete
+    setnf.assert_not_called()                              # never advanced
+
+
+def test_due_late_within_grace_marks_atrasado(cog, monkeypatch):
+    _patch_db(monkeypatch, [_row(next_fire_utc=(NOW - timedelta(hours=2)).isoformat())])
+    cog._deliver = AsyncMock()
+    asyncio.run(cog._process_due(NOW))
+    assert cog._deliver.await_args.kwargs.get("atrasado") is True   # 'late' → atrasado
+
+
+def test_due_skip_beyond_grace_sends_nothing_but_advances(cog, monkeypatch):
+    setnf, delete = _patch_db(
+        monkeypatch, [_row(next_fire_utc=(NOW - timedelta(hours=7)).isoformat())])
+    cog._deliver = AsyncMock()
+    asyncio.run(cog._process_due(NOW))
+    cog._deliver.assert_not_awaited()                      # skipped — nothing sent
+    setnf.assert_called_once()                             # …but the cursor still advances
+
+
+def test_due_skip_oneoff_beyond_grace_is_deleted(cog, monkeypatch):
+    setnf, delete = _patch_db(monkeypatch, [_row(
+        frequency="oneoff", run_date="2026-07-08", weekday=None,
+        next_fire_utc=(NOW - timedelta(hours=7)).isoformat())])
+    cog._deliver = AsyncMock()
+    asyncio.run(cog._process_due(NOW))
+    cog._deliver.assert_not_awaited()
+    delete.assert_called_once_with(1)                      # a skipped one-off is expired
+
+
+# ── per-reminder isolation (T-08-05 / Pitfall 1) ───────────────────────────────────
+def test_one_bad_reminder_does_not_stop_others(cog, monkeypatch):
+    _patch_db(monkeypatch, [_row(id=1), _row(id=2)])
+
+    async def _deliver(r, atrasado):
+        if r["id"] == 1:
+            raise RuntimeError("boom")
+    cog._deliver = AsyncMock(side_effect=_deliver)
+    asyncio.run(cog._process_due(NOW))                     # must not raise
+    assert cog._deliver.await_count == 2                   # reminder 2 still fired
+
+
+# ── _deliver contract (D-10/D-11/D-14) ─────────────────────────────────────────────
+def test_deliver_sends_content_embed_and_allowed_mentions(cog):
+    channel, sent = _sending_channel()
+    cog.bot.get_channel = lambda cid: channel
+    asyncio.run(cog._deliver(_row(name="Junta", message="cuerpo", mentions="<@&123>"),
+                             atrasado=False))
+    kw = channel.send.await_args.kwargs
+    assert kw["content"] == "<@&123>"
+    embed = kw["embed"]
+    assert embed.title == "Junta"
+    assert embed.description == "cuerpo"
+    assert embed.color.value == 0xC0192C
+    am = kw["allowed_mentions"]
+    assert am.everyone is False and am.roles is True and am.users is True
+
+
+def test_deliver_content_none_when_no_mentions(cog):
+    channel, sent = _sending_channel()
+    cog.bot.get_channel = lambda cid: channel
+    asyncio.run(cog._deliver(_row(mentions=""), atrasado=False))
+    assert channel.send.await_args.kwargs["content"] is None
+
+
+def test_deliver_late_prefixes_atrasado_in_description(cog):
+    channel, sent = _sending_channel()
+    cog.bot.get_channel = lambda cid: channel
+    asyncio.run(cog._deliver(_row(message="cuerpo"), atrasado=True))
+    assert channel.send.await_args.kwargs["embed"].description.startswith("⏰ **atrasado**")
+
+
+def test_deliver_seeds_reactions_tolerating_a_bad_emoji(cog):
+    calls = []
+
+    async def _add(e):
+        calls.append(e)
+        if e == "❌":
+            raise _http_error(400, "bad emoji")
+    channel = types.SimpleNamespace(
+        send=AsyncMock(return_value=types.SimpleNamespace(add_reaction=AsyncMock(side_effect=_add))))
+    cog.bot.get_channel = lambda cid: channel
+    asyncio.run(cog._deliver(_row(reactions="✅ ❌ 🎉"), atrasado=False))
+    assert calls == ["✅", "❌", "🎉"]                      # bad emoji skipped, rest still seeded
+
+
+def test_deliver_unresolvable_channel_logs_and_returns(cog):
+    cog.bot.get_channel = lambda cid: None
+    cog.bot.fetch_channel = AsyncMock(side_effect=_http_error())
+    asyncio.run(cog._deliver(_row(), atrasado=False))      # must not raise, sends nothing
+
+
+def test_unresolvable_channel_tick_continues_reminder_not_deleted(cog, monkeypatch):
+    setnf, delete = _patch_db(monkeypatch, [_row(frequency="weekly")])
+    cog.bot.get_channel = lambda cid: None
+    cog.bot.fetch_channel = AsyncMock(side_effect=_http_error())
+    asyncio.run(cog._process_due(NOW))                     # must not raise
+    delete.assert_not_called()                             # recurring reminder never deleted
+    setnf.assert_called_once()                             # advances past the missed occurrence
+
+
+# ── scheduler lifecycle hooks ──────────────────────────────────────────────────────
+def test_before_loop_waits_until_ready(cog):
+    cog.bot.wait_until_ready = AsyncMock()
+    asyncio.run(cog._before_scheduler())
+    cog.bot.wait_until_ready.assert_awaited_once()
