@@ -246,9 +246,33 @@ class MensajeModal(discord.ui.Modal):
         name = params.get("name", "")
 
         if params.get("edit_id"):
-            # 08-04 edit path: change only the message body here; schedule edits land in 08-04.
-            db.update_reminder(params["edit_id"], message=body)
-            await self._reply(interaction, f"✅ Recordatorio actualizado: **{name}**")
+            # 08-04 edit path: persist ALL merged fields that `editar` resolved (schedule,
+            # channel, name, mention, reactions) plus the stripped body. `editar` already
+            # recomputed next_fire_utc from the merged schedule; carry it through when present.
+            update_fields = {
+                "name": name,
+                "frequency": params["frequency"],
+                "weekday": params.get("weekday"),
+                "day_of_month": params.get("day_of_month"),
+                "run_date": params.get("run_date"),
+                "hour": params["hour"],
+                "minute": params["minute"],
+                "channel_id": params["channel_id"],
+                "message": body,
+                "mentions": params.get("mentions", ""),
+                "reactions": params.get("reactions", ""),
+            }
+            next_fire = params.get("next_fire_utc")
+            if next_fire:
+                update_fields["next_fire_utc"] = next_fire
+            db.update_reminder(params["edit_id"], **update_fields)
+            summary = schedule_summary({
+                "frequency": params["frequency"], "weekday": params.get("weekday"),
+                "day_of_month": params.get("day_of_month"), "run_date": params.get("run_date"),
+                "hour": params["hour"], "minute": params["minute"],
+            })
+            await self._reply(
+                interaction, f"✏️ Recordatorio **{name}** actualizado — {summary}")
             return
 
         next_fire = _next_fire_for(params, datetime.now(timezone.utc))
@@ -480,6 +504,134 @@ class RemindersCog(
 
     @borrar.autocomplete("recordatorio")
     async def borrar_autocomplete(self, interaction: discord.Interaction,
+                                  current: str) -> list[app_commands.Choice[str]]:
+        return self._reminder_choices(current)
+
+    # ── /recordatorio editar (D-04/D-15, T-08-04/T-08-10) ─────────────────────────────
+    @app_commands.command(name="editar",
+                          description="Edita un recordatorio existente (staff)")
+    @app_commands.describe(
+        recordatorio="Elige el recordatorio",
+        nombre="Nuevo nombre (opcional)",
+        frecuencia="Nueva frecuencia (opcional)",
+        canal="Nuevo canal (opcional)",
+        hora="Nueva hora 24h HH:MM (opcional)",
+        dia_semana="Semanal: 0=lunes .. 6=domingo (opcional)",
+        dia_mes="Mensual: día del mes 1-31 (opcional)",
+        fecha="Una vez: fecha YYYY-MM-DD (opcional)",
+        mencion="Nuevo rol a mencionar (opcional)",
+        emojis="Nuevas reacciones separadas por espacio (opcional)",
+    )
+    @app_commands.choices(frecuencia=[
+        app_commands.Choice(name="Semanal", value="weekly"),
+        app_commands.Choice(name="Mensual", value="monthly"),
+        app_commands.Choice(name="Una vez", value="oneoff"),
+    ])
+    async def editar(self, interaction: discord.Interaction, recordatorio: str,
+                     nombre: str | None = None,
+                     frecuencia: app_commands.Choice[str] | None = None,
+                     canal: discord.TextChannel | None = None, hora: str | None = None,
+                     dia_semana: int | None = None, dia_mes: int | None = None,
+                     fecha: str | None = None, mencion: discord.Role | None = None,
+                     emojis: str | None = None):
+        # 1. Staff gate FIRST (D-02, T-08-01).
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # 2. Resolve the stored row (autocomplete value is attacker-choosable, T-08-10).
+        row = None
+        try:
+            row = db.get_reminder(int(recordatorio))
+        except (TypeError, ValueError):
+            row = None
+        if row is None:
+            await interaction.response.send_message(
+                "❌ No encontré ese recordatorio.", ephemeral=True)
+            return
+
+        # 3. Merge: None means "keep stored value"; overlay each provided param.
+        name = nombre.strip() if nombre is not None else row["name"]
+        if not name:
+            await interaction.response.send_message(
+                "❌ El nombre es obligatorio.", ephemeral=True)
+            return
+        if len(name) > _NAME_MAX:
+            await interaction.response.send_message(
+                f"❌ El nombre es demasiado largo (máx. {_NAME_MAX} caracteres).",
+                ephemeral=True)
+            return
+
+        frequency = frecuencia.value if frecuencia is not None else row["frequency"]
+
+        if hora is not None:
+            try:
+                hour, minute = parse_time(hora)
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ Hora inválida. Usa el formato 24h HH:MM (p. ej. 09:30).",
+                    ephemeral=True)
+                return
+        else:
+            hour, minute = int(row["hour"]), int(row["minute"])
+
+        channel_id = canal.id if canal is not None else row["channel_id"]
+        mentions = mencion.mention if mencion is not None else row["mentions"]
+        reactions = " ".join(parse_emojis(emojis)) if emojis is not None else row["reactions"]
+        weekday = dia_semana if dia_semana is not None else row["weekday"]
+        day_of_month = dia_mes if dia_mes is not None else row["day_of_month"]
+        run_date = fecha if fecha is not None else row["run_date"]
+
+        # 4. Cross-field validation on the MERGED schedule (T-08-04) — a partial edit can never
+        #    persist an inconsistent schedule (e.g. monthly without a day).
+        if frequency == "weekly":
+            if weekday is None or not valid_weekday(weekday):
+                await interaction.response.send_message(
+                    "❌ Un recordatorio semanal necesita `dia_semana` (0=lunes .. 6=domingo).",
+                    ephemeral=True)
+                return
+        elif frequency == "monthly":
+            if day_of_month is None or not valid_day_of_month(day_of_month):
+                await interaction.response.send_message(
+                    "❌ Un recordatorio mensual necesita `dia_mes` (1-31).", ephemeral=True)
+                return
+        elif frequency == "oneoff":
+            if run_date is None:
+                await interaction.response.send_message(
+                    "❌ Un recordatorio de una vez necesita `fecha` (YYYY-MM-DD).",
+                    ephemeral=True)
+                return
+            try:
+                parse_date(run_date)
+            except (ValueError, TypeError):
+                await interaction.response.send_message(
+                    "❌ Fecha inválida. Usa el formato YYYY-MM-DD (p. ej. 2026-12-25).",
+                    ephemeral=True)
+                return
+            if next_oneoff_fire(run_date, hour, minute) <= datetime.now(timezone.utc):
+                await interaction.response.send_message(
+                    "❌ Esa fecha y hora ya pasaron.", ephemeral=True)
+                return
+
+        # 5. Re-anchor next_fire_utc from the merged schedule. An edited schedule must
+        #    recompute; a pure name/channel/emoji edit recomputing too is harmless and simpler.
+        merged = {"frequency": frequency, "weekday": weekday, "day_of_month": day_of_month,
+                  "run_date": run_date, "hour": hour, "minute": minute}
+        next_fire = _next_fire_for(merged, datetime.now(timezone.utc))
+
+        # 6. Open the pre-filled modal as the FIRST response (D-15, RESEARCH Pattern 2).
+        params = {
+            "edit_id": row["id"], "name": name, "frequency": frequency, "hour": hour,
+            "minute": minute, "channel_id": channel_id, "weekday": weekday,
+            "day_of_month": day_of_month, "run_date": run_date, "mentions": mentions,
+            "reactions": reactions, "next_fire_utc": next_fire.isoformat(),
+            "created_by": interaction.user.id,
+        }
+        await interaction.response.send_modal(MensajeModal(
+            params=params, default_body=row["message"], title="Editar recordatorio"))
+
+    @editar.autocomplete("recordatorio")
+    async def editar_autocomplete(self, interaction: discord.Interaction,
                                   current: str) -> list[app_commands.Choice[str]]:
         return self._reminder_choices(current)
 
