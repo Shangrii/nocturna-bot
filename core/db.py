@@ -208,3 +208,130 @@ def delete_avatar(name: str) -> int:
                 conn.execute("DELETE FROM forum_posts WHERE thread_id = ?", (row["thread_id"],))
             count += 1
     return count
+
+
+# ── Recordatorios (Fase 8: cog de recordatorios programados) ──────────────────
+# El cog crea/edita/borra recordatorios semanales/mensuales/únicos; el scheduler lee
+# las filas "vencidas" por next_fire_utc (el cursor ISO 8601 UTC) y recalcula la
+# próxima. Todas las sentencias usan placeholders `?` — nunca SQL con f-strings:
+# name/message son texto de staff persistido tal cual (T-08-03). El cog llama a
+# init_reminders() en su __init__ (mismo patrón que init_gallery_state), NO init_db().
+
+# Columnas que update_reminder puede modificar. Lista blanca explícita para que una
+# clave inesperada en **fields no pueda inyectar un nombre de columna en el SQL (T-08-03).
+_REMINDER_UPDATABLE = (
+    "name", "frequency", "weekday", "day_of_month", "run_date", "hour", "minute",
+    "channel_id", "message", "mentions", "reactions", "next_fire_utc",
+)
+
+
+def init_reminders():
+    """Crea la tabla de recordatorios si no existe (idiom CREATE TABLE IF NOT EXISTS).
+
+    El cog la llama en su ``__init__`` para que exista antes de programar. ``id`` es
+    AUTOINCREMENT; ``frequency`` es 'weekly'|'monthly'|'oneoff'; weekday/day_of_month/
+    run_date son nullable (solo aplica el campo de la frecuencia); ``next_fire_utc`` es
+    el cursor ISO 8601 UTC que usa el scheduler.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reminders (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                name          TEXT    NOT NULL,
+                frequency     TEXT    NOT NULL,        -- 'weekly' | 'monthly' | 'oneoff'
+                weekday       INTEGER,                 -- 0-6 (weekly)
+                day_of_month  INTEGER,                 -- 1-31 (monthly)
+                run_date      TEXT,                    -- 'YYYY-MM-DD' (oneoff)
+                hour          INTEGER NOT NULL,
+                minute        INTEGER NOT NULL,
+                channel_id    INTEGER NOT NULL,
+                message       TEXT    NOT NULL,
+                mentions      TEXT    DEFAULT '',       -- e.g. '<@&123>'
+                reactions     TEXT    DEFAULT '',       -- e.g. '✅ ❌'
+                next_fire_utc TEXT    NOT NULL,         -- ISO 8601 UTC (el cursor del scheduler)
+                created_by    INTEGER NOT NULL,
+                created_at    TEXT    NOT NULL
+            )
+        """)
+
+
+def add_reminder(name: str, frequency: str, hour: int, minute: int, channel_id: int,
+                 message: str, created_by: int, weekday: int | None = None,
+                 day_of_month: int | None = None, run_date: str | None = None,
+                 mentions: str = "", reactions: str = "",
+                 next_fire_utc: str = "") -> int:
+    """Inserta un recordatorio y devuelve el id nuevo (``lastrowid``).
+
+    ``created_at`` se sella con ``datetime.now(timezone.utc).isoformat()`` (mismo idiom
+    que save_post). Todos los valores van por placeholders `?` (T-08-03).
+    """
+    with _get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO reminders
+                (name, frequency, weekday, day_of_month, run_date, hour, minute,
+                 channel_id, message, mentions, reactions, next_fire_utc,
+                 created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (name, frequency, weekday, day_of_month, run_date, hour, minute,
+              channel_id, message, mentions, reactions, next_fire_utc,
+              created_by, datetime.now(timezone.utc).isoformat()))
+        return cur.lastrowid
+
+
+def list_reminders() -> list[sqlite3.Row]:
+    """Devuelve todos los recordatorios ordenados por próxima ejecución."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM reminders ORDER BY next_fire_utc"
+        ).fetchall()
+
+
+def get_reminder(reminder_id: int) -> sqlite3.Row | None:
+    """Devuelve el recordatorio con ese id, o None si no existe."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM reminders WHERE id = ?", (reminder_id,)
+        ).fetchone()
+
+
+def update_reminder(reminder_id: int, **fields):
+    """Actualiza SOLO las columnas pasadas en ``**fields`` para ese recordatorio.
+
+    Las claves se filtran contra ``_REMINDER_UPDATABLE`` (lista blanca) antes de armar
+    el ``SET col = ?, ...``, así una clave inesperada nunca inyecta un nombre de columna
+    (T-08-03). No hace nada si no queda ninguna columna válida.
+    """
+    cols = [(k, v) for k, v in fields.items() if k in _REMINDER_UPDATABLE]
+    if not cols:
+        return
+    set_clause = ", ".join(k + " = ?" for k, _ in cols)
+    values = [v for _, v in cols]
+    values.append(reminder_id)
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE reminders SET " + set_clause + " WHERE id = ?", values
+        )
+
+
+def delete_reminder(reminder_id: int):
+    """Elimina el recordatorio con ese id."""
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+
+
+def due_reminders(now_utc_iso: str) -> list[sqlite3.Row]:
+    """Devuelve los recordatorios vencidos (next_fire_utc <= ahora), en orden de disparo."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM reminders WHERE next_fire_utc <= ? ORDER BY next_fire_utc",
+            (now_utc_iso,)
+        ).fetchall()
+
+
+def set_next_fire(reminder_id: int, next_fire_utc_iso: str):
+    """Avanza el cursor next_fire_utc de un recordatorio a la próxima ejecución."""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE reminders SET next_fire_utc = ? WHERE id = ?",
+            (next_fire_utc_iso, reminder_id)
+        )
