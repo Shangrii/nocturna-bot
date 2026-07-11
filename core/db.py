@@ -335,3 +335,72 @@ def set_next_fire(reminder_id: int, next_fire_utc_iso: str):
             "UPDATE reminders SET next_fire_utc = ? WHERE id = ?",
             (next_fire_utc_iso, reminder_id)
         )
+
+
+# ── Tienda (Fase 9: snapshot de sync) ─────────────────────────────────────────
+# El cog del sync guarda, por producto, el ÚLTIMO valor sincronizado de cada campo
+# propiedad del sync (D-12). Ese snapshot durable permite la comparación de tres vías
+# ("Jinxxy cambió" vs "el staff editó") sobreviva reinicios. Se clave por checkout_url
+# (la clave de enlace D-13). El cog llama a init_store_state() en su __init__ (mismo
+# patrón que init_gallery_state/init_reminders), NO init_db(). Todas las sentencias usan
+# placeholders `?`; ningún nombre de columna se interpola desde una variable (T-08-03).
+
+
+def init_store_state():
+    """Crea la tabla de snapshot de la tienda si no existe (CREATE TABLE IF NOT EXISTS).
+
+    Una fila por producto sincronizado con el último valor Jinxxy de cada campo propiedad
+    del sync, clave ``checkout_url`` (D-13). ``synced_at`` es ISO 8601 UTC. Idempotente:
+    llamarla dos veces no falla. El cog la invoca en su ``__init__``.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS store_snapshot (
+                checkout_url TEXT PRIMARY KEY,   -- clave de enlace (D-13)
+                jinxxy_id    TEXT,
+                name         TEXT,
+                price        TEXT,
+                category     TEXT,
+                nsfw         INTEGER,
+                date         TEXT,
+                synced_at    TEXT NOT NULL        -- ISO 8601 UTC del último sync
+            )
+        """)
+
+
+def get_store_snapshot() -> dict[str, sqlite3.Row]:
+    """Devuelve todas las filas del snapshot, indexadas por ``checkout_url``.
+
+    Para una pasada de merge sobre toda la tienda: el cog compara este snapshot durable
+    contra los valores en vivo de Jinxxy y contra el ``store.json`` actual (comparación
+    de tres vías, D-12). Devuelve ``{}`` cuando la tabla está vacía.
+    """
+    with _get_conn() as conn:
+        rows = conn.execute("SELECT * FROM store_snapshot").fetchall()
+    return {row["checkout_url"]: row for row in rows}
+
+
+def upsert_store_snapshot(checkout_url: str, jinxxy_id: str, name: str, price: str,
+                          category: str, nsfw: int, date: str):
+    """Inserta o reemplaza la fila del snapshot para ``checkout_url``.
+
+    ``INSERT OR REPLACE`` mantiene una sola fila por producto (una segunda llamada sobre
+    el mismo ``checkout_url`` reemplaza, no duplica). ``synced_at`` se sella con
+    ``datetime.now(timezone.utc).isoformat()`` (mismo idiom que save_post). Todos los
+    valores van por placeholders `?` (T-08-03).
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO store_snapshot
+                (checkout_url, jinxxy_id, name, price, category, nsfw, date, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (checkout_url, jinxxy_id, name, price, category, nsfw, date,
+              datetime.now(timezone.utc).isoformat()))
+
+
+def delete_store_snapshot(checkout_url: str):
+    """Elimina la fila del snapshot de un producto deslistado (baja en la tienda)."""
+    with _get_conn() as conn:
+        conn.execute(
+            "DELETE FROM store_snapshot WHERE checkout_url = ?", (checkout_url,)
+        )
