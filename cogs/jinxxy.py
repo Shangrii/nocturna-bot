@@ -24,14 +24,16 @@ Hard rules (locked decisions):
 """
 
 import asyncio
+import hashlib
 import logging
+import re
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 import config
-from core import db, github_publish, jinxxy_api, store_sync
+from core import db, github_publish, image_optimize, jinxxy_api, store_sync
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,37 @@ def _snapshot_from_row(row) -> dict:
         "nsfw": bool(row["nsfw"]),
         "date": row["date"],
     }
+
+
+# ── /tienda medios helpers (D-14/D-15 staff-supplied images + description) ────────────
+def _slug_from_url(checkout_url: str) -> str:
+    """A filesystem-safe base slug for image filenames — numerics/letters/hyphens only.
+
+    Derived from the checkoutUrl's last path segment (the Jinxxy product slug) and re-sanitised
+    so NO raw user text can ever reach a committed path (T-09-19). Falls back to a short hash of
+    the URL when the tail sanitises to empty, so a filename base is ALWAYS bot-generated.
+    """
+    tail = (checkout_url or "").rstrip("/").rsplit("/", 1)[-1]
+    slug = re.sub(r"[^a-z0-9-]", "", tail.lower())
+    if not slug:
+        slug = hashlib.md5((checkout_url or "").encode("utf-8")).hexdigest()[:10]
+    return slug
+
+
+def _optimize_attachments(raws, slug="store"):
+    """Optimize each raw attachment to WebP + a bot-generated ``{slug}-{index}.webp`` name.
+
+    Pure/synchronous (the cog runs it off the event loop via ``asyncio.to_thread``): reuses the
+    gallery ``optimize_to_webp`` pipeline (downscale-only 1920px, EXIF/GPS stripped, re-encoded so
+    arbitrary upload bytes never land verbatim — T-09-19). Filenames carry NO raw user text: the
+    ``slug`` is a sanitised base (see :func:`_slug_from_url`) and the suffix is a numeric index.
+    """
+    base = slug or "store"
+    media = []
+    for index, raw in enumerate(raws, start=1):
+        webp, _width, _height = image_optimize.optimize_to_webp(raw)
+        media.append((webp, f"{base}-{index}.webp"))
+    return media
 
 
 class JinxxyCog(
@@ -235,6 +268,114 @@ class JinxxyCog(
         else:
             summary = "Sin cambios."
         await interaction.followup.send(summary, ephemeral=True)
+
+    # ── /tienda medios (D-14/D-15 staff-supplied images + bilingual description) ────────
+    @app_commands.command(
+        name="medios",
+        description="Adjunta imágenes y descripción a un producto de la tienda (staff)")
+    @app_commands.describe(
+        producto="Producto de la tienda (usa el autocompletar)",
+        imagen1="Imagen principal (se optimiza a WebP)",
+        imagen2="Imagen adicional (opcional)",
+        imagen3="Imagen adicional (opcional)",
+        imagen4="Imagen adicional (opcional)",
+        descripcion_es="Descripción en español (opcional)",
+        descripcion_en="Descripción en inglés (opcional)")
+    async def medios(
+        self,
+        interaction: discord.Interaction,
+        producto: str,
+        imagen1: discord.Attachment,
+        imagen2: discord.Attachment | None = None,
+        imagen3: discord.Attachment | None = None,
+        imagen4: discord.Attachment | None = None,
+        descripcion_es: str | None = None,
+        descripcion_en: str | None = None,
+    ):
+        """Attach up to 4 optimized images + a bilingual description to a synced product.
+
+        The Creator API exposes no images/description (D-14 live probe), so staff supply them here
+        (STORE-SYNC-02). Only IMAGES + DESCRIPTION are ever written — never a sync-owned field
+        (this flow and the merge are disjoint, D-12/D-15). Staff gate FIRST (T-09-18): a non-staff
+        invoker gets "Sin permisos." before any attachment byte is read. Attachments are re-encoded
+        to WebP with bot-generated numeric filenames (T-09-19), then committed via
+        ``attach_store_media`` (09-04) matched by ``checkoutUrl``. On a transport failure NOTHING is
+        posted publicly (D-05): the error is logged and the STAFF invoker gets an ephemeral reply.
+        """
+        # 1. Staff gate FIRST — before defer or any attachment read (T-09-18).
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # 2. Defer (reading attachments + optimizing + a cross-repo commit exceeds the 3s ack).
+        await interaction.response.defer(ephemeral=True)
+
+        # 3. Read every provided attachment's bytes, then optimize to WebP off the event loop.
+        attachments = [a for a in (imagen1, imagen2, imagen3, imagen4) if a is not None]
+        try:
+            raws = [await att.read() for att in attachments]
+        except discord.HTTPException:
+            log.exception("jinxxy: no pude descargar los adjuntos de /tienda medios")
+            await interaction.followup.send(
+                "No pude descargar las imágenes; inténtalo de nuevo.", ephemeral=True)
+            return
+        media = await asyncio.to_thread(
+            _optimize_attachments, raws, _slug_from_url(producto))
+
+        # 4. Build the description dict ONLY from the provided locale params. Omit a key when its
+        #    param is None so a partial edit doesn't wipe the other locale (09-04's None-skip).
+        description = {}
+        if descripcion_es is not None:
+            description["es"] = descripcion_es
+        if descripcion_en is not None:
+            description["en"] = descripcion_en
+        description = description or None
+
+        # 5. Commit images + description into the matched product (one atomic commit, 09-04).
+        try:
+            await github_publish.attach_store_media(producto, media, description)
+        except github_publish.GitHubPublishError:
+            # D-05: errors go to logs ONLY; the one user-facing signal is this ephemeral reply
+            # to the STAFF invoker — never a public post.
+            log.exception("jinxxy: /tienda medios falló")
+            await interaction.followup.send(
+                "No pude adjuntar los medios; revisa los logs.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"Adjunté {len(media)} imagen(es) y la descripción al producto — "
+            "la web tarda un par de minutos.", ephemeral=True)
+
+    @medios.autocomplete("producto")
+    async def _medios_producto_autocomplete(
+            self, interaction: discord.Interaction, current: str):
+        # Delegates to a plainly-testable coroutine (the registered callback is awkward to reach
+        # in unit tests). Staff gate + snapshot read live in _producto_choices.
+        return await self._producto_choices(interaction, current)
+
+    async def _producto_choices(
+            self, interaction: discord.Interaction,
+            current: str) -> list[app_commands.Choice[str]]:
+        """Autocomplete Choices from the synced products — ``[]`` for a non-staff caller (T-09-18).
+
+        The staff gate returns an empty Choice list for a non-staff member BEFORE any store read
+        (an autocomplete callback cannot send an ephemeral reply — CR-01). For staff, reads the
+        durable snapshot (local SQLite, fast per keystroke) and offers ``label = product name`` /
+        ``value = checkoutUrl``, substring-filtered by ``current``, capped at Discord's 25.
+        """
+        if not _is_staff(interaction.user):
+            return []
+        rows = await asyncio.to_thread(db.get_store_snapshot)
+        needle = (current or "").lower()
+        choices: list[app_commands.Choice[str]] = []
+        for key, row in rows.items():
+            name = row["name"] or key
+            if needle and needle not in str(name).lower() and needle not in str(key).lower():
+                continue
+            choices.append(app_commands.Choice(name=str(name)[:100], value=str(key)[:100]))
+            if len(choices) >= 25:
+                break
+        return choices
 
     # ── announce (D-05 / D-06) ────────────────────────────────────────────────────────
     async def _announce(self, result: dict):
