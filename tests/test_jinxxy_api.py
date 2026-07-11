@@ -267,3 +267,61 @@ def test_mid_pagination_error_raises_never_returns_partial_or_empty(wire, monkey
     monkeypatch.setattr(jinxxy_api.requests, "get", flaky_get)
     with pytest.raises(jinxxy_api.JinxxyAPIError):
         jinxxy_api.list_all_products()
+
+
+# ── CR-02: _retry_delay is clamped; epoch reset is a delta, never an unbounded sleep ──
+def test_retry_delay_clamps_a_huge_retry_after_to_max_backoff():
+    # Retry-After is a delta in seconds; a hostile/huge value must clamp to the cap,
+    # never drive time.sleep() for ~11 days (CR-02, T-09-08-01).
+    resp = _Resp(429, {}, headers={"Retry-After": "999999"})
+
+    delay = jinxxy_api._retry_delay(resp, attempt=0)
+
+    assert delay == jinxxy_api._MAX_BACKOFF
+    assert delay <= jinxxy_api._MAX_BACKOFF
+
+
+def test_retry_delay_treats_x_ratelimit_reset_as_epoch_and_clamps():
+    # X-RateLimit-Reset is a unix epoch timestamp, NOT a delta: a far-future epoch must
+    # be converted via `- time.time()` and then clamped — never a multi-decade sleep
+    # (CR-02, T-09-08-02).
+    far_future_epoch = time.time() + 10 ** 9   # ~31 years out
+    resp = _Resp(429, {}, headers={"X-RateLimit-Reset": str(far_future_epoch)})
+
+    delay = jinxxy_api._retry_delay(resp, attempt=0)
+
+    assert delay == jinxxy_api._MAX_BACKOFF
+
+
+def test_retry_delay_epoch_reset_in_the_past_is_never_negative():
+    # A reset timestamp at (or before) now yields a non-negative, sub-cap delay.
+    resp = _Resp(429, {}, headers={"X-RateLimit-Reset": str(time.time() - 5)})
+
+    delay = jinxxy_api._retry_delay(resp, attempt=0)
+
+    assert 0.0 <= delay <= jinxxy_api._MAX_BACKOFF
+
+
+def test_retry_delay_small_retry_after_is_unchanged_below_the_cap():
+    # A small valid Retry-After passes through unchanged (behaviour below the cap).
+    resp = _Resp(429, {}, headers={"Retry-After": "2"})
+
+    assert jinxxy_api._retry_delay(resp, attempt=0) == 2.0
+
+
+def test_retry_delay_malformed_header_falls_through_to_clamped_backoff():
+    # A malformed header value falls through to the exponential fallback, itself clamped.
+    resp = _Resp(429, {}, headers={"Retry-After": "not-a-number"})
+
+    delay = jinxxy_api._retry_delay(resp, attempt=2)
+
+    # fallback = _BACKOFF_BASE * 2**2 = 2.0, still <= cap
+    assert delay == jinxxy_api._BACKOFF_BASE * (2 ** 2)
+    assert delay <= jinxxy_api._MAX_BACKOFF
+
+
+def test_retry_delay_fallback_is_clamped_at_high_attempts():
+    # With no server hint, a large attempt exponent must still clamp to the cap.
+    resp = _Resp(429, {}, headers={})
+
+    assert jinxxy_api._retry_delay(resp, attempt=20) == jinxxy_api._MAX_BACKOFF
