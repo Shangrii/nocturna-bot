@@ -144,7 +144,14 @@ class JinxxyCog(
         # 1. /me → the store username (checkoutUrl construction, D-17) + owner display name
         #    (the `editor` default, D-09). Raises on outage.
         me = await asyncio.to_thread(jinxxy_api.get_me)
-        store_username = me.get("username") or ""
+        # WR-04: the username is load-bearing for EVERY checkoutUrl key. A malformed-but-2xx /me
+        # with no username would build `jinxxy.com//slug` keys and mass-rewrite the whole store, so
+        # hard-fail here — BEFORE enumeration/reconcile/commit. The raise routes through the same
+        # removal-safety abort (T-09-15): no sync_store, no snapshot delete on a bad /me.
+        store_username = me.get("username")
+        if not store_username:
+            raise jinxxy_api.JinxxyAPIError("GET /me failed: response carried no username")
+        # A missing display_name is a benign default (only the username keys the store).
         owner_name = me.get("display_name") or ""
 
         # 2. Full enumeration + per-product detail → mapped live entries keyed by checkoutUrl.
