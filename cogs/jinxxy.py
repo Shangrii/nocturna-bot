@@ -327,8 +327,20 @@ class JinxxyCog(
             await interaction.followup.send(
                 "No pude descargar las imágenes; inténtalo de nuevo.", ephemeral=True)
             return
-        media = await asyncio.to_thread(
-            _optimize_attachments, raws, _slug_from_url(producto))
+        # WR-07: Discord's attachment picker doesn't restrict content types, so `raws` can hold a
+        # PDF/video/corrupt file (PIL raises UnidentifiedImageError) or a decompression bomb (PIL
+        # raises DecompressionBombError) — neither a discord.HTTPException nor a GitHubPublishError.
+        # Guard BROADLY (also OSError from a truncated file): without this the exception propagates
+        # out of asyncio.to_thread, the deferred interaction hangs on "thinking…" and the D-05
+        # one-ephemeral-signal contract breaks (T-09-10-01 DoS mitigation).
+        try:
+            media = await asyncio.to_thread(
+                _optimize_attachments, raws, _slug_from_url(producto))
+        except Exception:
+            log.exception("jinxxy: no pude optimizar los adjuntos de /tienda medios")
+            await interaction.followup.send(
+                "Alguna imagen no se pudo procesar (¿es una imagen válida?).", ephemeral=True)
+            return
 
         # 4. Build the description dict ONLY from the provided locale params. Omit a key when its
         #    param is None so a partial edit doesn't wipe the other locale (09-04's None-skip).
