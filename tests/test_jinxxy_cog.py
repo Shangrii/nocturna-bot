@@ -163,3 +163,93 @@ def test_run_sync_api_failure_aborts_no_removal_no_commit(cog, monkeypatch):
         asyncio.run(cog._run_sync())
     assert rec.sync_mock.await_count == 0          # never commits on an outage
     assert rec.deletes == []                       # never mass-removes the storefront
+
+
+# ══ Task 2: /tienda sync command + branded announce embed (D-05/D-06) ═══════════════
+
+def _channel():
+    return types.SimpleNamespace(send=AsyncMock())
+
+
+def _bot_with_channel(channel):
+    return types.SimpleNamespace(
+        get_channel=lambda cid: channel,
+        fetch_channel=AsyncMock(return_value=channel),
+        wait_until_ready=AsyncMock(),
+    )
+
+
+def _sync_interaction(role_ids):
+    return types.SimpleNamespace(
+        user=_member(role_ids),
+        response=types.SimpleNamespace(
+            send_message=AsyncMock(), defer=AsyncMock(), is_done=lambda: False),
+        followup=types.SimpleNamespace(send=AsyncMock()),
+    )
+
+
+async def _call_sync(cog, interaction):
+    await jinxxy.JinxxyCog.sync.callback(cog, interaction)
+
+
+# ── _announce silent on no change (D-06) ───────────────────────────────────────────
+def test_announce_silent_on_no_change(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    asyncio.run(cog._announce({"changed": False, "added": [], "updated": [], "removed": [],
+                               "products": []}))
+    ch.send.assert_not_awaited()
+
+
+# ── _announce sends a branded embed on change ──────────────────────────────────────
+def test_announce_sends_branded_embed_on_change(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}
+    asyncio.run(cog._announce(result))
+    ch.send.assert_awaited_once()
+    embed = ch.send.await_args.kwargs["embed"]
+    assert embed.color.value == 0xC0192C
+    assert "Cahuama" in "".join(f.value for f in embed.fields)
+
+
+# ── /tienda sync staff gate FIRST (T-09-14) ────────────────────────────────────────
+def test_sync_command_non_staff_rejected_before_any_work(cog, monkeypatch):
+    called = []
+    monkeypatch.setattr(cog, "_run_sync",
+                        AsyncMock(side_effect=lambda: called.append(1)))
+    inter = _sync_interaction([OTHER_ROLE_ID])
+    asyncio.run(_call_sync(cog, inter))
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+    inter.response.defer.assert_not_awaited()      # gated before defer
+    assert called == []                            # _run_sync never ran
+
+
+# ── /tienda sync error → ephemeral to invoker, NEVER announced (D-05) ──────────────
+def test_sync_command_error_is_ephemeral_never_announced(cog, monkeypatch):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    boom = jinxxy.github_publish.GitHubPublishError("commit failed")
+    monkeypatch.setattr(cog, "_run_sync", AsyncMock(side_effect=boom))
+    inter = _sync_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_sync(cog, inter))
+    inter.response.defer.assert_awaited_once()
+    inter.followup.send.assert_awaited_once()      # ephemeral reply to the invoker
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+    ch.send.assert_not_awaited()                   # nothing posted to the announce channel
+
+
+# ── /tienda sync success announces + confirms ──────────────────────────────────────
+def test_sync_command_success_announces_and_confirms(cog, monkeypatch):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}
+    monkeypatch.setattr(cog, "_run_sync", AsyncMock(return_value=result))
+    inter = _sync_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_sync(cog, inter))
+    ch.send.assert_awaited_once()                  # announced on change
+    inter.followup.send.assert_awaited_once()      # ephemeral summary to invoker
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True

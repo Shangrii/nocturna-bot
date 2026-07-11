@@ -177,14 +177,103 @@ class JinxxyCog(
         log.exception("jinxxy: el poll de la tienda se cayó, reiniciando", exc_info=exc)
         self._poll.restart()
 
-    # ── announce (filled in Task 2) ───────────────────────────────────────────────────
-    async def _announce(self, result: dict):
-        """Announce store changes (added/updated/removed) — silent on no change (D-06).
+    # ── /tienda sync (D-02 manual trigger) ────────────────────────────────────────────
+    @app_commands.command(
+        name="sync",
+        description="Fuerza una sincronización de la tienda con Jinxxy (staff)")
+    async def sync(self, interaction: discord.Interaction):
+        """Staff-forced full sync. Staff gate FIRST (T-09-14), then the shared ``_run_sync``.
 
-        Implemented in Task 2; the no-op guard here keeps the poll loop safe in the interim.
+        On success the store changes are announced (public, store-news only) and the invoker gets
+        an ephemeral summary. On failure NOTHING is announced (D-05): the error is logged and the
+        invoking STAFF member gets an EPHEMERAL "revisa los logs" reply — a direct command reply
+        to the caller, never a public error post (USER-CONFIRMED 2026-07-10).
+        """
+        # 1. Staff gate FIRST — before defer or any sync work (Phase-8 CR-01 lesson, T-09-14).
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # 2. Defer (a full sync can exceed Discord's 3s ack window).
+        await interaction.response.defer(ephemeral=True)
+        try:
+            result = await self._run_sync()
+        except (github_publish.GitHubPublishError, jinxxy_api.JinxxyAPIError):
+            # D-05: errors go to logs ONLY. The one user-facing signal is this EPHEMERAL reply
+            # to the invoker — the public announce channel stays store-news-only.
+            log.exception("jinxxy: /tienda sync falló")
+            await interaction.followup.send(
+                "No pude sincronizar ahora; revisa los logs.", ephemeral=True)
+            return
+
+        # 3. Announce (silent on no change, D-06) then confirm to the invoker.
+        await self._announce(result)
+        if result["changed"]:
+            summary = (f"Sincronización lista: {len(result['added'])} nuevos, "
+                       f"{len(result['updated'])} actualizados, "
+                       f"{len(result['removed'])} quitados.")
+        else:
+            summary = "Sin cambios."
+        await interaction.followup.send(summary, ephemeral=True)
+
+    # ── announce (D-05 / D-06) ────────────────────────────────────────────────────────
+    async def _announce(self, result: dict):
+        """Post a branded store-news embed (added/updated/removed) — silent on no change.
+
+        Reached ONLY after a successful sync (the caller returns on any error), so this method
+        never carries an error (D-05). A no-change result is silent (D-06). An unresolvable
+        announce channel is logged and skipped — never raised — so a bad channel id can't crash
+        the poll loop.
         """
         if not result or not result.get("changed"):
             return
+
+        channel = self.bot.get_channel(config.JINXXY_ANNOUNCE_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(config.JINXXY_ANNOUNCE_CHANNEL_ID)
+            except discord.HTTPException:
+                channel = None
+        if channel is None:
+            log.warning(
+                "jinxxy: canal de anuncios %s no encontrado — omito el anuncio de la tienda",
+                config.JINXXY_ANNOUNCE_CHANNEL_ID)
+            return
+
+        await channel.send(embed=self._build_announce_embed(result))
+
+    @staticmethod
+    def _build_announce_embed(result: dict) -> discord.Embed:
+        """Spanish-first, brand-red store-news embed listing added/updated/removed product names."""
+        by_key = {
+            p.get("checkoutUrl"): p
+            for p in (result.get("products") or []) if isinstance(p, dict)
+        }
+
+        def _names(keys):
+            out = []
+            for k in keys:
+                p = by_key.get(k)
+                name = None
+                if isinstance(p, dict):
+                    n = p.get("name")
+                    name = n.get("es") if isinstance(n, dict) else n
+                out.append(str(name or k))         # removed keys aren't in products → show the key
+            return out
+
+        embed = discord.Embed(title="Tienda actualizada", color=_BRAND_RED)
+        buckets = (("🆕 Nuevos", result.get("added") or []),
+                   ("✏️ Actualizados", result.get("updated") or []),
+                   ("🗑️ Quitados", result.get("removed") or []))
+        for label, keys in buckets:
+            if keys:
+                names = _names(keys)
+                embed.add_field(
+                    name=f"{label} ({len(keys)})",
+                    value="\n".join(f"• {n}" for n in names)[:1024], inline=False)
+        embed.set_footer(text="Nocturna · tienda")
+        embed.timestamp = discord.utils.utcnow()
+        return embed
 
 
 async def setup(bot: commands.Bot):
