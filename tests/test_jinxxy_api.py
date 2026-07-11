@@ -20,6 +20,7 @@ Contract asserted here:
 """
 
 import logging
+import time
 
 import pytest
 import requests

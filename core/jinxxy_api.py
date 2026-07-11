@@ -23,8 +23,10 @@ Security / resilience contract (STRIDE T-09-03..T-09-06):
     unbounded connection could otherwise hang the sync loop forever.
   * All ``requests`` failures are converted to a single typed ``JinxxyAPIError`` whose
     message names ONLY ``exc.__class__.__name__`` — never ``str(exc)`` or the url/key.
-  * A 429 backs off (honoring ``Retry-After`` / ``X-RateLimit-Reset`` when present, else a
-    bounded exponential backoff) and retries a small number of times, then raises.
+  * A 429 backs off (honoring ``Retry-After`` as a delta / ``X-RateLimit-Reset`` as an
+    epoch when present, else a bounded exponential backoff) and retries a small number of
+    times, then raises. EVERY branch is clamped to ``_MAX_BACKOFF`` so an untrusted server
+    header can never drive an unbounded ``time.sleep`` that freezes the sync (CR-02).
   * No read path ever swallows a failure into an empty list: an outage raises, so the cog
     can treat it as "unknown" and never mistake it for "the storefront is empty" (T-09-05).
 """
@@ -47,6 +49,7 @@ _PAGE_LIMIT = 100                   # max page size the Creator API accepts
 _RATELIMIT_STATUS = 429
 _MAX_RETRIES = 4                    # 429 backoff attempts before giving up
 _BACKOFF_BASE = 0.5                 # seconds; exponential: 0.5, 1.0, 2.0, 4.0 ...
+_MAX_BACKOFF = 60.0                 # seconds — never trust a server hint beyond this (CR-02)
 
 
 class JinxxyAPIError(RuntimeError):
@@ -92,18 +95,33 @@ def _http(method, url, what, headers=None, **kw):
 
 
 def _retry_delay(resp, attempt):
-    """Seconds to wait before retrying a 429, honoring server hints when present.
+    """Seconds to wait before retrying a 429 — ALWAYS clamped to ``_MAX_BACKOFF``.
 
-    Prefers ``Retry-After`` (a delta in seconds), then ``X-RateLimit-Reset``; falls back to
-    a bounded exponential backoff. A malformed header value falls back to backoff too.
+    Every branch is bounded so an untrusted server (or proxy) header can never drive an
+    unbounded ``time.sleep`` that freezes the sync thread (CR-02, T-09-08-01/02):
+
+      * ``Retry-After`` is a DELTA in seconds — clamp ``min(_MAX_BACKOFF, max(0.0, value))``.
+      * ``X-RateLimit-Reset`` is a unix EPOCH timestamp — convert to a delta via
+        ``value - time.time()`` first, then clamp (a far-future epoch would otherwise be
+        mis-read as a multi-decade delta; a past epoch clamps up to ``0.0``). These two
+        headers are handled in SEPARATE branches for exactly this reason.
+      * No usable / malformed header falls through to the bounded exponential backoff,
+        itself clamped to ``_MAX_BACKOFF``.
     """
-    hint = resp.headers.get("Retry-After") or resp.headers.get("X-RateLimit-Reset")
-    if hint is not None:
+    retry_after = resp.headers.get("Retry-After")
+    if retry_after is not None:
         try:
-            return max(0.0, float(hint))
+            return min(_MAX_BACKOFF, max(0.0, float(retry_after)))
         except (TypeError, ValueError):
             pass
-    return _BACKOFF_BASE * (2 ** attempt)
+    reset = resp.headers.get("X-RateLimit-Reset")
+    if reset is not None:
+        try:
+            # epoch semantics: convert to a delta from now, then clamp
+            return min(_MAX_BACKOFF, max(0.0, float(reset) - time.time()))
+        except (TypeError, ValueError):
+            pass
+    return min(_MAX_BACKOFF, _BACKOFF_BASE * (2 ** attempt))
 
 
 def _get(path, what, api_key=None, params=None):
