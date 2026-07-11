@@ -253,3 +253,41 @@ def test_sync_command_success_announces_and_confirms(cog, monkeypatch):
     ch.send.assert_awaited_once()                  # announced on change
     inter.followup.send.assert_awaited_once()      # ephemeral summary to invoker
     assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+
+
+# ══ Task 3: startup reconcile (on_ready, run-once) ══════════════════════════════════
+
+async def _fire_ready_twice(cog):
+    await jinxxy.JinxxyCog.on_ready(cog)
+    await jinxxy.JinxxyCog.on_ready(cog)
+
+
+# ── run-once guard: two on_ready fires trigger _run_sync exactly once ───────────────
+def test_on_ready_runs_sync_exactly_once_across_two_fires(cog, monkeypatch):
+    cog.bot = _bot_with_channel(_channel())
+    result = {"changed": False, "added": [], "updated": [], "removed": [], "products": []}
+    run = AsyncMock(return_value=result)
+    monkeypatch.setattr(cog, "_run_sync", run)
+    asyncio.run(_fire_ready_twice(cog))
+    assert run.await_count == 1                     # reconnect re-fires must not re-sync
+
+
+# ── a changed startup sync announces ───────────────────────────────────────────────
+def test_on_ready_changed_sync_announces(cog, monkeypatch):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}
+    monkeypatch.setattr(cog, "_run_sync", AsyncMock(return_value=result))
+    asyncio.run(jinxxy.JinxxyCog.on_ready(cog))
+    ch.send.assert_awaited_once()
+
+
+# ── an API failure at startup is caught + logged (no crash, no removal, no announce) ─
+def test_on_ready_api_failure_is_caught(cog, monkeypatch):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    boom = jinxxy.jinxxy_api.JinxxyAPIError("startup outage")
+    monkeypatch.setattr(cog, "_run_sync", AsyncMock(side_effect=boom))
+    asyncio.run(jinxxy.JinxxyCog.on_ready(cog))    # must NOT raise
+    ch.send.assert_not_awaited()                   # nothing announced on a failed startup

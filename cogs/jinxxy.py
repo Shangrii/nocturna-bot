@@ -92,6 +92,26 @@ class JinxxyCog(
         # poll loop ticking.
         self._poll.cancel()
 
+    # ── startup reconcile (converge on restart, run-once) ─────────────────────────────
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Run ONE startup sync so a restart converges (``on_ready`` can re-fire on reconnects).
+
+        Reuses the SAME :meth:`_run_sync` path (no separate reconcile code to drift): it
+        reconciles the durable snapshot vs the live ``store.json`` vs Jinxxy — importing missed
+        products (D-13 first-run linking by checkoutUrl), propagating changes, removing delistings.
+        The removal-safety in ``_run_sync`` (an API failure raises before any removal) already
+        protects a cold-start outage; here that raise is caught and logged (D-05), never crashing.
+        """
+        if self._synced_once:
+            return
+        self._synced_once = True
+        try:
+            result = await self._run_sync()
+            await self._announce(result)
+        except Exception:
+            log.exception("jinxxy: la reconciliación de arranque falló (se reintenta en el poll)")
+
     # ── core orchestration ───────────────────────────────────────────────────────────
     async def _run_sync(self) -> dict:
         """Run ONE full store sync: enumerate → map → three-way merge → commit-on-change.
