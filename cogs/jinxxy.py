@@ -192,10 +192,20 @@ class JinxxyCog(
         result = store_sync.reconcile_store(snapshots, live_by_key, current_by_key)
         result["products"].extend(unkeyed)
 
-        # 5. WR-03: advance the durable snapshot to live truth on EVERY successful sync — NOT only
+        # 5. Commit FIRST, gated on change (D-06). This MUST precede the snapshot upsert loop: if
+        #    sync_store raises (transient GitHub transport failure), execution never reaches the
+        #    upsert below, so the durable snapshot stays behind the un-written store.json and the
+        #    change is naturally re-detected + retried on the next cycle — instead of advancing the
+        #    snapshot past a state store.json never reached and permanently masking the update as a
+        #    "Jinxxy unchanged, staff edit wins" no-op (CR-01, 09-VERIFICATION truth #5, T-09-11-01).
+        if result["changed"]:
+            await github_publish.sync_store(result["products"])
+
+        # 6. WR-03: advance the durable snapshot to live truth on EVERY successful sync — NOT only
         #    inside the changed branch. A no-change cycle where Jinxxy already matches a staff value
         #    still leaves a stale snapshot; if the snapshot isn't refreshed, a LATER staff edit on
-        #    that field is misread as a both-changed conflict and reverted (breaks D-12).
+        #    that field is misread as a both-changed conflict and reverted (breaks D-12). Runs AFTER
+        #    the commit so a failed commit never advances it (see step 5).
         for key, entry in live_by_key.items():
             name = entry["name"]["es"] if isinstance(entry.get("name"), dict) \
                 else entry.get("name")
@@ -209,10 +219,10 @@ class JinxxyCog(
                 date=entry["date"],
             )
 
-        # 6. Commit + snapshot removals ONLY on change (D-06). `removed` is empty on a no-change
-        #    cycle, and a removal only makes sense when something actually changed.
+        # 7. Snapshot removals ONLY on change (D-06), after a successful commit. `removed` is empty
+        #    on a no-change cycle, and a removal only makes sense once the commit that dropped the
+        #    product actually landed (removal-safety, T-09-11-03).
         if result["changed"]:
-            await github_publish.sync_store(result["products"])
             for key in result["removed"]:
                 db.delete_store_snapshot(key)
 
