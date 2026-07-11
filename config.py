@@ -96,3 +96,24 @@ REMINDERS_STAFF_ROLE_IDS = [
 # Ventana de gracia (horas) para disparar recordatorios atrasados tras una caída del bot,
 # antes de saltarlos; default 6h, dentro de la banda 6–12h (D-13).
 REMINDERS_CATCHUP_GRACE_HOURS = int(os.getenv("REMINDERS_CATCHUP_GRACE_HOURS", "6"))
+
+# ── Jinxxy (Fase 9: sync de la tienda) ────────────────────────────────────────────
+# El cog consulta periódicamente la Creator API de Jinxxy y refleja los productos en
+# src/data/store.json del repo del sitio (mismo transporte/PAT/repo/rama que la galería).
+# Clave de la Creator API de Jinxxy (secreto). SOLO se lee del entorno y se coloca en el
+# header x-api-key; nunca se registra en logs ni commits — misma disciplina que GITHUB_PAT.
+JINXXY_API_KEY = os.getenv("JINXXY_API_KEY", "")
+# Canal donde el cog anuncia altas/cambios/bajas de la tienda (D-18).
+JINXXY_ANNOUNCE_CHANNEL_ID = int(os.getenv("JINXXY_ANNOUNCE_CHANNEL_ID", "1525202600738295818"))
+# Cadencia del poll en horas; default 6h, dentro de la banda 6–12h (D-03).
+JINXXY_POLL_HOURS = int(os.getenv("JINXXY_POLL_HOURS", "6"))
+# Ruta del JSON de la tienda dentro del repo del sitio (mismo repo/rama que la galería).
+WEBSITE_STORE_JSON = os.getenv("WEBSITE_STORE_JSON", "src/data/store.json")
+# Directorio de imágenes de la tienda en el repo del sitio; GitHub Pages lo sirve como
+# /store/<archivo> (flujo de attach del staff, D-15).
+WEBSITE_STORE_IMAGE_DIR = os.getenv("WEBSITE_STORE_IMAGE_DIR", "public/store")
+# Roles cuyos comandos gestionan el sync de la tienda. Cadena separada por comas → lista
+# de ints; si queda vacía, cae en los mismos roles de staff de la galería (mismo idiom).
+JINXXY_STAFF_ROLE_IDS = [
+    int(x) for x in os.getenv("JINXXY_STAFF_ROLE_IDS", "").split(",") if x.strip()
+] or GALLERY_STAFF_ROLE_IDS
