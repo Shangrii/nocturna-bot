@@ -166,6 +166,24 @@ def test_run_sync_api_failure_aborts_no_removal_no_commit(cog, monkeypatch):
     assert rec.deletes == []                       # never mass-removes the storefront
 
 
+# ── _run_sync: commit failure must NOT advance the snapshot (CR-01 09-11 regression guard) ──
+def test_run_sync_commit_failure_does_not_advance_snapshot(cog, monkeypatch):
+    # A genuine Jinxxy field change (live price "5" ≠ snapshot "0" ≠ current "0") reconciles to
+    # changed=True. If the cross-repo commit then raises, the durable snapshot must stay behind the
+    # un-written store.json so the NEXT cycle re-detects the change and retries — never silently
+    # dropping it as a "Jinxxy unchanged, staff edit wins" no-op (CR-01, 09-VERIFICATION truth #5).
+    rec = _wire(monkeypatch, products=[{"id": "p1"}], detail=dict(DETAIL, base_price=5),
+                snapshot={KEY: _snapshot_row(price="0")}, current=[_current_entry(price="0")])
+    monkeypatch.setattr(
+        jinxxy.github_publish, "sync_store",
+        AsyncMock(side_effect=jinxxy.github_publish.GitHubPublishError("commit failed: HTTP 409")))
+    with pytest.raises(jinxxy.github_publish.GitHubPublishError):
+        asyncio.run(cog._run_sync())
+    # snapshot did NOT advance for the changed field → change is retried next cycle
+    assert not any(u.get("checkout_url") == KEY for u in rec.upserts)
+    assert rec.deletes == []                       # no removals ran across the failed commit
+
+
 # ══ 09-09 Task 1: snapshot advances every successful sync (WR-03) + unkeyable carry (WR-06) ══
 
 def test_run_sync_no_change_still_advances_snapshot(cog, monkeypatch):
