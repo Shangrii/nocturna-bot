@@ -291,3 +291,148 @@ def test_on_ready_api_failure_is_caught(cog, monkeypatch):
     monkeypatch.setattr(cog, "_run_sync", AsyncMock(side_effect=boom))
     asyncio.run(jinxxy.JinxxyCog.on_ready(cog))    # must NOT raise
     ch.send.assert_not_awaited()                   # nothing announced on a failed startup
+
+
+# ══ Plan 09-06: /tienda medios — attach staff images + description (D-14/D-15) ═══════
+#
+# The Creator API exposes no images/description (D-14 live probe), so staff supply them
+# through Discord. `/tienda medios` optimizes attachments to WebP and commits them +
+# a bilingual description into the matched product via `attach_store_media` (09-04) —
+# images/description staying 100% staff-owned (the sync merge never writes them).
+
+
+class _FakeAttachment:
+    """A discord.Attachment stand-in that records how many times its bytes were read."""
+
+    def __init__(self, data=b"rawbytes"):
+        self._data = data
+        self.reads = 0
+
+    async def read(self):
+        self.reads += 1
+        return self._data
+
+
+def _medios_interaction(role_ids):
+    return types.SimpleNamespace(
+        user=_member(role_ids),
+        response=types.SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock()),
+        followup=types.SimpleNamespace(send=AsyncMock()),
+    )
+
+
+async def _call_medios(cog, interaction, **kwargs):
+    await jinxxy.JinxxyCog.medios.callback(cog, interaction, **kwargs)
+
+
+# ── _optimize_attachments: raw bytes → (webp, bot-generated numeric/slug filename) ──
+def test_optimize_attachments_returns_numeric_webp_filenames(monkeypatch):
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp",
+                        lambda raw: (b"WEBP:" + raw, 100, 80))
+    media = jinxxy._optimize_attachments([b"a", b"b"], slug="cahuama")
+    assert [f for _, f in media] == ["cahuama-1.webp", "cahuama-2.webp"]
+    assert all(w.startswith(b"WEBP:") for w, _ in media)     # re-encoded, not verbatim
+    assert all(f.endswith(".webp") for _, f in media)
+
+
+def test_optimize_attachments_default_slug_has_no_user_text(monkeypatch):
+    # No slug supplied → a bot-generated base, never raw user text (T-09-19).
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp", lambda raw: (b"W", 1, 1))
+    media = jinxxy._optimize_attachments([b"a"])
+    _, fname = media[0]
+    assert fname == "store-1.webp"
+
+
+# ── producto autocomplete: staff → Choices; non-staff → [] with NO store read ──────
+def test_producto_autocomplete_returns_choices_for_staff(cog, monkeypatch):
+    rows = {KEY: _snapshot_row(name="Cahuama")}
+    monkeypatch.setattr(jinxxy.db, "get_store_snapshot", lambda: dict(rows))
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    choices = asyncio.run(cog._producto_choices(inter, ""))
+    assert len(choices) == 1
+    assert choices[0].value == KEY
+    assert choices[0].name == "Cahuama"
+
+
+def test_producto_autocomplete_empty_for_non_staff_no_store_read(cog, monkeypatch):
+    called = []
+    monkeypatch.setattr(jinxxy.db, "get_store_snapshot",
+                        lambda: called.append(1) or {})
+    inter = _medios_interaction([OTHER_ROLE_ID])
+    choices = asyncio.run(cog._producto_choices(inter, ""))
+    assert choices == []                            # CR-01: no Choices for non-staff
+    assert called == []                             # and no store read at all
+
+
+def test_producto_autocomplete_caps_at_25(cog, monkeypatch):
+    rows = {f"https://jinxxy.com/nocturna/p{i}": _snapshot_row(
+                key=f"https://jinxxy.com/nocturna/p{i}", name=f"P{i}")
+            for i in range(40)}
+    monkeypatch.setattr(jinxxy.db, "get_store_snapshot", lambda: rows)
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    choices = asyncio.run(cog._producto_choices(inter, ""))
+    assert len(choices) == 25                        # Discord's hard Choice cap
+
+
+# ── the command calls attach_store_media ONCE with the checkoutUrl + media + desc ──
+def test_medios_calls_attach_store_media_once(cog, monkeypatch):
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp",
+                        lambda raw: (b"W", 10, 10))
+    attach = AsyncMock(return_value={"committed": True, "commit_sha": "x",
+                                     "count": 1, "files": []})
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media", attach)
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment(),
+                             descripcion_es="hola", descripcion_en="hi"))
+    attach.assert_awaited_once()
+    args = attach.await_args.args
+    assert args[0] == KEY                            # matched checkoutUrl
+    media = args[1]
+    assert len(media) == 1 and media[0][1].endswith(".webp")
+    assert args[2] == {"es": "hola", "en": "hi"}
+
+
+def test_medios_description_omits_missing_locale(cog, monkeypatch):
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp", lambda raw: (b"W", 1, 1))
+    attach = AsyncMock(return_value={"committed": True})
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media", attach)
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment(),
+                             descripcion_es="solo es"))
+    # 'en' omitted → 09-04's None-skip preserves any existing en (no wipe on a partial edit)
+    assert attach.await_args.args[2] == {"es": "solo es"}
+
+
+def test_medios_no_description_passes_none(cog, monkeypatch):
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp", lambda raw: (b"W", 1, 1))
+    attach = AsyncMock(return_value={"committed": True})
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media", attach)
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment()))
+    assert attach.await_args.args[2] is None        # images-only edit leaves description alone
+
+
+# ── staff gate FIRST — non-staff rejected before any attachment read or attach call ─
+def test_medios_non_staff_rejected_before_any_work(cog, monkeypatch):
+    attach = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media", attach)
+    att = _FakeAttachment()
+    inter = _medios_interaction([OTHER_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=att))
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+    inter.response.defer.assert_not_awaited()        # gated before defer
+    assert att.reads == 0                             # no attachment bytes were read
+    attach.assert_not_awaited()
+
+
+# ── GitHubPublishError → ephemeral staff reply, never raised (D-05 staff-facing) ────
+def test_medios_publish_error_replies_ephemeral(cog, monkeypatch):
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp", lambda raw: (b"W", 1, 1))
+    boom = jinxxy.github_publish.GitHubPublishError("no product matches checkout_url")
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media",
+                        AsyncMock(side_effect=boom))
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment()))
+    inter.followup.send.assert_awaited()             # staff-facing reply, not a public post
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
