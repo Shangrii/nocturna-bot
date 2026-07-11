@@ -288,42 +288,55 @@ def test_sync_command_success_announces_and_confirms(cog, monkeypatch):
     assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
 
 
-# ══ Task 3: startup reconcile (on_ready, run-once) ══════════════════════════════════
+# ══ 09-09 Task 2: single startup reconcile (CR-01) + bounded poll cool-down (WR-02) ══
+#
+# The duplicate on_ready startup entry point is GONE — the poll loop's own immediate first tick
+# (which tasks.loop runs right after `before_loop`) is the sole startup reconcile, so a boot
+# reconciles once and announces once, not twice.
 
-async def _fire_ready_twice(cog):
-    await jinxxy.JinxxyCog.on_ready(cog)
-    await jinxxy.JinxxyCog.on_ready(cog)
+
+# ── CR-01: no on_ready listener / no _synced_once flag remain on the cog ─────────────
+def test_no_on_ready_listener_defined():
+    assert "on_ready" not in vars(jinxxy.JinxxyCog)
 
 
-# ── run-once guard: two on_ready fires trigger _run_sync exactly once ───────────────
-def test_on_ready_runs_sync_exactly_once_across_two_fires(cog, monkeypatch):
+def test_no_synced_once_flag(cog):
+    assert not hasattr(cog, "_synced_once")
+
+
+# ── the poll loop body is the single startup reconcile: one tick → one _run_sync ─────
+def test_poll_tick_runs_single_startup_reconcile(cog, monkeypatch):
     cog.bot = _bot_with_channel(_channel())
     result = {"changed": False, "added": [], "updated": [], "removed": [], "products": []}
     run = AsyncMock(return_value=result)
     monkeypatch.setattr(cog, "_run_sync", run)
-    asyncio.run(_fire_ready_twice(cog))
-    assert run.await_count == 1                     # reconnect re-fires must not re-sync
+    asyncio.run(jinxxy.JinxxyCog._poll.coro(cog))
+    assert run.await_count == 1                     # exactly one sync per tick
 
 
-# ── a changed startup sync announces ───────────────────────────────────────────────
-def test_on_ready_changed_sync_announces(cog, monkeypatch):
+# ── a changed poll tick announces ──────────────────────────────────────────────────
+def test_poll_tick_changed_sync_announces(cog, monkeypatch):
     ch = _channel()
     cog.bot = _bot_with_channel(ch)
     result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
               "products": [_current_entry()]}
     monkeypatch.setattr(cog, "_run_sync", AsyncMock(return_value=result))
-    asyncio.run(jinxxy.JinxxyCog.on_ready(cog))
+    asyncio.run(jinxxy.JinxxyCog._poll.coro(cog))
     ch.send.assert_awaited_once()
 
 
-# ── an API failure at startup is caught + logged (no crash, no removal, no announce) ─
-def test_on_ready_api_failure_is_caught(cog, monkeypatch):
-    ch = _channel()
-    cog.bot = _bot_with_channel(ch)
-    boom = jinxxy.jinxxy_api.JinxxyAPIError("startup outage")
-    monkeypatch.setattr(cog, "_run_sync", AsyncMock(side_effect=boom))
-    asyncio.run(jinxxy.JinxxyCog.on_ready(cog))    # must NOT raise
-    ch.send.assert_not_awaited()                   # nothing announced on a failed startup
+# ── WR-02: a failed poll waits the bounded cool-down BEFORE restarting (no tight loop) ─
+def test_on_poll_error_sleeps_cooldown_before_restart(cog, monkeypatch):
+    order = []
+
+    async def _sleep(secs):
+        order.append(("sleep", secs))
+
+    monkeypatch.setattr(jinxxy.asyncio, "sleep", _sleep)
+    monkeypatch.setattr(cog._poll, "restart", lambda *a, **k: order.append(("restart",)))
+    asyncio.run(jinxxy.JinxxyCog._on_poll_error(cog, RuntimeError("boom")))
+    assert jinxxy._POLL_RETRY_COOLDOWN_S > 0
+    assert order == [("sleep", jinxxy._POLL_RETRY_COOLDOWN_S), ("restart",)]  # sleep then restart
 
 
 # ══ Plan 09-06: /tienda medios — attach staff images + description (D-14/D-15) ═══════
