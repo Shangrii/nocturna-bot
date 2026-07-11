@@ -165,6 +165,39 @@ def test_run_sync_api_failure_aborts_no_removal_no_commit(cog, monkeypatch):
     assert rec.deletes == []                       # never mass-removes the storefront
 
 
+# ══ 09-09 Task 1: snapshot advances every successful sync (WR-03) + unkeyable carry (WR-06) ══
+
+def test_run_sync_no_change_still_advances_snapshot(cog, monkeypatch):
+    # Jinxxy already matches the staff value (price 0) but the durable snapshot is STALE
+    # (price 5): the cycle reports changed=False yet the snapshot MUST advance to live truth —
+    # else a LATER staff edit on price is misread as a both-changed conflict and reverted (WR-03).
+    rec = _wire(monkeypatch, products=[{"id": "p1"}],
+                snapshot={KEY: _snapshot_row(price="5")}, current=[_current_entry(price="0")])
+    result = asyncio.run(cog._run_sync())
+    assert result["changed"] is False              # no repo commit on a no-change cycle (D-06)
+    assert rec.sync_mock.await_count == 0
+    assert any(u.get("checkout_url") == KEY for u in rec.upserts)   # snapshot advanced anyway
+
+
+def test_run_sync_unkeyable_current_product_survives(cog, monkeypatch):
+    # A staff-added store.json entry with no usable checkoutUrl must be carried through verbatim
+    # into the written products, never silently dropped on the next changed sync (WR-06).
+    orphan = {"id": "handmade", "name": {"es": "Hecho a mano", "en": "Handmade"}}
+    rec = _wire(monkeypatch, products=[{"id": "p1"}], current=[orphan])
+    asyncio.run(cog._run_sync())
+    committed = rec.sync_mock.await_args.args[0]    # the products list handed to sync_store
+    assert orphan in committed                      # unkeyable staff entry preserved verbatim
+
+
+def test_run_sync_removals_only_run_on_change(cog, monkeypatch):
+    # delete_store_snapshot stays inside the changed branch: a no-change cycle deletes nothing
+    # even though the snapshot upsert now runs unconditionally.
+    rec = _wire(monkeypatch, products=[{"id": "p1"}],
+                snapshot={KEY: _snapshot_row()}, current=[_current_entry()])
+    asyncio.run(cog._run_sync())
+    assert rec.deletes == []
+
+
 # ══ Task 2: /tienda sync command + branded announce embed (D-05/D-06) ═══════════════
 
 def _channel():
