@@ -288,6 +288,47 @@ def test_sync_store_stale_ref_422_refetches_and_retries(wire):
     assert len(fake.ref_patches()) == 2
 
 
+# ── WR-01: build_tree re-grafts staff-owned fields from the fresh fetch ──────────────
+def test_sync_store_regrafts_staff_fields_from_fresh_fetch(wire):
+    # A /tienda medios attach landed in the LIVE store (staff images + description)
+    # AFTER the merge computed its products list. The sync re-fetches the store inside
+    # build_tree and must re-graft those staff fields so the concurrent attach is never
+    # reverted (WR-01 / gap #1). JINXXY_DEPLOY.md tells staff to run /tienda medios per
+    # product right after the first sync, so this race is on the documented happy path.
+    live_prod = _product(name="Old", price="25",
+                         images=["/store/cahuama-0.webp"],
+                         description={"es": "hecho por staff", "en": "by staff"})
+    fake = wire(FakeGitHub(base_store=_store(products=[live_prod])))
+    # The merged list for the SAME checkoutUrl OMITS the staff fields but carries a real
+    # Jinxxy price change — the sync-owned change must still propagate.
+    merged = [_product(name="Old", price="30")]
+
+    result = asyncio.run(github_publish.sync_store(merged))
+
+    obj = fake.new_store_object()
+    committed = next(p for p in obj["products"]
+                     if p["checkoutUrl"] == "https://jinxxy.com/nocturna/cahuama")
+    # staff-owned fields re-grafted from the fresh fetch (NOT reverted to the merged list)
+    assert committed["images"] == ["/store/cahuama-0.webp"]
+    assert committed["description"] == {"es": "hecho por staff", "en": "by staff"}
+    # sync-owned change from the merged list still applied (Jinxxy changes propagate)
+    assert committed["price"] == "30"
+    assert result["committed"] is True
+
+
+def test_sync_store_new_product_absent_from_fresh_is_written_verbatim(wire):
+    # A genuinely new product whose checkoutUrl is absent from the fresh store: no graft
+    # applied, written verbatim, no crash.
+    fake = wire(FakeGitHub(base_store=_store(products=[])))          # empty live store
+    new = [_product(checkout="https://jinxxy.com/nocturna/nuevo", name="Nuevo")]
+
+    result = asyncio.run(github_publish.sync_store(new))
+
+    obj = fake.new_store_object()
+    assert obj["products"] == new                                   # verbatim, no graft
+    assert result["committed"] is True
+
+
 # ── attach_store_media: image blobs + description in ONE commit, staff-owned fields ──
 def test_attach_media_commits_blobs_and_updates_matched_product(wire):
     prod = _product(checkout="https://jinxxy.com/nocturna/cahuama")
