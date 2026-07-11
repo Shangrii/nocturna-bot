@@ -12,6 +12,7 @@ import asyncio
 import types
 from unittest.mock import AsyncMock
 
+import discord
 import pytest
 
 import config
@@ -245,6 +246,37 @@ def test_announce_sends_branded_embed_on_change(cog):
     embed = ch.send.await_args.kwargs["embed"]
     assert embed.color.value == 0xC0192C
     assert "Cahuama" in "".join(f.value for f in embed.fields)
+
+
+# ══ 09-10 Task 3 (WR-09): a channel.send failure is logged and swallowed, never raised ══
+#
+# _announce's docstring promises "logged and skipped — never raised", but channel.send was
+# unwrapped: discord.Forbidden (missing send perm) / HTTPException propagated — hanging the
+# /tienda sync ephemeral summary and triggering a full poll restart over a cosmetic failure.
+
+
+def _raising_channel(exc):
+    return types.SimpleNamespace(send=AsyncMock(side_effect=exc))
+
+
+def test_announce_forbidden_channel_is_logged_not_raised(cog, caplog):
+    forbidden = discord.Forbidden(
+        types.SimpleNamespace(status=403, reason="perms"), "missing permissions")
+    cog.bot = _bot_with_channel(_raising_channel(forbidden))
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}
+    with caplog.at_level("INFO", logger="cogs.jinxxy"):
+        asyncio.run(cog._announce(result))            # must NOT raise
+    assert any(r.levelname == "ERROR" for r in caplog.records)   # failure recorded (log.exception)
+
+
+def test_announce_http_error_channel_does_not_raise(cog):
+    http = discord.HTTPException(
+        types.SimpleNamespace(status=500, reason="boom"), "boom")
+    cog.bot = _bot_with_channel(_raising_channel(http))
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}
+    asyncio.run(cog._announce(result))                # a cosmetic HTTPException never propagates
 
 
 # ── /tienda sync staff gate FIRST (T-09-14) ────────────────────────────────────────
