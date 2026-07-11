@@ -186,8 +186,84 @@ def test_non_2xx_raises_typed_error_with_status_not_key(wire):
 
 def test_module_imports_no_discord():
     # The client stays pure: importing it must never pull in discord.
-    import sys
     assert "discord" not in getattr(jinxxy_api, "__dict__", {})
     src = jinxxy_api.__file__
     with open(src, encoding="utf-8") as fh:
         assert "import discord" not in fh.read()
+
+
+# ── Task 2: paginated list_all_products, get_product, 429 backoff ──────────────────
+def test_list_all_products_follows_pagination_and_concatenates(wire):
+    pages = {
+        1: {"results": [{"id": "a"}, {"id": "b"}], "page_count": 3},
+        2: {"results": [{"id": "c"}], "page_count": 3},
+        3: {"results": [{"id": "d"}], "page_count": 3},
+    }
+    fake = wire(FakeJinxxy(pages=pages))
+
+    result = jinxxy_api.list_all_products()
+
+    assert len(fake.list_calls()) == 3                       # one GET /products per page
+    assert [p["id"] for p in result] == ["a", "b", "c", "d"]  # every page's results, in order
+
+
+def test_list_all_products_sends_expected_query_params_and_header(wire):
+    fake = wire(FakeJinxxy(pages={1: {"results": [], "page_count": 1}}))
+
+    jinxxy_api.list_all_products()
+
+    _, url, headers, params = fake.list_calls()[0]
+    assert url == f"{_BASE}/products"
+    assert params["limit"] == 100
+    assert params["sort_field"] == "created_at"
+    assert params["sort_order"] == "desc"
+    assert params["page"] == 1
+    assert headers["x-api-key"] == FAKE_KEY
+
+
+def test_get_product_hits_detail_endpoint_and_returns_dict(wire):
+    fake = wire(FakeJinxxy(product={"id": "p9", "name": "Cahuama", "url": "cahuama"}))
+
+    result = jinxxy_api.get_product("p9")
+
+    assert result == {"id": "p9", "name": "Cahuama", "url": "cahuama"}
+    _, url, headers, _ = fake.calls[0]
+    assert url == f"{_BASE}/products/p9"
+    assert headers["x-api-key"] == FAKE_KEY
+
+
+def test_transient_429_backs_off_then_succeeds(wire, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(jinxxy_api.time, "sleep", lambda s, *_a, **_k: sleeps.append(s))
+    fake = wire(FakeJinxxy(pages={1: {"results": [{"id": "x"}], "page_count": 1}},
+                           list_statuses=[429, 200]))
+
+    result = jinxxy_api.list_all_products()
+
+    assert sleeps, "backoff sleep was never invoked on a 429"
+    assert [p["id"] for p in result] == ["x"]                # recovered on the retry
+    assert len(fake.list_calls()) == 2                       # 429 then the successful retry
+
+
+def test_persistent_429_eventually_raises_typed_error(wire):
+    wire(FakeJinxxy(pages={1: {"results": [], "page_count": 1}},
+                    list_statuses=[429, 429, 429, 429, 429, 429, 429]))
+
+    with pytest.raises(jinxxy_api.JinxxyAPIError):
+        jinxxy_api.list_all_products()
+
+
+def test_mid_pagination_error_raises_never_returns_partial_or_empty(wire, monkeypatch):
+    # page 1 succeeds (page_count=2); page 2's transport dies. The function must raise —
+    # never return the partial [a] and never a silent [] (T-09-05 removal-safety).
+    fake = wire(FakeJinxxy(pages={1: {"results": [{"id": "a"}], "page_count": 2}}))
+    real_get = fake.get
+
+    def flaky_get(url, headers=None, params=None, **kw):
+        if url.endswith("/products") and (params or {}).get("page") == 2:
+            raise requests.ConnectionError("connection reset mid-pagination")
+        return real_get(url, headers=headers, params=params, **kw)
+
+    monkeypatch.setattr(jinxxy_api.requests, "get", flaky_get)
+    with pytest.raises(jinxxy_api.JinxxyAPIError):
+        jinxxy_api.list_all_products()
