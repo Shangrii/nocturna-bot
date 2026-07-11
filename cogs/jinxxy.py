@@ -425,7 +425,14 @@ class JinxxyCog(
                 config.JINXXY_ANNOUNCE_CHANNEL_ID)
             return
 
-        await channel.send(embed=self._build_announce_embed(result))
+        # WR-09: honor this method's own "logged and skipped — never raised" contract. A
+        # discord.Forbidden (no send permission — a subclass of HTTPException) or any other
+        # HTTPException on the announce channel is COSMETIC: it must not hang the /tienda sync
+        # ephemeral summary nor trigger a full poll restart-and-resync (T-09-10-03).
+        try:
+            await channel.send(embed=self._build_announce_embed(result))
+        except discord.HTTPException:
+            log.exception("jinxxy: no pude publicar el anuncio de la tienda")
 
     @staticmethod
     def _build_announce_embed(result: dict) -> discord.Embed:
