@@ -217,6 +217,48 @@ def test_merge_new_product_seeds_id_and_empty_description():
         assert staff_key not in merged
 
 
+# ── Task 2: WR-05 — current is None (staff deleted a still-live product) ───────────
+def test_merge_current_none_snapshot_present_resurrects_complete_entry():
+    # Staff deleted a still-live product from store.json (snapshot present, current gone).
+    # The merge must resurrect a COMPLETE entry from live — never {} or a partial dict (WR-05).
+    snapshot = _entry(price="10")
+    live = _entry(price="10")                # Jinxxy still lists it, unchanged from snapshot
+    merged, _ = store_sync.three_way_merge(snapshot, live, None)
+    assert merged != {}                      # NOT an empty/garbage dict
+    assert isinstance(merged.get("id"), str) and merged["id"]        # truthy string id
+    assert merged["description"] == {"es": "", "en": ""}            # present-but-empty object
+    # every sync-owned field is resurrected from live
+    for field in store_sync.SYNC_OWNED:
+        assert merged[field] == live[field]
+
+
+def test_merge_current_none_snapshot_present_matches_new_product_shape():
+    # The resurrected entry must have the SAME shape as a brand-new product (no regression).
+    live = _entry()
+    resurrected, _ = store_sync.three_way_merge(_entry(), live, None)
+    fresh, _ = store_sync.three_way_merge(None, live, None)
+    assert set(resurrected) == set(fresh)
+    assert resurrected["id"] == fresh["id"]
+    assert resurrected["description"] == fresh["description"]
+
+
+def test_reconcile_resurrects_staff_deleted_still_live_as_updated():
+    # A snapshot-present product staff deleted from store.json but still live on Jinxxy
+    # resurrects as a valid entry, bucketed as `updated` (snapshot present), not `added`.
+    url = "https://jinxxy.com/nocturna/cahuama"
+    res = store_sync.reconcile_store(
+        {url: _entry(url=url)},                  # snapshot present (synced before)
+        {url: _entry(url=url)},                  # still live on Jinxxy
+        {},                                      # staff deleted it from store.json
+    )
+    assert url in res["updated"]
+    assert url not in res["added"]
+    entry = next(p for p in res["products"] if p.get("checkoutUrl") == url)
+    assert entry != {}
+    assert entry.get("id")
+    assert entry["description"] == {"es": "", "en": ""}
+
+
 # ── Task 2: reconcile_store (add / update / remove / no-op / current-only) ─────────
 def test_reconcile_add():
     url = "https://jinxxy.com/nocturna/new"
