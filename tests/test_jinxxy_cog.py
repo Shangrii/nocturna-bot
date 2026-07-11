@@ -274,6 +274,28 @@ def test_sync_command_error_is_ephemeral_never_announced(cog, monkeypatch):
     ch.send.assert_not_awaited()                   # nothing posted to the announce channel
 
 
+# ══ 09-10 Task 2 (WR-08): a mapping error (KeyError/TypeError) still hits the D-05 path ══
+#
+# map_product hard-indexes detail["name"]/["url"]/["base_price"]/["created_at"]; a malformed
+# 2xx detail raises KeyError/TypeError — neither GitHubPublishError nor JinxxyAPIError. Before
+# broadening the guard those escaped the `except (GitHubPublishError, JinxxyAPIError)` and left
+# the deferred interaction hanging with no ephemeral reply.
+
+
+@pytest.mark.parametrize("boom", [KeyError("name"), TypeError("NoneType not subscriptable")])
+def test_sync_command_mapping_error_is_ephemeral_never_announced(cog, monkeypatch, boom):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    monkeypatch.setattr(cog, "_run_sync", AsyncMock(side_effect=boom))
+    inter = _sync_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_sync(cog, inter))              # must not raise
+    inter.response.defer.assert_awaited_once()
+    inter.followup.send.assert_awaited_once()        # ephemeral "revisa los logs" reply
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+    assert "logs" in inter.followup.send.await_args.args[0]
+    ch.send.assert_not_awaited()                     # nothing posted publicly (D-05)
+
+
 # ── /tienda sync success announces + confirms ──────────────────────────────────────
 def test_sync_command_success_announces_and_confirms(cog, monkeypatch):
     ch = _channel()
