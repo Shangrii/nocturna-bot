@@ -76,3 +76,117 @@ def is_https_url(url: str) -> bool:
     except (ValueError, TypeError):
         return False
     return parts.scheme == "https" and bool(parts.netloc)
+
+
+def _id_from_checkout(checkout_url: str) -> str:
+    """Derive a stable string ``id`` from a checkout URL (its final path segment / slug).
+
+    ``https://jinxxy.com/nocturna/cahuama`` → ``"cahuama"``. The slug is unique within a
+    single storefront (the product page path), so it makes a stable, deterministic id — no
+    random UUIDs that would churn on every sync.
+    """
+    slug = str(checkout_url).rstrip("/").rsplit("/", 1)[-1]
+    return slug or str(checkout_url)
+
+
+def three_way_merge(snapshot: dict | None, live: dict, current: dict | None):
+    """Merge one product across (snapshot, live, current) → ``(merged_entry, changed_fields)``.
+
+    ``snapshot`` = the last-synced Jinxxy values (DB, sync-owned fields only), ``live`` = the
+    freshly-mapped Jinxxy entry (``map_product`` output), ``current`` = the full ``store.json``
+    entry (sync-owned + staff-owned fields). Implements the D-12 field-ownership rules so a
+    staff edit is never clobbered (Pitfall 3):
+
+      * Jinxxy unchanged (``live == snapshot``)                    → keep ``current`` (staff edit wins)
+      * Jinxxy changed, staff untouched (``current == snapshot``)  → take ``live``
+      * both changed                                              → staff wins for ``name`` (D-10),
+                                                                    Jinxxy wins for the rest
+
+    ``changed_fields`` lists the sync-owned fields whose merged value differs from ``current``
+    (drives the reconcile ``updated`` bucket + the no-op guard). Staff-owned keys are always
+    carried through from ``current`` unchanged — never sourced from ``live``.
+
+    New product (``snapshot is None and current is None``): the merged entry is the mapped
+    ``live`` entry PLUS a generated stable string ``id`` PLUS a present-but-empty
+    ``description`` object ``{"es": "", "en": ""}`` (REQUIRED — StorePage.astro L71-78 drops
+    any product whose ``description`` is not an object). Every other staff-owned field stays
+    omitted so the site's per-field fallbacks apply; after creation they are staff-owned and
+    the sync never rewrites them.
+    """
+    if snapshot is None and current is None:
+        merged = dict(live)                       # sync-owned fields + editor from the mapper
+        merged["id"] = _id_from_checkout(live["checkoutUrl"])
+        merged["description"] = {"es": "", "en": ""}   # present-but-empty (StorePage.astro L71-78)
+        return merged, [f for f in SYNC_OWNED if f in merged]
+
+    snapshot = snapshot or {}
+    current = current or {}
+    merged = dict(current)                         # preserve staff-owned + editor + any extra keys
+    changed: list[str] = []
+    for field in SYNC_OWNED:
+        live_v = live.get(field)
+        snap_v = snapshot.get(field)
+        cur_v = current.get(field)
+        if live_v == snap_v:
+            new_v = cur_v                          # Jinxxy unchanged → keep current (staff edit)
+        elif cur_v == snap_v:
+            new_v = live_v                         # staff untouched → take live
+        elif field in STAFF_WINS_ON_CONFLICT:
+            new_v = cur_v                          # both changed, staff wins (name, D-10)
+        else:
+            new_v = live_v                         # both changed, Jinxxy wins (price/etc.)
+        if field in merged or new_v is not None:
+            merged[field] = new_v
+        if new_v != cur_v:
+            changed.append(field)
+    return merged, changed
+
+
+def reconcile_store(snapshots: dict, live_by_key: dict, current_by_key: dict) -> dict:
+    """Reconcile the whole store keyed by ``checkoutUrl`` → adds/updates/removals + a summary.
+
+    ``snapshots`` = last-synced values per key (DB), ``live_by_key`` = freshly-mapped Jinxxy
+    entries per key, ``current_by_key`` = current ``store.json`` entries per key. Returns
+    ``{"products", "added", "updated", "removed", "changed"}``.
+
+    Live entries drive the output (preserving Jinxxy's sort order): each is three-way-merged;
+    a key absent from both snapshot and current is an ``added``, an existing key whose merge
+    reports changed fields is an ``updated``. A current entry ABSENT from live is removed ONLY
+    if it had a snapshot (it was synced before, so Jinxxy dropping it is authoritative) —
+    a current-only entry with no snapshot (staff-added, never synced) is preserved unchanged
+    and never dropped. ``changed`` is True iff anything was added, updated or removed.
+
+    Removal safety (T-09-09): the caller must pass ``live_by_key`` ONLY on a successful full
+    Jinxxy enumeration — never on an API error/partial page — so a transient outage can never
+    mass-remove the store.
+    """
+    products: list[dict] = []
+    added: list[str] = []
+    updated: list[str] = []
+    removed: list[str] = []
+
+    for key, live in live_by_key.items():
+        snap = snapshots.get(key)
+        cur = current_by_key.get(key)
+        merged, changed_fields = three_way_merge(snap, live, cur)
+        products.append(merged)
+        if snap is None and cur is None:
+            added.append(key)
+        elif changed_fields:
+            updated.append(key)
+
+    for key, cur in current_by_key.items():
+        if key in live_by_key:
+            continue
+        if snapshots.get(key) is not None:
+            removed.append(key)                    # synced before, now gone from Jinxxy → drop
+        else:
+            products.append(cur)                   # staff-added, never synced → preserve
+
+    return {
+        "products": products,
+        "added": added,
+        "updated": updated,
+        "removed": removed,
+        "changed": bool(added or updated or removed),
+    }
