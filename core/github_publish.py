@@ -196,6 +196,58 @@ def _fetch_gallery(repo, branch):
     return _fetch_json(repo, branch, config.WEBSITE_GALLERY_JSON)
 
 
+def _fetch_json_object(repo, branch, path):
+    """GET the current JSON OBJECT at ``path`` (the store variant of ``_fetch_json``).
+
+    ``store.json`` is ``{"_comment": "<schema doc>", "products": [...]}`` — an OBJECT, not
+    an array — so the generic ``_fetch_json`` (which RAISES on a dict body to protect the
+    gallery/reviews array contract) cannot read it. This dict-expecting sibling shares the
+    exact content / raw-media fallback (WR-01: a 1-100 MB file comes back with ``encoding:
+    none`` and must be re-fetched raw, never mistaken for an empty file) and normalizes every
+    JSON-shape failure into the typed ``GitHubPublishError`` (WR-04) so the same ⚠️/retry
+    discipline applies. A body that is not a dict containing ``products`` (an array, or a
+    dict missing the key) is rejected at the transport boundary — otherwise ``build_tree``
+    would silently drop ``_comment`` or ``AttributeError`` on the missing list.
+
+    ``_fetch_json`` itself is left UNTOUCHED so gallery/reviews keep their array contract.
+    """
+    url = f"{_API}/repos/{repo}/contents/{path}"
+    resp = _http("get", url, "GET contents json", params={"ref": branch})
+    if resp.status_code == 404:
+        # store.json is a shipped, staff-owned file — a 404 is never "empty storefront".
+        raise GitHubPublishError("store.json: expected an object with a 'products' key")
+    _require(resp, "GET contents json")
+    data = resp.json()
+    if data.get("encoding") == "none" or (data.get("size", 0) > 0 and not data.get("content")):
+        raw_resp = _http(
+            "get", url, "GET contents json (raw)",
+            headers={**_headers(), "Accept": "application/vnd.github.raw+json"},
+            params={"ref": branch})
+        _require(raw_resp, "GET contents json (raw)")
+        text = raw_resp.text.strip()
+    else:
+        raw = base64.b64decode(data.get("content", ""))
+        text = raw.decode("utf-8").strip()
+    try:
+        parsed = json.loads(text) if text else None
+    except ValueError as exc:
+        raise GitHubPublishError(
+            f"GET contents json failed: invalid JSON ({exc.__class__.__name__})") from exc
+    if not isinstance(parsed, dict) or "products" not in parsed:
+        raise GitHubPublishError("store.json: expected an object with a 'products' key")
+    return parsed
+
+
+def _fetch_store(repo, branch, path):
+    """GET the current ``store.json`` OBJECT, preserving ``_comment`` + any staff keys.
+
+    Thin wrapper over ``_fetch_json_object`` (the object-shape guard lives there). Returns
+    the WHOLE dict so ``build_tree`` can rewrite ``products`` while carrying every other
+    top-level key (``_comment`` schema doc, staff-added notes) through the commit unchanged.
+    """
+    return _fetch_json_object(repo, branch, path)
+
+
 def _create_blob(repo, raw_bytes):
     url = f"{_API}/repos/{repo}/git/blobs"
     payload = {"content": base64.b64encode(raw_bytes).decode("ascii"), "encoding": "base64"}
@@ -510,3 +562,153 @@ async def remove_review(message_id):
     """
     async with _commit_lock:
         return await asyncio.to_thread(_remove_review_sync, message_id)
+
+
+# ── store transport (Fase 9): OBJECT-aware store.json, _comment preserved ────────────
+def _sync_store_sync(products, message=None):
+    """Commit the whole ``products`` list into ``store.json``, mutating ONLY ``products``.
+
+    ``store.json`` is an OBJECT ``{"_comment": ..., "products": [...]}`` (the load-bearing
+    divergence from gallery/reviews — RESEARCH Pattern 2 / Pitfall 1). ``build_tree`` copies
+    the current dict and replaces only ``current["products"]`` so ``_comment`` (the staff-
+    facing schema doc) and any staff-added top-level keys survive every sync (T-09-10, D-12).
+
+    No-op guard (T-09-12 / D-06 / Pitfall 2 — every commit is one Pages rebuild): if the new
+    products list already equals the current one, short-circuit to ``committed: False`` with
+    NO ref PATCH. The 09-05 caller only invokes this when the merge reports a change; this is
+    a defensive second gate so a redundant call never triggers an empty commit or a rebuild.
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    store_path = config.WEBSITE_STORE_JSON
+    new_products = list(products)
+
+    # Defensive no-op: compare against the live store before touching the ref.
+    current = _fetch_store(repo, branch, store_path)
+    if current.get("products") == new_products:
+        return {"committed": False, "commit_sha": None, "count": 0}
+
+    msg = message or f"store: sync {len(new_products)} products"
+
+    def build_tree(cur):
+        updated = dict(cur)                       # preserve _comment + unknown top-level keys
+        updated["products"] = new_products        # ONLY products changes
+        return [{
+            "path": store_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(updated),
+        }]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, msg, build_tree,
+        fetch=lambda: _fetch_store(repo, branch, store_path))
+    return {"committed": True, "commit_sha": commit_sha, "count": len(new_products)}
+
+
+def _attach_store_media_sync(checkout_url, media, description):
+    """Commit staff-supplied image blobs + ``images``/``description`` in ONE commit (D-15).
+
+    ``images`` and ``description`` are 100% staff-owned (D-15) — the sync merge NEVER writes
+    them; this is their only write path. ``media`` is a list of ``(webp_bytes, filename)``:
+    each becomes a blob under ``{WEBSITE_STORE_IMAGE_DIR}/{filename}`` (default ``public/store``)
+    and the matched product's ``images`` is set to the site-relative ``/store/{filename}``
+    list. The image blobs AND the ``store.json`` edit ride ONE tree -> ONE commit (mirrors the
+    gallery ``_publish_sync`` mixed blob+JSON shape) so a tile never renders against a
+    not-yet-committed image.
+
+    Matched by ``checkoutUrl`` (the D-13 cross-repo link key). A ``checkout_url`` matching no
+    product RAISES — never a silent no-op that would discard the staff's uploaded work.
+    ``_comment`` and every other product pass through byte-for-byte (T-09-10). Passing only
+    ``media`` leaves ``description`` untouched and vice-versa.
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    store_path = config.WEBSITE_STORE_JSON
+    image_dir = config.WEBSITE_STORE_IMAGE_DIR.rstrip("/")
+    media = list(media)
+
+    # Image blobs are content-addressed (independent of the ref) so they survive retries;
+    # create them once, then reference their shas from the (rebuildable) tree.
+    blob_tree = []
+    image_paths = []
+    for raw, filename in media:
+        blob_sha = _create_blob(repo, raw)
+        blob_tree.append({
+            "path": f"{image_dir}/{filename}",
+            "mode": _MODE,
+            "type": "blob",
+            "sha": blob_sha,
+        })
+        image_paths.append(f"/store/{filename}")           # site-relative, per the schema
+
+    message = f"store: attach media to {checkout_url}"
+
+    def build_tree(cur):
+        updated = dict(cur)                                # preserve _comment + unknown keys
+        products = [dict(p) for p in cur.get("products", [])]
+        match = next((p for p in products
+                      if p.get("checkoutUrl") == checkout_url), None)
+        if match is None:
+            raise GitHubPublishError(
+                f"store.json: no product with checkoutUrl {checkout_url} to attach media to")
+        if media:
+            match["images"] = image_paths                  # only when images were supplied
+        if description is not None:
+            match["description"] = description              # only when a description was supplied
+        updated["products"] = products
+        store_entry = {
+            "path": store_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(updated),
+        }
+        return blob_tree + [store_entry]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, message, build_tree,
+        fetch=lambda: _fetch_store(repo, branch, store_path))
+    return {"committed": True, "commit_sha": commit_sha,
+            "count": len(media), "files": [fn for _, fn in media]}
+
+
+async def sync_store(products, *, message=None):
+    """Sync the full ``products`` list into ``store.json`` as ONE atomic commit.
+
+    Args:
+        products: the merged product list to write. ``_comment`` and any staff-added
+            top-level keys are preserved; only ``products`` is replaced.
+        message: optional commit message override (defaults to a "store: sync N products").
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "count": int}``. An unchanged list is
+        a no-op (``committed: False``) — no empty commit, no Pages rebuild.
+
+    Raises:
+        GitHubPublishError: transport failed after the retry budget, or the fetched
+            ``store.json`` is not an object with a ``products`` key.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_sync_store_sync, products, message)
+
+
+async def attach_store_media(checkout_url, media=(), description=None):
+    """Attach staff-supplied images + description to one product as ONE atomic commit.
+
+    Args:
+        checkout_url: the product's ``checkoutUrl`` (the D-13 link key) to attach to.
+        media: iterable of ``(webp_bytes, filename)`` — each is committed as a blob under
+            ``WEBSITE_STORE_IMAGE_DIR`` and referenced as ``/store/{filename}``. Empty leaves
+            ``images`` untouched.
+        description: an ``{"es", "en"}`` dict, or ``None`` to leave ``description`` untouched.
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "count": int, "files": [str]}``.
+
+    Raises:
+        GitHubPublishError: no product matches ``checkout_url``, or the transport failed
+            after the retry budget.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(
+            _attach_store_media_sync, checkout_url, media, description)
