@@ -339,6 +339,29 @@ def test_on_poll_error_sleeps_cooldown_before_restart(cog, monkeypatch):
     assert order == [("sleep", jinxxy._POLL_RETRY_COOLDOWN_S), ("restart",)]  # sleep then restart
 
 
+# ══ 09-09 Task 3: a /me without a username hard-fails BEFORE any write (WR-04) ══════
+#
+# A malformed-but-2xx /me missing a username would build `jinxxy.com//slug` keys and mass-rewrite
+# every checkoutUrl. The sync must raise a typed JinxxyAPIError before enumeration/commit instead.
+
+
+def test_run_sync_missing_username_raises_before_any_write(cog, monkeypatch):
+    rec = _wire(monkeypatch, products=[{"id": "p1"}], me={"display_name": "Nocturna"})
+    with pytest.raises(jinxxy.jinxxy_api.JinxxyAPIError):
+        asyncio.run(cog._run_sync())
+    assert rec.sync_mock.await_count == 0          # no store rewrite on a malformed /me
+    assert rec.deletes == []                       # and no snapshot removal
+
+
+def test_run_sync_blank_username_raises_before_any_write(cog, monkeypatch):
+    rec = _wire(monkeypatch, products=[{"id": "p1"}],
+                me={"username": "", "display_name": "Nocturna"})
+    with pytest.raises(jinxxy.jinxxy_api.JinxxyAPIError):
+        asyncio.run(cog._run_sync())
+    assert rec.sync_mock.await_count == 0
+    assert rec.deletes == []
+
+
 # ══ Plan 09-06: /tienda medios — attach staff images + description (D-14/D-15) ═══════
 #
 # The Creator API exposes no images/description (D-14 live probe), so staff supply them
