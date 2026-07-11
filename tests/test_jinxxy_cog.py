@@ -505,3 +505,48 @@ def test_medios_publish_error_replies_ephemeral(cog, monkeypatch):
     asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment()))
     inter.followup.send.assert_awaited()             # staff-facing reply, not a public post
     assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+
+
+# ══ 09-10 Task 1 (WR-07): a bad/bomb attachment yields an ephemeral error, not a hang ══
+#
+# Discord's attachment picker does not restrict content types, so staff can upload a PDF,
+# a video or a decompression-bomb image. `optimize_to_webp` calls PIL.Image.open on those
+# raw bytes, which raises UnidentifiedImageError / DecompressionBombError / OSError — none of
+# them discord.HTTPException or GitHubPublishError. Before this guard the exception propagated
+# out of `asyncio.to_thread`, leaving the deferred interaction stuck on "thinking…" with no
+# staff feedback and breaking the D-05 one-ephemeral-signal contract.
+
+
+def test_medios_optimize_error_replies_ephemeral_and_skips_attach(cog, monkeypatch):
+    # A non-image / bomb attachment makes the optimizer raise (here UnidentifiedImageError, but
+    # the guard is broad on purpose). The invoker must get ONE ephemeral error and attach_store_media
+    # must never be reached — the interaction is resolved, not left hanging.
+    from PIL import UnidentifiedImageError
+
+    def _boom(raw):
+        raise UnidentifiedImageError("cannot identify image file")
+
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp", _boom)
+    attach = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media", attach)
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment()))
+    inter.followup.send.assert_awaited()             # one ephemeral signal to the invoker
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+    attach.assert_not_awaited()                      # never commits when optimization failed
+
+
+def test_medios_bomb_attachment_does_not_raise(cog, monkeypatch):
+    # A decompression-bomb attachment (PIL raises DecompressionBombError) must be swallowed into
+    # the ephemeral path, never propagate out of the deferred command (T-09-10-01 DoS mitigation).
+    from PIL import Image
+
+    def _bomb(raw):
+        raise Image.DecompressionBombError("image is too large")
+
+    monkeypatch.setattr(jinxxy.image_optimize, "optimize_to_webp", _bomb)
+    monkeypatch.setattr(jinxxy.github_publish, "attach_store_media", AsyncMock())
+    inter = _medios_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment()))  # must not raise
+    inter.followup.send.assert_awaited()
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
