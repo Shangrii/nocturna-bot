@@ -3,9 +3,11 @@
 Wires the three cores (the ``jinxxy_api`` read client, the pure ``store_sync`` merge, and the
 object-aware ``github_publish`` transport) into one Discord cog:
 
-  * a background ``@tasks.loop`` poll (``JINXXY_POLL_HOURS``, D-03 band 6-12h),
-  * a staff-gated ``/tienda sync`` command (D-02 manual trigger — added in Task 2),
-  * a run-once startup ``on_ready`` reconcile so a restart converges (Task 3),
+  * a background ``@tasks.loop`` poll (``JINXXY_POLL_HOURS``, D-03 band 6-12h) whose OWN immediate
+    first tick (``tasks.loop`` runs it right after ``before_loop``'s ``wait_until_ready``) IS the
+    single startup reconcile so a restart converges — there is no separate ``on_ready`` entry
+    point (CR-01: a duplicate ``on_ready`` reconcile double-announced on boot),
+  * a staff-gated ``/tienda sync`` command (D-02 manual trigger),
 
 all funnelled through ONE :meth:`JinxxyCog._run_sync` orchestration: enumerate Jinxxy → map →
 three-way merge against the durable snapshot + the live ``store.json`` → commit ONLY on change
@@ -39,6 +41,10 @@ log = logging.getLogger(__name__)
 
 # Brand red for the store announce embed (matches the reviews/reminders/gallery embeds).
 _BRAND_RED = 0xC0192C
+
+# WR-02: bounded cool-down before a poll restart. A persistent Jinxxy/GitHub outage must NOT turn
+# the 6-12h cadence into a zero-delay retry hammer against both APIs — wait 15 min, then restart.
+_POLL_RETRY_COOLDOWN_S = 900
 
 
 # ── staff gate (D-02 / T-09-14) ─────────────────────────────────────────────────────
@@ -116,34 +122,14 @@ class JinxxyCog(
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self._synced_once = False                  # run-once guard for the on_ready reconcile
         db.init_store_state()                      # repo idiom: ensure the snapshot table exists
-        self._poll.start()                         # start the tasks.loop cadence
+        self._poll.start()                         # start the tasks.loop cadence — its immediate
+                                                   # first tick is the sole startup reconcile (CR-01)
 
     async def cog_unload(self):
         # Hot-reload safety — mirrors reminders.cog_unload so a reload doesn't leave a second
         # poll loop ticking.
         self._poll.cancel()
-
-    # ── startup reconcile (converge on restart, run-once) ─────────────────────────────
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Run ONE startup sync so a restart converges (``on_ready`` can re-fire on reconnects).
-
-        Reuses the SAME :meth:`_run_sync` path (no separate reconcile code to drift): it
-        reconciles the durable snapshot vs the live ``store.json`` vs Jinxxy — importing missed
-        products (D-13 first-run linking by checkoutUrl), propagating changes, removing delistings.
-        The removal-safety in ``_run_sync`` (an API failure raises before any removal) already
-        protects a cold-start outage; here that raise is caught and logged (D-05), never crashing.
-        """
-        if self._synced_once:
-            return
-        self._synced_once = True
-        try:
-            result = await self._run_sync()
-            await self._announce(result)
-        except Exception:
-            log.exception("jinxxy: la reconciliación de arranque falló (se reintenta en el poll)")
 
     # ── core orchestration ───────────────────────────────────────────────────────────
     async def _run_sync(self) -> dict:
@@ -238,9 +224,11 @@ class JinxxyCog(
 
     @_poll.error
     async def _on_poll_error(self, exc: Exception):
-        # LOGS ONLY (D-05) — a sync failure never reaches Discord. Restart so the next cadence
-        # runs (mirrors reminders._on_scheduler_error).
+        # LOGS ONLY (D-05) — a sync failure never reaches Discord. WR-02: wait a bounded cool-down
+        # BEFORE restarting so a persistent outage doesn't tight-loop the restart, hammering both
+        # the Jinxxy and GitHub APIs; then restart so the next cadence runs.
         log.exception("jinxxy: el poll de la tienda se cayó, reiniciando", exc_info=exc)
+        await asyncio.sleep(_POLL_RETRY_COOLDOWN_S)
         self._poll.restart()
 
     # ── /tienda sync (D-02 manual trigger) ────────────────────────────────────────────
