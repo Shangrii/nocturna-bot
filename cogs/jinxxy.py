@@ -259,7 +259,11 @@ class JinxxyCog(
         await interaction.response.defer(ephemeral=True)
         try:
             result = await self._run_sync()
-        except (github_publish.GitHubPublishError, jinxxy_api.JinxxyAPIError):
+        except Exception:
+            # WR-08: broadened from `(GitHubPublishError, JinxxyAPIError)` to `Exception` so ANY
+            # sync failure — including a KeyError/TypeError from `map_product` on a malformed 2xx
+            # detail (detail["name"]/["url"]/["base_price"]/["created_at"]) — follows the D-05 path
+            # instead of escaping the handler and hanging the deferred interaction.
             # D-05: errors go to logs ONLY. The one user-facing signal is this EPHEMERAL reply
             # to the invoker — the public announce channel stays store-news-only.
             log.exception("jinxxy: /tienda sync falló")
