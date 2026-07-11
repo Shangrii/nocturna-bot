@@ -49,6 +49,7 @@ from datetime import datetime, timezone
 import requests
 
 import config
+from core import store_sync
 
 log = logging.getLogger(__name__)
 
@@ -577,6 +578,16 @@ def _sync_store_sync(products, message=None):
     products list already equals the current one, short-circuit to ``committed: False`` with
     NO ref PATCH. The 09-05 caller only invokes this when the merge reports a change; this is
     a defensive second gate so a redundant call never triggers an empty commit or a rebuild.
+
+    Concurrent-attach re-graft (WR-01 / gap #1 / T-09-07-01): ``build_tree`` receives the
+    FRESHLY-fetched store on every (re)try and re-grafts the staff-owned key set from the
+    fresh entry (matched by ``checkoutUrl``) onto each pre-computed product before writing.
+    This closes the race where a ``/tienda medios`` attach (JINXXY_DEPLOY.md tells staff to
+    run one per product right after the first sync) lands inside the commit window: without
+    the graft the stale merged list would silently revert the staff ``images``/``description``
+    (STORE-SYNC-01/02). Sync-owned fields still come from the pre-computed list so genuine
+    Jinxxy changes propagate; a product absent from the fresh fetch (a new product) is written
+    verbatim with no graft.
     """
     repo = config.WEBSITE_REPO
     branch = config.WEBSITE_BRANCH
@@ -590,9 +601,26 @@ def _sync_store_sync(products, message=None):
 
     msg = message or f"store: sync {len(new_products)} products"
 
+    # Staff-owned key set carried from the fresh store, NEVER from the merged list:
+    # store_sync.STAFF_OWNED (id, description, images, featured, license, details, updates,
+    # storefronts) PLUS "editor" (D-09: staff-editable, carried through, never re-sourced).
+    _GRAFT_KEYS = store_sync.STAFF_OWNED + ("editor",)
+
     def build_tree(cur):
         updated = dict(cur)                       # preserve _comment + unknown top-level keys
-        updated["products"] = new_products        # ONLY products changes
+        # Re-graft staff-owned fields from the FRESH fetch, keyed by checkoutUrl (WR-01).
+        fresh = {p["checkoutUrl"]: p for p in cur.get("products", [])
+                 if isinstance(p, dict) and p.get("checkoutUrl")}
+        grafted = []
+        for entry in new_products:
+            merged = dict(entry)                  # sync-owned fields stay from the merged list
+            match = fresh.get(entry.get("checkoutUrl")) if isinstance(entry, dict) else None
+            if match is not None:
+                for key in _GRAFT_KEYS:
+                    if key in match:              # only graft keys present in the fresh entry
+                        merged[key] = match[key]
+            grafted.append(merged)
+        updated["products"] = grafted             # ONLY products changes
         return [{
             "path": store_path,
             "mode": _MODE,
