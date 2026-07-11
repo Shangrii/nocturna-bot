@@ -106,14 +106,18 @@ def three_way_merge(snapshot: dict | None, live: dict, current: dict | None):
     (drives the reconcile ``updated`` bucket + the no-op guard). Staff-owned keys are always
     carried through from ``current`` unchanged — never sourced from ``live``.
 
-    New product (``snapshot is None and current is None``): the merged entry is the mapped
-    ``live`` entry PLUS a generated stable string ``id`` PLUS a present-but-empty
-    ``description`` object ``{"es": "", "en": ""}`` (REQUIRED — StorePage.astro L71-78 drops
-    any product whose ``description`` is not an object). Every other staff-owned field stays
-    omitted so the site's per-field fallbacks apply; after creation they are staff-owned and
-    the sync never rewrites them.
+    Current-absent product (``current is None``): resurrect a COMPLETE entry from ``live``.
+    This covers BOTH a brand-new product (``snapshot is None`` — never synced) AND a product
+    staff DELETED from ``store.json`` while it is still live on Jinxxy (``snapshot`` present).
+    In either case the merged entry is the mapped ``live`` entry PLUS a generated stable string
+    ``id`` PLUS a present-but-empty ``description`` object ``{"es": "", "en": ""}`` (REQUIRED —
+    StorePage.astro L71-78 drops any product whose ``description`` is not an object). Every other
+    staff-owned field stays omitted so the site's per-field fallbacks apply; after creation they
+    are staff-owned and the sync never rewrites them. Broadening this guard from the old
+    ``snapshot is None and current is None`` closes WR-05: a staff-deleted-while-live product can
+    no longer fall through to the field-loop and append an empty/partial ``{}`` into ``products``.
     """
-    if snapshot is None and current is None:
+    if current is None:
         merged = dict(live)                       # sync-owned fields + editor from the mapper
         merged["id"] = _id_from_checkout(live["checkoutUrl"])
         merged["description"] = {"es": "", "en": ""}   # present-but-empty (StorePage.astro L71-78)
