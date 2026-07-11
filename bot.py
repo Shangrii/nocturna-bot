@@ -45,6 +45,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.gallery")
         await self.load_extension("cogs.reviews")
         await self.load_extension("cogs.reminders")
+        await self.load_extension("cogs.jinxxy")
         await self.load_extension("cogs.help")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
@@ -102,6 +103,13 @@ def main():
     #    GALLERY_STAFF_ROLE_IDS cuando no se define, así que no hace falta un check aparte.
     if not config.REVIEWS_CHANNEL_ID:
         log.error("REVIEWS_CHANNEL_ID no configurado en el .env (canal de reseñas)")
+        sys.exit(1)
+    # ── Tienda / Jinxxy (Fase 9): el cog de sync necesita la API key del Creator API
+    #    para enumerar la tienda. El PAT/repo ya están validados arriba (mismo destino
+    #    cross-repo) y JINXXY_STAFF_ROLE_IDS cae en GALLERY_STAFF_ROLE_IDS cuando no se
+    #    define, así que basta con el fail-fast de la key (mismo trato que GITHUB_PAT).
+    if not config.JINXXY_API_KEY:
+        log.error("JINXXY_API_KEY no configurado en el .env (requerido para el sync de la tienda)")
         sys.exit(1)
     # ── Recordatorios (Fase 8): todo el schedule-math ancla en REMINDERS_TZ (D-07).
     #    Si la zona IANA es inválida, ZoneInfo revienta en el primer tick del scheduler
