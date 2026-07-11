@@ -178,35 +178,48 @@ class JinxxyCog(
             jinxxy_id_by_key[url] = "" if pid is None else str(pid)
 
         # 3. Durable snapshot (DB) + current store.json (cross-repo read), keyed by checkoutUrl.
+        #    WR-06: an entry that is a non-dict, has no/falsy checkoutUrl, or duplicates a key we
+        #    already keyed is UNKEYABLE — it can't take part in the checkoutUrl reconcile, but it
+        #    is staff work and must never be dropped. Collect those into `unkeyed` and re-graft
+        #    them onto the written products verbatim after the reconcile.
         snapshots = {k: _snapshot_from_row(r) for k, r in db.get_store_snapshot().items()}
         current = await asyncio.to_thread(
             github_publish._fetch_store,
             config.WEBSITE_REPO, config.WEBSITE_BRANCH, config.WEBSITE_STORE_JSON)
-        current_by_key = {
-            p["checkoutUrl"]: p
-            for p in (current.get("products") or [])
-            if isinstance(p, dict) and p.get("checkoutUrl")
-        }
+        current_by_key: dict[str, dict] = {}
+        unkeyed: list = []
+        for p in (current.get("products") or []):
+            if isinstance(p, dict) and p.get("checkoutUrl") and p["checkoutUrl"] not in current_by_key:
+                current_by_key[p["checkoutUrl"]] = p
+            else:
+                unkeyed.append(p)                  # non-dict / no key / duplicate → carry through
 
-        # 4. Whole-store three-way reconcile (pure).
+        # 4. Whole-store three-way reconcile (pure), then re-append the unkeyable staff entries so
+        #    a hand-added or malformed product is preserved on the next write (WR-06).
         result = store_sync.reconcile_store(snapshots, live_by_key, current_by_key)
+        result["products"].extend(unkeyed)
 
-        # 5. Commit ONLY on change (D-06), then make the durable snapshot reflect live truth:
-        #    upsert every live product, delete every removed key.
+        # 5. WR-03: advance the durable snapshot to live truth on EVERY successful sync — NOT only
+        #    inside the changed branch. A no-change cycle where Jinxxy already matches a staff value
+        #    still leaves a stale snapshot; if the snapshot isn't refreshed, a LATER staff edit on
+        #    that field is misread as a both-changed conflict and reverted (breaks D-12).
+        for key, entry in live_by_key.items():
+            name = entry["name"]["es"] if isinstance(entry.get("name"), dict) \
+                else entry.get("name")
+            db.upsert_store_snapshot(
+                checkout_url=key,
+                jinxxy_id=jinxxy_id_by_key.get(key, ""),
+                name=name,
+                price=entry["price"],
+                category=entry["category"],
+                nsfw=1 if entry["nsfw"] else 0,
+                date=entry["date"],
+            )
+
+        # 6. Commit + snapshot removals ONLY on change (D-06). `removed` is empty on a no-change
+        #    cycle, and a removal only makes sense when something actually changed.
         if result["changed"]:
             await github_publish.sync_store(result["products"])
-            for key, entry in live_by_key.items():
-                name = entry["name"]["es"] if isinstance(entry.get("name"), dict) \
-                    else entry.get("name")
-                db.upsert_store_snapshot(
-                    checkout_url=key,
-                    jinxxy_id=jinxxy_id_by_key.get(key, ""),
-                    name=name,
-                    price=entry["price"],
-                    category=entry["category"],
-                    nsfw=1 if entry["nsfw"] else 0,
-                    date=entry["date"],
-                )
             for key in result["removed"]:
                 db.delete_store_snapshot(key)
 
