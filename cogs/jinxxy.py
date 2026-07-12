@@ -516,34 +516,81 @@ class JinxxyCog(
 
     @staticmethod
     def _build_announce_embed(result: dict) -> discord.Embed:
-        """Spanish-first, brand-red store-news embed listing added/updated/removed product names."""
-        by_key = {
-            p.get("checkoutUrl"): p
-            for p in (result.get("products") or []) if isinstance(p, dict)
-        }
+        """English, engaging, visual store-news embed — the public conversion surface (GAP-2).
 
-        def _names(keys):
+        This OVERRIDES D-05's Spanish-first for STORE announcements ONLY (the announce channel is
+        public and the audience is now English). It is reached ONLY on a real change — ``_announce``
+        still guards no-change to silence (D-06) and still swallows send errors to logs (D-05). The
+        embed keeps brand red (``_BRAND_RED``) + a UTC timestamp and adds:
+
+          * a store-page link to ``config.JINXXY_STORE_URL`` (also set as ``embed.url``),
+          * each added/updated product rendered as ``[name](checkoutUrl)`` when the checkoutUrl
+            passes ``store_sync.is_https_url`` (T-09-27), with the label stripped of markdown
+            link-breaking chars ``[]()`` so a crafted name can't alter the link target (T-09-28),
+          * a best-effort thumbnail from the first product (an ``added`` one preferred) whose
+            ``images[0]`` is a site-relative ``/...`` path, composed against the trusted
+            ``config.WEBSITE_BASE_URL`` constant (T-09-27) — omitted entirely when none has images.
+        """
+        products = [p for p in (result.get("products") or []) if isinstance(p, dict)]
+        by_key = {p.get("checkoutUrl"): p for p in products}
+
+        def _name(p, key):
+            # English-first now (announce is English) → fall back to Spanish then the key.
+            n = p.get("name") if isinstance(p, dict) else None
+            if isinstance(n, dict):
+                return n.get("en") or n.get("es") or key
+            return n or key
+
+        def _sanitize(label):
+            # Strip markdown link-breaking chars so a crafted name can't break out of [label](url).
+            return re.sub(r"[\[\]()]", "", str(label))
+
+        def _render(keys):
             out = []
             for k in keys:
                 p = by_key.get(k)
-                name = None
                 if isinstance(p, dict):
-                    n = p.get("name")
-                    name = n.get("es") if isinstance(n, dict) else n
-                out.append(str(name or k))         # removed keys aren't in products → show the key
+                    label = _sanitize(_name(p, k))
+                    url = p.get("checkoutUrl")
+                    if store_sync.is_https_url(url):
+                        out.append(f"• [{label}]({url})")
+                    else:
+                        out.append(f"• {label}")
+                else:
+                    # removed keys aren't in products → plain (sanitized) text, never a link
+                    out.append(f"• {_sanitize(k)}")
             return out
 
-        embed = discord.Embed(title="Tienda actualizada", color=_BRAND_RED)
-        buckets = (("🆕 Nuevos", result.get("added") or []),
-                   ("✏️ Actualizados", result.get("updated") or []),
-                   ("🗑️ Quitados", result.get("removed") or []))
+        embed = discord.Embed(
+            title="New on the Nocturna store",
+            description="There's a new product on our webpage — make sure to check it out!",
+            color=_BRAND_RED,
+            url=config.JINXXY_STORE_URL,
+        )
+        embed.add_field(
+            name="Store",
+            value=f"[Browse the store]({config.JINXXY_STORE_URL})", inline=False)
+        buckets = (("🆕 New", result.get("added") or []),
+                   ("✏️ Updated", result.get("updated") or []),
+                   ("🗑️ Removed", result.get("removed") or []))
         for label, keys in buckets:
             if keys:
-                names = _names(keys)
+                lines = _render(keys)
                 embed.add_field(
                     name=f"{label} ({len(keys)})",
-                    value="\n".join(f"• {n}" for n in names)[:1024], inline=False)
-        embed.set_footer(text="Nocturna · tienda")
+                    value="\n".join(lines)[:1024], inline=False)
+
+        # Best-effort thumbnail: prefer an added product, else any, with a site-relative image.
+        ordered = [by_key[k] for k in (result.get("added") or []) if k in by_key] + products
+        for p in ordered:
+            images = p.get("images")
+            if isinstance(images, list) and images:
+                first = images[0]
+                if isinstance(first, str) and first.startswith("/"):
+                    embed.set_thumbnail(url=f"{config.WEBSITE_BASE_URL}{first}")
+                    break
+
+        embed.set_footer(text="Nocturna store")
         embed.timestamp = discord.utils.utcnow()
         return embed
 

@@ -253,7 +253,7 @@ def test_announce_silent_on_no_change(cog):
     ch.send.assert_not_awaited()
 
 
-# ── _announce sends a branded embed on change ──────────────────────────────────────
+# ── _announce sends a branded, ENGLISH, visual embed on change (GAP-2) ──────────────
 def test_announce_sends_branded_embed_on_change(cog):
     ch = _channel()
     cog.bot = _bot_with_channel(ch)
@@ -262,8 +262,60 @@ def test_announce_sends_branded_embed_on_change(cog):
     asyncio.run(cog._announce(result))
     ch.send.assert_awaited_once()
     embed = ch.send.await_args.kwargs["embed"]
+    # Brand red is unchanged; copy is English + engaging (D-05 override for STORE announces).
     assert embed.color.value == 0xC0192C
-    assert "Cahuama" in "".join(f.value for f in embed.fields)
+    assert embed.title == "New on the Nocturna store"
+    assert "new product on our webpage" in (embed.description or "").lower()
+    # The store-page link appears in the embed (as embed.url and as a field link).
+    assert embed.url == config.JINXXY_STORE_URL
+    assert config.JINXXY_STORE_URL in "".join(f.value for f in embed.fields)
+    # The old Spanish strings are gone.
+    assert "Tienda actualizada" not in (embed.title or "")
+    assert (embed.footer.text or "") != "Nocturna · tienda"
+
+
+def test_announce_embed_links_added_product_to_checkout_url(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    joined = "".join(f.value for f in embed.fields)
+    assert f"[Cahuama]({KEY})" in joined       # name rendered as a markdown link to its checkoutUrl
+
+
+def test_announce_embed_sanitizes_markdown_in_product_name(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    entry = _current_entry(name="Ca[hu](evil)ama")
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [entry]}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    joined = "".join(f.value for f in embed.fields)
+    assert f"[Cahuevilama]({KEY})" in joined    # []() stripped from the label (T-09-28)
+
+
+def test_announce_embed_sets_thumbnail_from_site_relative_image(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    entry = dict(_current_entry(), images=["/store/x.webp"])
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [entry]}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    assert embed.thumbnail.url == config.WEBSITE_BASE_URL + "/store/x.webp"
+
+
+def test_announce_embed_no_thumbnail_when_no_product_has_images(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    result = {"changed": True, "added": [KEY], "updated": [], "removed": [],
+              "products": [_current_entry()]}      # _current_entry has no images
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    assert embed.thumbnail.url is None
 
 
 # ══ 09-10 Task 3 (WR-09): a channel.send failure is logged and swallowed, never raised ══
