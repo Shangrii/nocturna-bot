@@ -387,6 +387,76 @@ class JinxxyCog(
         # in unit tests). Staff gate + snapshot read live in _producto_choices.
         return await self._producto_choices(interaction, current)
 
+    # ── /tienda editar (D-09 staff-owned `editor` credit) ───────────────────────────────
+    # The one staff-owned metadata field /tienda medios never exposed. `editor` is seeded from
+    # /me at creation and thereafter staff-owned (never re-sourced from live by the merge), so
+    # this command is its authoritative WRITE path — finishing the "staff never edit store.json
+    # by hand" contract (STORE-SYNC-02, GAP-1).
+    _EDITOR_MAX_LEN = 100                              # the schema's plain-text `editor` cap
+    _EDITOR_BAD_CHARS = re.compile(r"[\x00-\x1f\x7f]")  # control chars + newlines (T-09-21)
+
+    @app_commands.command(
+        name="editar",
+        description="Asigna el editor (creador acreditado) de un producto de la tienda (staff)")
+    @app_commands.describe(
+        producto="Producto de la tienda (usa el autocompletar)",
+        editor="Nombre del editor/creador a acreditar")
+    async def editar(
+        self,
+        interaction: discord.Interaction,
+        producto: str,
+        editor: str,
+    ):
+        """Set a product's staff-owned ``editor`` (credited creator) from Discord (GAP-1).
+
+        Order mirrors ``/tienda medios``: (1) staff gate FIRST (T-09-20) — a non-staff invoker
+        gets "Sin permisos." before any work; (2) VALIDATE the editor string BEFORE defer or any
+        transport (T-09-21) — strip it, reject empty-after-strip / over the 100-char cap / any
+        control-or-newline char with an ephemeral message and NO commit; (3) defer; (4) commit via
+        ``set_store_editor`` matched by ``checkoutUrl``; (5) confirm. A ``GitHubPublishError`` is
+        logged and answered with a single ephemeral reply — never a public post (D-05/T-09-23).
+        """
+        # 1. Staff gate FIRST — before defer or any transport work (T-09-20).
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # 2. Validate the editor string BEFORE defer/transport (T-09-21). The raw value never
+        #    reaches the commit message (T-09-22 lives in the transport); here we ensure it can't
+        #    break the store.json structure or carry hidden control bytes.
+        cleaned = (editor or "").strip()
+        if (not cleaned or len(cleaned) > self._EDITOR_MAX_LEN
+                or self._EDITOR_BAD_CHARS.search(cleaned)):
+            await interaction.response.send_message(
+                "Nombre de editor inválido (vacío, demasiado largo o con caracteres no permitidos).",
+                ephemeral=True)
+            return
+
+        # 3. Defer (a cross-repo commit can exceed Discord's 3s ack window).
+        await interaction.response.defer(ephemeral=True)
+
+        # 4. Commit the editor-only change into the matched product (one atomic commit, 09-12).
+        try:
+            await github_publish.set_store_editor(producto, cleaned)
+        except github_publish.GitHubPublishError:
+            # D-05: errors go to logs ONLY; the one user-facing signal is this ephemeral reply
+            # to the STAFF invoker — never a public post (T-09-23).
+            log.exception("jinxxy: /tienda editar falló")
+            await interaction.followup.send(
+                "No pude actualizar el editor; revisa los logs.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"Editor actualizado a «{cleaned}» — la web tarda un par de minutos.",
+            ephemeral=True)
+
+    @editar.autocomplete("producto")
+    async def _editar_producto_autocomplete(
+            self, interaction: discord.Interaction, current: str):
+        # Shares the medios product autocomplete: staff gate + snapshot read in _producto_choices
+        # ([] for non-staff, T-09-20).
+        return await self._producto_choices(interaction, current)
+
     async def _producto_choices(
             self, interaction: discord.Interaction,
             current: str) -> list[app_commands.Choice[str]]:
