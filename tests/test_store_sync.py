@@ -313,3 +313,19 @@ def test_reconcile_no_op():
     assert res["removed"] == []
     assert res["changed"] is False
     assert len(res["products"]) == 1
+
+
+# ── Plan 09-12: a staff-set `editor` survives a Jinxxy sync (GAP-1 regression) ──────
+def test_merge_preserves_staff_editor_across_jinxxy_sync_owned_change():
+    # A staff member set `editor` via /tienda editar; Jinxxy then changes a sync-owned field
+    # (price). The three-way merge must NEVER source `editor` from live (it is staff-owned,
+    # not in SYNC_OWNED) — the staff value is carried through via `dict(current)` even as the
+    # price change propagates. Pins that the sync can't clobber a staff-set editor (STORE-SYNC-01).
+    snapshot = _entry(price="10", editor=OWNER)          # last-synced Jinxxy values
+    live = _entry(price="20", editor=OWNER)              # Jinxxy raised the price
+    current = _entry(price="10", editor="StaffName")     # staff credited a creator
+    merged, changed = store_sync.three_way_merge(snapshot, live, current)
+    assert merged["editor"] == "StaffName"               # staff editor preserved, NOT owner_name
+    assert merged["price"] == "20"                       # the Jinxxy sync-owned change still applied
+    assert "price" in changed
+    assert "editor" not in changed                       # editor is not a sync-owned field

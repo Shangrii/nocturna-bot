@@ -622,3 +622,136 @@ def test_medios_bomb_attachment_does_not_raise(cog, monkeypatch):
     asyncio.run(_call_medios(cog, inter, producto=KEY, imagen1=_FakeAttachment()))  # must not raise
     inter.followup.send.assert_awaited()
     assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+
+
+# ══ Plan 09-12: /tienda editar — set a product's staff-owned `editor` (GAP-1) ════════
+#
+# The Creator API seeds `editor` from /me at creation (D-09); staff had no Discord path to
+# CHANGE it, so crediting a creator required a forbidden hand-edit of store.json. `/tienda
+# editar` validates the editor string then commits it via `set_store_editor` (09-12 transport),
+# matched by checkoutUrl. Staff gate FIRST (T-09-20); validate BEFORE any transport (T-09-21);
+# errors are log-only + one ephemeral reply (D-05/T-09-23).
+
+
+def _editar_interaction(role_ids):
+    return types.SimpleNamespace(
+        user=_member(role_ids),
+        response=types.SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock()),
+        followup=types.SimpleNamespace(send=AsyncMock()),
+    )
+
+
+async def _call_editar(cog, interaction, **kwargs):
+    await jinxxy.JinxxyCog.editar.callback(cog, interaction, **kwargs)
+
+
+# ── staff gate FIRST — non-staff rejected before defer or any transport (T-09-20) ────
+def test_editar_non_staff_rejected_before_any_work(cog, monkeypatch):
+    setter = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([OTHER_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="Shangri"))
+    assert inter.response.send_message.await_args.args[0] == "Sin permisos."
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+    inter.response.defer.assert_not_awaited()        # gated before defer
+    setter.assert_not_awaited()
+
+
+# ── valid editor → set_store_editor called ONCE with the cleaned (stripped) value ────
+def test_editar_valid_editor_calls_set_store_editor_once_cleaned(cog, monkeypatch):
+    setter = AsyncMock(return_value={"committed": True, "commit_sha": "x"})
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="  Shangri  "))
+    setter.assert_awaited_once()
+    args = setter.await_args.args
+    assert args[0] == KEY
+    assert args[1] == "Shangri"                      # stripped before the write
+    inter.response.defer.assert_awaited_once()
+    inter.followup.send.assert_awaited()
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+
+
+# ── invalid editor branches → ephemeral message, transport NEVER called (T-09-21) ────
+def test_editar_empty_after_strip_rejected(cog, monkeypatch):
+    setter = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="   "))
+    setter.assert_not_awaited()                      # no commit on invalid input
+    inter.response.send_message.assert_awaited()     # ephemeral rejection (before defer)
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+    inter.response.defer.assert_not_awaited()
+
+
+def test_editar_over_length_rejected(cog, monkeypatch):
+    setter = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="a" * 101))
+    setter.assert_not_awaited()
+    inter.response.send_message.assert_awaited()
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+
+def test_editar_at_length_cap_is_accepted(cog, monkeypatch):
+    # exactly 100 chars is valid (the cap is > 100 rejects, not >= 100)
+    setter = AsyncMock(return_value={"committed": True})
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="a" * 100))
+    setter.assert_awaited_once()
+
+
+def test_editar_newline_char_rejected(cog, monkeypatch):
+    setter = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="Shan\ngri"))
+    setter.assert_not_awaited()
+    inter.response.send_message.assert_awaited()
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+
+def test_editar_control_char_rejected(cog, monkeypatch):
+    setter = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="Shan\x07gri"))
+    setter.assert_not_awaited()
+    inter.response.send_message.assert_awaited()
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+
+# ── GitHubPublishError → one ephemeral reply, NEVER a public post (D-05/T-09-23) ─────
+def test_editar_publish_error_replies_ephemeral_never_announced(cog, monkeypatch):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    boom = jinxxy.github_publish.GitHubPublishError("no product matches checkout_url")
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", AsyncMock(side_effect=boom))
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="Shangri"))
+    inter.response.defer.assert_awaited_once()
+    inter.followup.send.assert_awaited_once()        # ephemeral reply to the invoker
+    assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
+    ch.send.assert_not_awaited()                     # nothing posted publicly (D-05)
+
+
+# ── editar autocomplete reuses _producto_choices → [] for a non-staff caller ─────────
+def test_editar_autocomplete_empty_for_non_staff(cog, monkeypatch):
+    called = []
+    monkeypatch.setattr(jinxxy.db, "get_store_snapshot",
+                        lambda: called.append(1) or {})
+    inter = _editar_interaction([OTHER_ROLE_ID])
+    choices = asyncio.run(cog._editar_producto_autocomplete(inter, ""))
+    assert choices == []                             # non-staff gets no Choices (T-09-20)
+    assert called == []                              # and no store read at all
+
+
+def test_editar_autocomplete_returns_choices_for_staff(cog, monkeypatch):
+    rows = {KEY: _snapshot_row(name="Cahuama")}
+    monkeypatch.setattr(jinxxy.db, "get_store_snapshot", lambda: dict(rows))
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    choices = asyncio.run(cog._editar_producto_autocomplete(inter, ""))
+    assert len(choices) == 1
+    assert choices[0].value == KEY
