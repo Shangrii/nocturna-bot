@@ -409,6 +409,112 @@ def test_attach_media_description_only_leaves_images_untouched(wire):
     assert fake.blob_tree_entries() == []                    # no blobs created
 
 
+# ── set_store_editor: editor-only write to the matched product ──────────────────────
+def test_set_store_editor_sets_editor_and_preserves_comment(wire):
+    # LOAD-BEARING: the committed blob must still carry _comment AND set editor only on
+    # the checkoutUrl-matched product, leaving every other field/product untouched.
+    prod = _product(checkout="https://jinxxy.com/nocturna/cahuama", editor="Old")
+    other = _product(checkout="https://jinxxy.com/nocturna/otro", name="Otro",
+                     editor="Nadie")
+    fake = wire(FakeGitHub(base_store=_store(products=[prod, other])))
+
+    result = asyncio.run(github_publish.set_store_editor(
+        "https://jinxxy.com/nocturna/cahuama", "Shangri"))
+
+    obj = fake.new_store_object()
+    assert obj["_comment"] == COMMENT                       # schema doc survives
+    matched = next(p for p in obj["products"]
+                   if p["checkoutUrl"] == "https://jinxxy.com/nocturna/cahuama")
+    assert matched["editor"] == "Shangri"                  # editor set
+    # only editor changed — every other field of the matched product intact
+    assert matched["price"] == "25" and matched["name"] == {"es": "Cahuama", "en": "Cahuama"}
+    kept = next(p for p in obj["products"]
+                if p["checkoutUrl"] == "https://jinxxy.com/nocturna/otro")
+    assert kept == other                                   # other product byte-identical
+    assert result["committed"] is True
+
+
+def test_set_store_editor_is_one_atomic_commit_no_blobs(wire):
+    fake = wire(FakeGitHub(base_store=_store(products=[
+        _product(checkout="https://jinxxy.com/nocturna/cahuama", editor="Old")])))
+
+    asyncio.run(github_publish.set_store_editor(
+        "https://jinxxy.com/nocturna/cahuama", "Shangri"))
+
+    assert len(fake.commits_posted()) == 1
+    assert len(fake.ref_patches()) == 1
+    # a single store.json blob by inline content, NO image blobs (editor is text-only)
+    tree = fake.tree_entries()
+    assert len(tree) == 1
+    assert tree[0]["path"] == config.WEBSITE_STORE_JSON
+    assert "content" in tree[0] and "sha" not in tree[0]
+    assert fake.blob_tree_entries() == []
+
+
+def test_set_store_editor_no_matching_product_raises(wire):
+    wire(FakeGitHub(base_store=_store(products=[
+        _product(checkout="https://jinxxy.com/nocturna/cahuama")])))
+
+    with pytest.raises(github_publish.GitHubPublishError, match="checkoutUrl"):
+        asyncio.run(github_publish.set_store_editor(
+            "https://jinxxy.com/nocturna/inexistente", "Shangri"))
+
+
+def test_set_store_editor_unchanged_is_a_noop_no_commit(wire):
+    # The matched product's editor already equals the requested value → no commit, no ref
+    # PATCH, no Pages rebuild (parity with the sync_store D-06 no-op guard).
+    fake = wire(FakeGitHub(base_store=_store(products=[
+        _product(checkout="https://jinxxy.com/nocturna/cahuama", editor="Shangri")])))
+
+    result = asyncio.run(github_publish.set_store_editor(
+        "https://jinxxy.com/nocturna/cahuama", "Shangri"))
+
+    assert fake.commits_posted() == []                     # no empty commit
+    assert fake.ref_patches() == []                        # no ref PATCH -> no Pages rebuild
+    assert result["committed"] is False
+
+
+def test_set_store_editor_serializes_unescaped_and_indented(wire):
+    fake = wire(FakeGitHub(base_store=_store(products=[
+        _product(checkout="https://jinxxy.com/nocturna/cahuama", editor="Old")])))
+
+    asyncio.run(github_publish.set_store_editor(
+        "https://jinxxy.com/nocturna/cahuama", "Diseñador Íñigo"))
+
+    content = fake.store_tree_entry()["content"]
+    assert "Diseñador Íñigo" in content                     # ensure_ascii=False
+    assert "\n  " in content                               # indent=2
+
+
+def test_set_store_editor_stale_ref_422_refetches_and_retries(wire):
+    fake = wire(FakeGitHub(
+        base_store=_store(products=[
+            _product(checkout="https://jinxxy.com/nocturna/cahuama", editor="Old")]),
+        patch_statuses=[422, 200]))
+
+    result = asyncio.run(github_publish.set_store_editor(
+        "https://jinxxy.com/nocturna/cahuama", "Shangri"))
+
+    assert fake.ref_get_count >= 2                          # re-fetched the ref
+    assert result["committed"] is True
+    assert len(fake.ref_patches()) == 2
+
+
+def test_set_store_editor_commit_message_references_url_not_editor(wire):
+    # T-09-22: the raw editor text must NEVER be interpolated into the commit message;
+    # the message references the validated checkoutUrl key only.
+    fake = wire(FakeGitHub(base_store=_store(products=[
+        _product(checkout="https://jinxxy.com/nocturna/cahuama", editor="Old")])))
+    secret = "SENSITIVE_EDITOR_NAME_xyz"
+
+    asyncio.run(github_publish.set_store_editor(
+        "https://jinxxy.com/nocturna/cahuama", secret))
+
+    commit_payload = fake.commit_payloads[0]
+    assert "https://jinxxy.com/nocturna/cahuama" in commit_payload["message"]
+    assert secret not in commit_payload["message"]         # editor value never leaks
+
+
 # ── secrets + serialization on the attach path ─────────────────────────────────────
 def test_attach_media_authorization_header_is_bearer_pat_on_every_call(wire):
     fake = wire(FakeGitHub(base_store=_store(products=[
