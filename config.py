@@ -117,3 +117,9 @@ WEBSITE_STORE_IMAGE_DIR = os.getenv("WEBSITE_STORE_IMAGE_DIR", "public/store")
 JINXXY_STAFF_ROLE_IDS = [
     int(x) for x in os.getenv("JINXXY_STAFF_ROLE_IDS", "").split(",") if x.strip()
 ] or GALLERY_STAFF_ROLE_IDS
+# Origen del sitio desplegado (sin barra final). Sirve para convertir una ruta de imagen
+# relativa del sitio (/store/<archivo>.webp) en una URL absoluta para la miniatura del embed.
+WEBSITE_BASE_URL = os.getenv("WEBSITE_BASE_URL", "https://nocturna-avatars.site")
+# Página de tienda (en inglés) a la que enlaza el embed público de anuncios. La audiencia es
+# ahora inglesa, así que apunta a /en/store (ruta EN de StorePage.astro), no a /es/tienda.
+JINXXY_STORE_URL = os.getenv("JINXXY_STORE_URL", "https://nocturna-avatars.site/en/store")
