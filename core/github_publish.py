@@ -700,6 +700,65 @@ def _attach_store_media_sync(checkout_url, media, description):
             "count": len(media), "files": [fn for _, fn in media]}
 
 
+def _set_store_editor_sync(checkout_url, editor):
+    """Commit ONLY the ``editor`` field of the ``checkoutUrl``-matched product (D-09).
+
+    ``editor`` is a staff-owned field (like ``images``/``description``): the Jinxxy merge
+    never sources it from live — it is seeded from ``/me`` at creation and thereafter carried
+    through by ``sync_store``'s ``_GRAFT_KEYS``. This is its authoritative WRITE path from the
+    Discord surface (``/tienda editar``), mirroring ``_attach_store_media_sync`` MINUS the
+    image-blob tree.
+
+    Matched by ``checkoutUrl`` (the D-13 cross-repo link key); a ``checkout_url`` matching no
+    product RAISES ``GitHubPublishError`` (never a silent no-op that drops staff intent).
+    ``_comment`` and every other product/field pass through byte-for-byte (T-09-10). A no-op
+    guard short-circuits to ``committed: False`` with NO ref PATCH when the matched product's
+    ``editor`` already equals ``editor`` (T-09-24 — every commit is one Pages rebuild).
+
+    The commit message is the FIXED template ``store: set editor for {checkout_url}`` — it
+    references the validated ``checkoutUrl`` key ONLY; the raw ``editor`` string is NEVER
+    interpolated into the message (T-09-22).
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    store_path = config.WEBSITE_STORE_JSON
+
+    # No-op guard: compare against the live store before touching the ref (T-09-24).
+    current = _fetch_store(repo, branch, store_path)
+    match = next((p for p in current.get("products", [])
+                  if isinstance(p, dict) and p.get("checkoutUrl") == checkout_url), None)
+    if match is None:
+        raise GitHubPublishError(
+            f"store.json: no product with checkoutUrl {checkout_url} to set editor on")
+    if match.get("editor") == editor:
+        return {"committed": False, "commit_sha": None}
+
+    # T-09-22: reference the checkoutUrl key ONLY — never interpolate the raw editor string.
+    message = f"store: set editor for {checkout_url}"
+
+    def build_tree(cur):
+        updated = dict(cur)                                # preserve _comment + unknown keys
+        products = [dict(p) for p in cur.get("products", [])]
+        target = next((p for p in products
+                       if p.get("checkoutUrl") == checkout_url), None)
+        if target is None:
+            raise GitHubPublishError(
+                f"store.json: no product with checkoutUrl {checkout_url} to set editor on")
+        target["editor"] = editor                          # ONLY editor changes
+        updated["products"] = products
+        return [{
+            "path": store_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(updated),
+        }]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, message, build_tree,
+        fetch=lambda: _fetch_store(repo, branch, store_path))
+    return {"committed": True, "commit_sha": commit_sha}
+
+
 async def sync_store(products, *, message=None):
     """Sync the full ``products`` list into ``store.json`` as ONE atomic commit.
 
@@ -740,3 +799,24 @@ async def attach_store_media(checkout_url, media=(), description=None):
     async with _commit_lock:
         return await asyncio.to_thread(
             _attach_store_media_sync, checkout_url, media, description)
+
+
+async def set_store_editor(checkout_url, editor):
+    """Set one product's ``editor`` (credited creator) as ONE atomic commit (D-09).
+
+    Args:
+        checkout_url: the product's ``checkoutUrl`` (the D-13 link key) to write ``editor`` on.
+        editor: the validated, staff-supplied editor string (the cog validates + strips it;
+            the transport stays dumb and writes what it is handed). NEVER placed in the commit
+            message (T-09-22).
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None}``. An unchanged ``editor`` is a no-op
+        (``committed: False``) — no empty commit, no Pages rebuild.
+
+    Raises:
+        GitHubPublishError: no product matches ``checkout_url``, or the transport failed after
+            the retry budget.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_set_store_editor_sync, checkout_url, editor)
