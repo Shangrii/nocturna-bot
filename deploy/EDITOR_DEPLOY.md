@@ -48,13 +48,13 @@ Pasos:
 4. Scope OAuth2 mínimo: **`identify`** (la comprobación de rol se hace server-side
    con el **bot token**, no con un scope de OAuth — D-07).
 
-**Valores confirmados** (los rellena la Tarea 2 de 10-03):
+**Valores confirmados** (Tarea 2 de 10-03, confirmado por el usuario):
 
 | Campo | Valor |
 |-------|-------|
-| Client ID | `TODO — pegar tras la Tarea 2` |
-| Redirect URI registrada | `TODO — pegar tras la Tarea 2 (debe terminar en /auth/callback)` |
-| Client Secret | **NO se escribe aquí** — vive solo en el `.env` de cinema (§4) |
+| Client ID | `1490114146895794246` |
+| Redirect URI registrada | `https://editors.nocturna-avatars.site/auth/callback` — confirmada registrada en el Developer Portal (OAuth2 → Redirects) |
+| Client Secret | **NO se escribe aquí** — se genera/rota y se coloca **únicamente** en el `.env` de cinema durante el deploy de 10-11 (§4/§6) |
 
 ---
 
@@ -67,12 +67,12 @@ subdominio resoluble apuntando a cinema.
 - Crea un registro **A/AAAA** en el proveedor de DNS de `nocturna-avatars.site`
   apuntando a la IP del host **cinema**.
 
-**Valores confirmados** (los rellena la Tarea 3 de 10-03):
+**Valores confirmados** (Tarea 3 de 10-03, confirmado por el usuario):
 
 | Campo | Valor |
 |-------|-------|
-| Subdominio elegido | `TODO — confirmar (default propuesto: editors.nocturna-avatars.site)` |
-| Registro DNS creado / apunta a cinema | `TODO — Sí/No` |
+| Subdominio elegido | `editors.nocturna-avatars.site` |
+| Registro DNS creado / apunta a cinema | Sí — confirmado por el usuario; el registro A/AAAA final se verifica en vivo durante el deploy de 10-11 |
 
 ---
 
@@ -89,13 +89,13 @@ web entrante** del proyecto.
 - Cookies `Secure` + `SameSite=Lax`; sesión con TTL corto (revalidación de rol en
   cada escritura, Pitfall 2).
 
-**Valores confirmados** (los rellena la Tarea 3 de 10-03):
+**Valores confirmados** (Tarea 3 de 10-03, confirmado por el usuario):
 
 | Campo | Valor |
 |-------|-------|
-| Reverse proxy en uso | `TODO — Caddy / nginx+certbot / aún-no` |
-| HTTPS automático confirmado | `TODO — Sí/No` |
-| uvicorn ligado a 127.0.0.1 tras el proxy | `TODO — Sí/No` |
+| Reverse proxy en uso | **Caddy** (HTTPS automático) |
+| HTTPS automático confirmado | Sí — Caddy gestiona el certificado automáticamente para el subdominio §2 |
+| uvicorn ligado a 127.0.0.1 tras el proxy | Sí (a confirmar en el Caddyfile final durante 10-11) |
 
 ---
 
@@ -133,12 +133,12 @@ habilitado en la app del bot (Developer Portal → Bot → Privileged Gateway In
 - **Si NO está habilitado:** D-10 cae a un **barrido de polling periódico** como
   mecanismo primario (10-09 lo entrega igualmente, así que el sitio no se bloquea).
 
-**Valor confirmado** (lo rellena la Tarea 3 de 10-03):
+**Valor confirmado** (Tarea 3 de 10-03, confirmado por el usuario):
 
 | Campo | Valor |
 |-------|-------|
-| Intent `members` habilitado | `TODO — Sí/No` |
-| Mecanismo D-10 resultante | `TODO — on_member_update (si Sí) / barrido de polling (si No)` |
+| Intent `members` habilitado (members intent) | **Sí** |
+| Mecanismo D-10 resultante | **`on_member_update`** en tiempo real como mecanismo primario, con el barrido de polling periódico (10-09) como respaldo/backstop — el diseño original del plan ya contempla ambos, y con el intent habilitado el camino en tiempo real queda activo desde el arranque |
 
 ---
 
