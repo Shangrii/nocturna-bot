@@ -878,6 +878,26 @@ def test_editar_control_char_rejected(cog, monkeypatch):
     assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
 
 
+# ── IN-01: Unicode format/BIDI control chars are rejected by category (Cc/Cf) ─────────
+# Code points are built with chr() from their hex value — no literal invisible/BIDI chars
+# are embedded anywhere in this source file.
+@pytest.mark.parametrize("codepoint", [
+    0x202E,   # RIGHT-TO-LEFT OVERRIDE (Cf) — could visually spoof the credited name
+    0x200B,   # ZERO WIDTH SPACE (Cf)
+    0x2066,   # LEFT-TO-RIGHT ISOLATE (Cf)
+])
+def test_editar_unicode_format_char_rejected(cog, monkeypatch, codepoint):
+    bad = "Shan" + chr(codepoint) + "gri"
+    setter = AsyncMock()
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor=bad))
+    setter.assert_not_awaited()                      # no commit on a hidden-char editor
+    inter.response.send_message.assert_awaited()     # ephemeral rejection (before defer)
+    assert inter.response.send_message.await_args.kwargs.get("ephemeral") is True
+    inter.response.defer.assert_not_awaited()
+
+
 # ── GitHubPublishError → one ephemeral reply, NEVER a public post (D-05/T-09-23) ─────
 def test_editar_publish_error_replies_ephemeral_never_announced(cog, monkeypatch):
     ch = _channel()

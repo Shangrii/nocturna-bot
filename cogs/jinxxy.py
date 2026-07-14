@@ -29,6 +29,7 @@ import asyncio
 import hashlib
 import logging
 import re
+import unicodedata
 
 import discord
 from discord import app_commands
@@ -45,6 +46,19 @@ _BRAND_RED = 0xC0192C
 # WR-02: bounded cool-down before a poll restart. A persistent Jinxxy/GitHub outage must NOT turn
 # the 6-12h cadence into a zero-delay retry hammer against both APIs — wait 15 min, then restart.
 _POLL_RETRY_COOLDOWN_S = 900
+
+
+# ── editor-string hardening (IN-01 / T-09-21) ───────────────────────────────────────
+def _has_control_or_format_char(s: str) -> bool:
+    """True iff ``s`` holds any Unicode control (``Cc``) or format (``Cf``) code point.
+
+    A superset of the old ``[\\x00-\\x1f\\x7f]`` regex: ``Cc`` still covers the ASCII C0
+    controls + DEL + newlines (T-09-21), while ``Cf`` additionally rejects zero-width and
+    BIDI embedding/override/isolate characters that could visually spoof the credited editor
+    name rendered verbatim on the public site. Category names are used rather than literal
+    invisible/BIDI code points so none are embedded in this file.
+    """
+    return any(unicodedata.category(ch) in ("Cc", "Cf") for ch in s)
 
 
 # ── staff gate (D-02 / T-09-14) ─────────────────────────────────────────────────────
@@ -393,7 +407,6 @@ class JinxxyCog(
     # this command is its authoritative WRITE path — finishing the "staff never edit store.json
     # by hand" contract (STORE-SYNC-02, GAP-1).
     _EDITOR_MAX_LEN = 100                              # the schema's plain-text `editor` cap
-    _EDITOR_BAD_CHARS = re.compile(r"[\x00-\x1f\x7f]")  # control chars + newlines (T-09-21)
 
     @app_commands.command(
         name="editar",
@@ -426,7 +439,7 @@ class JinxxyCog(
         #    break the store.json structure or carry hidden control bytes.
         cleaned = (editor or "").strip()
         if (not cleaned or len(cleaned) > self._EDITOR_MAX_LEN
-                or self._EDITOR_BAD_CHARS.search(cleaned)):
+                or _has_control_or_format_char(cleaned)):
             await interaction.response.send_message(
                 "Nombre de editor inválido (vacío, demasiado largo o con caracteres no permitidos).",
                 ephemeral=True)
