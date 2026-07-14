@@ -345,6 +345,34 @@ def test_announce_embed_no_thumbnail_when_no_product_has_images(cog):
     assert embed.thumbnail.url is None
 
 
+# WR-01: the thumbnail fallback must only consider the CHANGED set (added + updated), never
+# the full catalog — an unrelated, unchanged product's image must not leak into the embed.
+def test_announce_thumbnail_ignores_unrelated_unchanged_product_image(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    OTHER = "https://jinxxy.com/nocturna/otro"
+    changed = _current_entry()                                  # the updated product, NO images
+    unrelated = dict(_current_entry(key=OTHER, name="Otro"),    # unchanged, HAS an image
+                     images=["/store/unrelated.webp"])
+    result = {"changed": True, "added": [], "updated": [KEY], "removed": [],
+              "products": [changed, unrelated]}                 # both in the full catalog
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    # the changed product has no image and the unrelated one is out of scope → no thumbnail
+    assert embed.thumbnail.url is None
+
+
+def test_announce_thumbnail_uses_updated_product_image(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    changed = dict(_current_entry(), images=["/store/changed.webp"])   # updated + HAS an image
+    result = {"changed": True, "added": [], "updated": [KEY], "removed": [],
+              "products": [changed]}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    assert embed.thumbnail.url == config.WEBSITE_BASE_URL + "/store/changed.webp"
+
+
 # ══ 09-10 Task 3 (WR-09): a channel.send failure is logged and swallowed, never raised ══
 #
 # _announce's docstring promises "logged and skipped — never raised", but channel.send was

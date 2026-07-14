@@ -595,8 +595,12 @@ class JinxxyCog(
                     name=f"{label} ({len(keys)})",
                     value="\n".join(lines)[:1024], inline=False)
 
-        # Best-effort thumbnail: prefer an added product, else any, with a site-relative image.
-        ordered = [by_key[k] for k in (result.get("added") or []) if k in by_key] + products
+        # Best-effort thumbnail: prefer an added product, else an updated one, with a
+        # site-relative image. WR-01: candidates are restricted to the CHANGED set
+        # (added + updated) — never the full catalog — so an unrelated, unchanged product's
+        # image can't be pulled into a "store updated" announcement it has nothing to do with.
+        changed_keys = list(result.get("added") or []) + list(result.get("updated") or [])
+        ordered = [by_key[k] for k in changed_keys if k in by_key]
         for p in ordered:
             images = p.get("images")
             if isinstance(images, list) and images:
