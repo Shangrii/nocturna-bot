@@ -363,3 +363,82 @@ def test_sync_editors_every_http_call_carries_an_explicit_timeout(wire):
 
     assert fake.timeouts, "no HTTP calls were recorded"
     assert all(t not in (None, 0) for t in fake.timeouts)
+
+
+# ── unpublish_editor: flip published=false, keep entry, no-op guard (D-10/D-16) ──────
+def test_unpublish_editor_flips_published_false_and_keeps_entry(wire):
+    # The entry (and its committed image refs) stay in place so a later re-publish restores
+    # the page exactly — only ``published`` flips.
+    base = [_editor(slug="aria", discord_id="AAA", published=True),
+            _editor(slug="bob", discord_id="BBB", published=True)]
+    fake = wire(FakeGitHub(base_editors=base))
+
+    result = asyncio.run(github_publish.unpublish_editor("AAA"))
+
+    arr = fake.new_editors_array()
+    by_id = {e["discordId"]: e for e in arr}
+    assert len(arr) == 2                                    # entry NOT removed
+    assert by_id["AAA"]["published"] is False              # flipped
+    assert by_id["AAA"]["avatar"] == "/editors/aria/avatar.webp"   # image ref preserved
+    assert by_id["AAA"]["slug"] == "aria"                  # entry otherwise intact
+    assert by_id["BBB"]["published"] is True               # sibling untouched
+    assert fake.blob_tree_entries() == []                  # no image deletions, JSON-only
+    assert result["committed"] is True
+
+
+def test_unpublish_editor_is_one_atomic_commit(wire):
+    fake = wire(FakeGitHub(base_editors=[_editor(discord_id="AAA", published=True)]))
+
+    asyncio.run(github_publish.unpublish_editor("AAA"))
+
+    assert len(fake.commits_posted()) == 1
+    assert len(fake.ref_patches()) == 1
+    tree = fake.tree_entries()
+    assert len(tree) == 1
+    assert tree[0]["path"] == config.WEBSITE_EDITORS_JSON
+
+
+def test_unpublish_editor_unknown_id_is_a_noop_no_commit(wire):
+    fake = wire(FakeGitHub(base_editors=[_editor(discord_id="AAA", published=True)]))
+
+    result = asyncio.run(github_publish.unpublish_editor("NOPE"))   # no such editor
+
+    assert fake.commits_posted() == []                     # no empty commit
+    assert fake.ref_patches() == []                        # no ref PATCH -> no Pages rebuild
+    assert result["committed"] is False
+
+
+def test_unpublish_editor_already_unpublished_is_a_noop_no_commit(wire):
+    fake = wire(FakeGitHub(base_editors=[_editor(discord_id="AAA", published=False)]))
+
+    result = asyncio.run(github_publish.unpublish_editor("AAA"))
+
+    assert fake.commits_posted() == []
+    assert fake.ref_patches() == []
+    assert result["committed"] is False
+
+
+def test_unpublish_editor_commit_message_is_fixed_template_no_editor_text(wire):
+    # T-10-05-02: the message references the slug ONLY; raw editor name/bio never leaks.
+    secret = "SENSITIVE_BIO_TEXT_xyz"
+    fake = wire(FakeGitHub(base_editors=[
+        _editor(slug="aria", discord_id="AAA", published=True, name=secret,
+                tagline={"es": secret, "en": secret})]))
+
+    asyncio.run(github_publish.unpublish_editor("AAA"))
+
+    msg = fake.commit_payloads[0]["message"]
+    assert msg == "editors: unpublish aria"
+    assert secret not in msg
+
+
+def test_unpublish_editor_stale_ref_422_refetches_and_retries(wire):
+    fake = wire(FakeGitHub(
+        base_editors=[_editor(discord_id="AAA", published=True)],
+        patch_statuses=[422, 200]))
+
+    result = asyncio.run(github_publish.unpublish_editor("AAA"))
+
+    assert fake.ref_get_count >= 2                          # re-fetched the ref
+    assert result["committed"] is True
+    assert len(fake.ref_patches()) == 2
