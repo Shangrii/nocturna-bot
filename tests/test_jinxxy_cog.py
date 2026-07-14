@@ -805,6 +805,28 @@ def test_editar_valid_editor_calls_set_store_editor_once_cleaned(cog, monkeypatc
     assert inter.followup.send.await_args.kwargs.get("ephemeral") is True
 
 
+# ── WR-03: the success reply must honor set_store_editor's no-op signal ──────────────
+def test_editar_noop_reply_does_not_claim_rebuild(cog, monkeypatch):
+    # set_store_editor no-op'd (editor already matched) → committed False, no commit made
+    setter = AsyncMock(return_value={"committed": False, "commit_sha": None})
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="Nocturna"))
+    setter.assert_awaited_once()
+    reply = inter.followup.send.await_args.args[0]
+    assert "no hubo cambios" in reply.lower()
+    assert "tarda un par de minutos" not in reply     # never imply a rebuild that didn't happen
+
+
+def test_editar_committed_reply_announces_rebuild(cog, monkeypatch):
+    setter = AsyncMock(return_value={"committed": True, "commit_sha": "abc"})
+    monkeypatch.setattr(jinxxy.github_publish, "set_store_editor", setter)
+    inter = _editar_interaction([STAFF_ROLE_ID])
+    asyncio.run(_call_editar(cog, inter, producto=KEY, editor="Shangri"))
+    reply = inter.followup.send.await_args.args[0]
+    assert "tarda un par de minutos" in reply          # a real commit → rebuild is in flight
+
+
 # ── invalid editor branches → ephemeral message, transport NEVER called (T-09-21) ────
 def test_editar_empty_after_strip_rejected(cog, monkeypatch):
     setter = AsyncMock()

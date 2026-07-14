@@ -437,7 +437,7 @@ class JinxxyCog(
 
         # 4. Commit the editor-only change into the matched product (one atomic commit, 09-12).
         try:
-            await github_publish.set_store_editor(producto, cleaned)
+            result = await github_publish.set_store_editor(producto, cleaned)
         except github_publish.GitHubPublishError:
             # D-05: errors go to logs ONLY; the one user-facing signal is this ephemeral reply
             # to the STAFF invoker — never a public post (T-09-23).
@@ -446,9 +446,14 @@ class JinxxyCog(
                 "No pude actualizar el editor; revisa los logs.", ephemeral=True)
             return
 
-        await interaction.followup.send(
-            f"Editor actualizado a «{cleaned}» — la web tarda un par de minutos.",
-            ephemeral=True)
+        # 5. Confirm. WR-03: honor set_store_editor's no-op guard — when the editor already
+        #    matched, nothing was committed and no rebuild is in flight, so don't claim one
+        #    (mirrors /tienda sync's changed vs "Sin cambios." idiom).
+        if result.get("committed"):
+            msg = f"Editor actualizado a «{cleaned}» — la web tarda un par de minutos."
+        else:
+            msg = f"El editor ya era «{cleaned}»; no hubo cambios."
+        await interaction.followup.send(msg, ephemeral=True)
 
     @editar.autocomplete("producto")
     async def _editar_producto_autocomplete(
