@@ -561,9 +561,24 @@ class JinxxyCog(
                     out.append(f"• {_sanitize(k)}")
             return out
 
+        # CR-01: the headline must reflect what actually changed — an updated-only or
+        # removed-only cycle must NOT claim "New on the Nocturna store". Only the presence
+        # of an `added` product justifies the "new product" copy; everything else is the
+        # change-agnostic "store updated" headline (the pre-09-13 behaviour, restored).
+        added = result.get("added") or []
+        updated = result.get("updated") or []
+        if added:
+            title = "New on the Nocturna store"
+            description = "There's a new product on our webpage — make sure to check it out!"
+        elif updated:
+            title = "Nocturna store updated"
+            description = "Some of our products just got updated — take a look!"
+        else:
+            title = "Nocturna store updated"
+            description = "The store catalog just changed — take a look!"
         embed = discord.Embed(
-            title="New on the Nocturna store",
-            description="There's a new product on our webpage — make sure to check it out!",
+            title=title,
+            description=description,
             color=_BRAND_RED,
             url=config.JINXXY_STORE_URL,
         )

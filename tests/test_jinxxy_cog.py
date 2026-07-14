@@ -274,6 +274,33 @@ def test_announce_sends_branded_embed_on_change(cog):
     assert (embed.footer.text or "") != "Nocturna · tienda"
 
 
+# CR-01: an updated-only / removed-only cycle must NOT claim "New" — the headline has to
+# reflect what actually changed (the pre-09-13 change-agnostic behaviour, restored).
+def test_announce_updated_only_does_not_claim_new(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    result = {"changed": True, "added": [], "updated": [KEY], "removed": [],
+              "products": [_current_entry()]}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    assert embed.title == "Nocturna store updated"
+    assert "new" not in (embed.title or "").lower()
+    assert "new product on our webpage" not in (embed.description or "").lower()
+
+
+def test_announce_removed_only_does_not_claim_new(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    # a delisted product: it's in `removed` but no longer in the current `products` catalog
+    result = {"changed": True, "added": [], "updated": [], "removed": [KEY],
+              "products": []}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    assert embed.title == "Nocturna store updated"
+    assert "new" not in (embed.title or "").lower()
+    assert "new product on our webpage" not in (embed.description or "").lower()
+
+
 def test_announce_embed_links_added_product_to_checkout_url(cog):
     ch = _channel()
     cog.bot = _bot_with_channel(ch)
