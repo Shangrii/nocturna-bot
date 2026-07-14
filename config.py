@@ -123,3 +123,28 @@ WEBSITE_BASE_URL = os.getenv("WEBSITE_BASE_URL", "https://nocturna-avatars.site"
 # Página de tienda (en inglés) a la que enlaza el embed público de anuncios. La audiencia es
 # ahora inglesa, así que apunta a /en/store (ruta EN de StorePage.astro), no a /es/tienda.
 JINXXY_STORE_URL = os.getenv("JINXXY_STORE_URL", "https://nocturna-avatars.site/en/store")
+
+# ── Editores (Fase 10: app admin web de perfiles de editores) ────────────────────
+# App FastAPI separada (systemd propio en "cinema") que autentica editores vía Discord
+# OAuth2 + una verificación en vivo del rol de editor (D-07), y publica editors.json +
+# imágenes al repo del sitio con el mismo transporte cross-repo que la galería/tienda
+# (core/github_publish.py, mismo GITHUB_PAT/WEBSITE_REPO/WEBSITE_BRANCH).
+# Ruta del JSON de editores y del directorio de imágenes dentro del repo del sitio
+# (mismo idiom que WEBSITE_STORE_JSON / WEBSITE_STORE_IMAGE_DIR).
+WEBSITE_EDITORS_JSON = os.getenv("WEBSITE_EDITORS_JSON", "src/data/editors.json")
+WEBSITE_EDITORS_IMAGE_DIR = os.getenv("WEBSITE_EDITORS_IMAGE_DIR", "public/editors")
+# Credenciales de la app OAuth2 de Discord registrada para el panel admin. SOLO se leen
+# del entorno; nunca se registran en logs ni commits (mismo trato que GITHUB_PAT).
+DISCORD_OAUTH_CLIENT_ID = os.getenv("DISCORD_OAUTH_CLIENT_ID", "")
+DISCORD_OAUTH_CLIENT_SECRET = os.getenv("DISCORD_OAUTH_CLIENT_SECRET", "")
+DISCORD_OAUTH_REDIRECT_URI = os.getenv("DISCORD_OAUTH_REDIRECT_URI", "")
+# Clave de firma de la cookie de sesión (Starlette SessionMiddleware / itsdangerous).
+# SIN valor por defecto — debe fallar rápido (fail-fast) si la app arranca sin ella en
+# el entorno; nunca se registra en logs ni commits.
+SESSION_SECRET = os.getenv("SESSION_SECRET", "")
+# Origen (sin barra final) del subdominio donde vive el panel admin, p.ej.
+# https://editors.nocturna-avatars.site — usado para construir el redirect_uri de OAuth
+# y enlaces absolutos (no confundir con WEBSITE_BASE_URL, que es el sitio público).
+EDITOR_APP_BASE_URL = os.getenv("EDITOR_APP_BASE_URL", "https://editors.nocturna-avatars.site")
+# El rol de editor reutiliza el rol de moderador existente (D-15) — no se crea un
+# ROLE_EDITOR_ID nuevo; ROLE_MODERATOR_ID (arriba) ya cubre esta frontera de confianza.

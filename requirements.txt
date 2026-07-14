@@ -22,3 +22,15 @@ pytest>=8.0.0                    # pruebas del pipeline de imágenes (core/image
 # el host Linux "cinema" ya tiene una copia del sistema. discord.ext.tasks / sqlite3 /
 # zoneinfo / calendar ya vienen con discord.py o la stdlib — no hace falta pinearlos.
 tzdata>=2025.2                   # respaldo de la tz database para zoneinfo (REMINDERS_TZ)
+
+# ── Editores (Fase 10: app admin web de perfiles de editores) ────────────────────
+# Paquetes de la nueva app FastAPI (D-05/D-06) que vive junto al bot en "cinema" como un
+# systemd unit aparte. Legitimidad verificada vía slopcheck 0.6.1 (10-RESEARCH.md, aprobado
+# por checkpoint humano en 10-02). NO se pinea `starlette` ni `itsdangerous` por separado —
+# FastAPI los resuelve como dependencias transitivas compatibles (igual que `pydantic`).
+fastapi==0.139.0                 # framework web (rutas, validación pydantic, subida de archivos)
+uvicorn[standard]==0.51.0        # servidor ASGI (corre bajo systemd)
+authlib==1.7.2                   # cliente OAuth2 de Discord (intercambio de código, state)
+python-multipart==0.0.32         # parsea multipart/form-data para la subida de imágenes
+jinja2==3.1.6                    # plantillas del panel admin (server-rendered)
+httpx==0.28.1                    # cliente HTTP async para los endpoints de token/rol de Discord
