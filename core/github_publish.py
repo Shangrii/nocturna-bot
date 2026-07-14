@@ -820,3 +820,175 @@ async def set_store_editor(checkout_url, editor):
     """
     async with _commit_lock:
         return await asyncio.to_thread(_set_store_editor_sync, checkout_url, editor)
+
+
+# ── editors transport (Fase 10): editors.json array + optional image blobs ───────────
+def _sync_editors_sync(entry, images=(), message=None):
+    """Commit ONE editor entry (upserted by ``discordId``) + its image blobs in ONE commit.
+
+    ``editors.json`` is a top-level ARRAY (like ``gallery.json``/``reviews.json`` — D-18), so
+    this reuses the generic ``_fetch_json`` array reader and the audited ``_commit_with_retry``
+    atomic blobs->tree->commit->ref core — NO new commit path is invented (the gallery/store/
+    reviews transports stay byte-for-byte unchanged). It mirrors the gallery ``_publish_sync``
+    mixed blob+JSON tree shape and the store ``_sync_store_sync`` staff-safe rebuild.
+
+    Concurrent-clobber guard (Pitfall 6 / D-06): ``build_tree`` receives the FRESHLY fetched
+    editors array on every (re)try and upserts ONLY this editor — ``others = [e for e in
+    current if e.discordId != entry.discordId]`` then ``others + [entry]``. A second editor
+    saving at the same instant lands inside the commit window; because the retry re-fetches
+    and re-upserts against the fresh array, their entry is merged rather than overwritten
+    (mirrors how ``sync_store`` re-grafts by ``checkoutUrl``). ``discordId`` is compared as a
+    string on both sides so a str/int mismatch can never spawn a duplicate entry.
+
+    Image blobs (D-17): ``images`` is a list of ``(filename, webp_bytes)``; each becomes a blob
+    under ``{WEBSITE_EDITORS_IMAGE_DIR}/{slug}/{filename}`` (default ``public/editors/<slug>/``).
+    The slug is already normalized upstream (10-02, Pitfall 5) so the path is traversal-safe.
+    Blobs are content-addressed (independent of the ref) so they survive retries; they are
+    created ONCE and referenced by sha from the rebuildable tree. Image blobs AND the
+    ``editors.json`` edit ride ONE tree -> ONE commit so a page never renders against a
+    not-yet-committed image.
+
+    The commit message is a FIXED template ``editors: publish <slug>`` — the raw editor text
+    (name/bio/link labels) is NEVER interpolated into the message (T-10-05-02; mirrors the
+    09-12 ``set_store_editor`` commit hygiene). The whole ``entry`` is written verbatim: the
+    transport stays dumb and trusts the caller (the FastAPI app, 10-08/10-09) to have validated
+    it against ``core.editors_model`` first.
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    editors_path = config.WEBSITE_EDITORS_JSON
+    image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
+    slug = entry["slug"]
+    target = str(entry["discordId"])
+    images = list(images)
+
+    # Image blobs are content-addressed (independent of the ref) so they survive retries;
+    # create them once, then reference their shas from the (rebuildable) tree.
+    blob_tree = []
+    files = []
+    for filename, raw in images:
+        blob_sha = _create_blob(repo, raw)
+        blob_tree.append({
+            "path": f"{image_dir}/{slug}/{filename}",
+            "mode": _MODE,
+            "type": "blob",
+            "sha": blob_sha,
+        })
+        files.append(filename)
+
+    # Fixed template — never interpolate raw editor text into the commit message (T-10-05-02).
+    msg = message or f"editors: publish {slug}"
+
+    def build_tree(current):
+        # Upsert THIS editor by discordId into the FRESHLY fetched array (Pitfall 6): a
+        # concurrent save's entry is merged, never clobbered. Append order is irrelevant.
+        others = [e for e in current if str(e.get("discordId")) != target]
+        updated = others + [entry]
+        editors_entry = {
+            "path": editors_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(updated),
+        }
+        return blob_tree + [editors_entry]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, msg, build_tree,
+        fetch=lambda: _fetch_json(repo, branch, editors_path))
+    return {"committed": True, "commit_sha": commit_sha, "slug": slug, "files": files}
+
+
+def _unpublish_editor_sync(discord_id, message=None):
+    """Flip the ``discordId``-matched editor's ``published`` to false in ONE commit (D-10/D-16).
+
+    The self-unpublish (D-16) + role-loss (D-10) write path. Reuses the same ``_fetch_json``
+    array reader + ``_commit_with_retry`` core as ``sync_editors`` — no new commit path. The
+    entry (and its committed images) are LEFT in place so a later re-publish restores the page
+    exactly; only ``published`` flips to ``False``.
+
+    No-op guard (mirrors the store/reviews defensive no-op — every commit is one Pages
+    rebuild): the entry is derived from the current ``editors.json`` first; if no entry matches
+    ``discord_id``, OR the matched entry is already unpublished, return ``committed: False`` with
+    NO ref PATCH. The commit message is the FIXED template ``editors: unpublish <slug>`` — raw
+    editor text is never interpolated (T-10-05-02).
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    editors_path = config.WEBSITE_EDITORS_JSON
+    target = str(discord_id)
+
+    # No-op guard: derive from the live editors.json before touching the ref.
+    current = _fetch_json(repo, branch, editors_path)
+    match = next((e for e in current
+                  if str(e.get("discordId")) == target), None)
+    if match is None or match.get("published") is False:
+        return {"committed": False, "commit_sha": None}
+
+    slug = match.get("slug", target)
+    # Fixed template — never interpolate raw editor text (T-10-05-02).
+    msg = message or f"editors: unpublish {slug}"
+
+    def build_tree(cur):
+        updated = []
+        for e in cur:
+            if str(e.get("discordId")) == target:
+                flipped = dict(e)                          # leave the entry + images in place
+                flipped["published"] = False               # only published flips
+                updated.append(flipped)
+            else:
+                updated.append(e)
+        editors_entry = {
+            "path": editors_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_json(updated),
+        }
+        return [editors_entry]
+
+    commit_sha = _commit_with_retry(
+        repo, branch, msg, build_tree,
+        fetch=lambda: _fetch_json(repo, branch, editors_path))
+    return {"committed": True, "commit_sha": commit_sha, "slug": slug}
+
+
+async def sync_editors(entry, images=(), *, message=None):
+    """Publish/update one editor page as ONE atomic commit (D-06/D-13/D-17).
+
+    Upserts ``entry`` into ``editors.json`` by ``discordId`` (concurrency-safe, Pitfall 6) and
+    commits any uploaded images alongside it in the SAME commit. Reuses the audited cross-repo
+    transport core — no new commit path.
+
+    Args:
+        entry: a validated ``editors.json`` element (``slug``/``discordId``/``published``/...).
+            The transport writes it verbatim; the caller (FastAPI app) validates it first via
+            ``core.editors_model``.
+        images: iterable of ``(filename, webp_bytes)`` — each is committed as a blob under
+            ``WEBSITE_EDITORS_IMAGE_DIR/<slug>/<filename>``. Empty writes only the JSON blob.
+        message: optional commit message override (defaults to ``editors: publish <slug>``).
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "slug": str, "files": [str]}``.
+
+    Raises:
+        GitHubPublishError: transport failed after the retry budget.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_sync_editors_sync, entry, images, message)
+
+
+async def unpublish_editor(discord_id, *, message=None):
+    """Unpublish one editor page (flip ``published`` to false) as ONE atomic commit (D-10/D-16).
+
+    Args:
+        discord_id: the editor's Discord id (the D-08 1:1 key). Compared as a string.
+        message: optional commit message override (defaults to ``editors: unpublish <slug>``).
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "slug": str}``. An unknown or already-
+        unpublished editor is a no-op (``committed: False``) — no empty commit, no Pages rebuild.
+
+    Raises:
+        GitHubPublishError: transport failed after the retry budget.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_unpublish_editor_sync, discord_id, message)

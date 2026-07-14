@@ -133,7 +133,9 @@ class FakeGitHub:
         return [c for c in self.calls if c[0] == "PATCH"]
 
     def tree_entries(self):
-        return self.tree_payloads[0]["tree"]
+        # The COMMITTED tree is the last one built — on a stale-ref retry an earlier attempt
+        # builds a tree against a now-superseded fetch, so read the final (winning) tree.
+        return self.tree_payloads[-1]["tree"]
 
     def editors_tree_entry(self):
         return next(t for t in self.tree_entries() if t["path"] == config.WEBSITE_EDITORS_JSON)
