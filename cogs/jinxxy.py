@@ -591,9 +591,21 @@ class JinxxyCog(
         for label, keys in buckets:
             if keys:
                 lines = _render(keys)
+                # WR-02: each line can be a markdown link (`• [name](url)`) now — a hard
+                # `[:1024]` slice could cut inside a `[label](url)` span and render a dangling
+                # `[` / unterminated `(url` to the public channel. Truncate on a LINE boundary
+                # (staying under Discord's 1024-char field cap) with an "...and N more" tail.
+                out_lines: list[str] = []
+                total_len = 0
+                for i, line in enumerate(lines):
+                    if total_len + len(line) + 1 > 1000:
+                        out_lines.append(f"...and {len(lines) - i} more")
+                        break
+                    out_lines.append(line)
+                    total_len += len(line) + 1
                 embed.add_field(
                     name=f"{label} ({len(keys)})",
-                    value="\n".join(lines)[:1024], inline=False)
+                    value="\n".join(out_lines), inline=False)
 
         # Best-effort thumbnail: prefer an added product, else an updated one, with a
         # site-relative image. WR-01: candidates are restricted to the CHANGED set

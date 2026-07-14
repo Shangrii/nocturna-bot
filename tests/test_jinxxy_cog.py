@@ -324,6 +324,32 @@ def test_announce_embed_sanitizes_markdown_in_product_name(cog):
     assert f"[Cahuevilama]({KEY})" in joined    # []() stripped from the label (T-09-28)
 
 
+# WR-02: a bucket long enough to exceed the field cap must truncate on a LINE boundary with
+# an "...and N more" tail — never a hard slice that could cut inside a `[label](url)` span.
+def test_announce_embed_truncates_long_bucket_at_line_boundary(cog):
+    ch = _channel()
+    cog.bot = _bot_with_channel(ch)
+    entries = []
+    added = []
+    for i in range(40):                       # 40 markdown links → joined value exceeds 1024
+        key = f"https://jinxxy.com/nocturna/prod{i:02d}"
+        entries.append(_current_entry(key=key, name=f"Producto Numero {i:02d}"))
+        added.append(key)
+    result = {"changed": True, "added": added, "updated": [], "removed": [],
+              "products": entries}
+    asyncio.run(cog._announce(result))
+    embed = ch.send.await_args.kwargs["embed"]
+    field = next(f for f in embed.fields if f.name.startswith("🆕 New"))
+    assert len(field.value) <= 1024                       # within Discord's field cap
+    field_lines = field.value.split("\n")
+    assert field_lines[-1].startswith("...and ")          # truncation indicator, not a cut link
+    assert "more" in field_lines[-1]
+    for line in field_lines[:-1]:                         # every kept product line is intact
+        assert line.startswith("• [")
+        assert line.endswith(")")                         # no dangling `[` / unterminated `(url`
+        assert "](" in line
+
+
 def test_announce_embed_sets_thumbnail_from_site_relative_image(cog):
     ch = _channel()
     cog.bot = _bot_with_channel(ch)
