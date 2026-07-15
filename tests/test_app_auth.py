@@ -254,3 +254,79 @@ def test_callback_rejects_bad_or_missing_state(monkeypatch):
 
     assert ei.value.status_code == 400
     assert req.session == {}  # CSRF-guarded callback issues no session
+
+
+# ── Task 2: require_editor — session-only identity + live role re-check (D-08/Pitfall 2)
+def test_require_editor_401_without_session():
+    from app import deps
+    req = _FakeRequest()  # empty session
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(deps.require_editor(req))
+    assert ei.value.status_code == 401
+
+
+def test_require_editor_returns_identity_from_session_only(monkeypatch):
+    from app import deps
+
+    async def fake_role(uid):
+        return True
+
+    monkeypatch.setattr(deps, "has_editor_role", fake_role)
+    req = _FakeRequest()
+    # A hostile body-style slug/discordId is NOT consulted — identity is the session's.
+    req.session = {"discord_id": "555", "slug": "aria"}
+    ident = asyncio.run(deps.require_editor(req))
+    assert ident == {"discord_id": "555", "slug": "aria"}
+
+
+def test_require_editor_403_and_clears_session_on_role_loss(monkeypatch):
+    from app import deps
+
+    async def fake_role(uid):
+        return False  # role revoked since login
+
+    monkeypatch.setattr(deps, "has_editor_role", fake_role)
+    req = _FakeRequest()
+    req.session = {"discord_id": "555", "slug": "aria"}
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(deps.require_editor(req))
+
+    assert ei.value.status_code == 403
+    assert req.session == {}  # stale session cleared (Pitfall 2)
+
+
+# ── Task 2: app assembly — SessionMiddleware secure flags + fail-fast config ────────
+def test_session_middleware_configured_with_secure_flags():
+    from starlette.middleware.sessions import SessionMiddleware
+
+    from app.main import app
+
+    entry = next(m for m in app.user_middleware if m.cls is SessionMiddleware)
+    kw = dict(getattr(entry, "kwargs", {}) or {})
+    assert kw.get("https_only") is True
+    assert kw.get("same_site") == "lax"
+    assert kw.get("max_age") and kw["max_age"] <= 6 * 3600  # short TTL (Pitfall 2)
+
+
+def test_validate_config_raises_when_session_secret_empty(monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(config, "SESSION_SECRET", "")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_SECRET", "csecret")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_REDIRECT_URI", "https://x/auth/callback")
+
+    with pytest.raises(RuntimeError):
+        main.validate_config()
+
+
+def test_validate_config_passes_when_all_set(monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(config, "SESSION_SECRET", "s" * 32)
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_SECRET", "csecret")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_REDIRECT_URI", "https://x/auth/callback")
+
+    main.validate_config()  # must not raise
