@@ -302,6 +302,89 @@ durante la planificación como comprometido.
 
 ---
 
+## 8. Contador de vistas self-hosted (Fase 10.1, 10.1-12, D-25)
+
+`ViewCounter.astro` (páginas de editor rediseñadas) hace **ping** al descartar el splash a
+un contador **propio** en cinema — sin terceros (D-25). Es una app **FastAPI diminuta y
+separada** (`app/counter_app.py`), otra **unidad systemd hermana** que comparte el mismo
+venv/`core/`/`.env` que el bot y el admin app, pero corre en su **propio proceso** (un crash
+aquí no tumba ni el bot ni el admin app).
+
+### Contrato del endpoint
+
+| Método | Ruta | Respuesta |
+|--------|------|-----------|
+| `GET` | `/api/views/<slug>?hit=1` | `200 {"count": <int>}` — **incrementa** y devuelve |
+| `GET` | `/api/views/<slug>` | `200 {"count": <int>}` — **solo lectura**, no incrementa |
+
+- **Puerto (loopback):** `127.0.0.1:8771` (Caddy front, HTTPS en `editors.nocturna-avatars.site`).
+- **Slug** validado `[a-z0-9-]+` (si no, `404`); un slug **desconocido** bien formado devuelve
+  `{"count": 0}` (nunca 500). El cliente siempre recibe un entero limpio, y `ViewCounter.astro`
+  **oculta** el contador si el endpoint es inalcanzable (degradación elegante, UI-SPEC).
+- **CORS:** el llamante es el **sitio público** (`WEBSITE_BASE_URL`, un origen DISTINTO de
+  `editors.nocturna-avatars.site`) — se permite ese origen (+ su variante www/no-www) solo GET.
+- **Anti-inflado:** `rate_limit` por IP a nivel de Caddy (T-10.1-12-01) **más** una ventana de
+  dedup por `slug`+`ip_hash` en la DB (un reload no infla el contador). Se guarda **solo un
+  HASH** de la IP, nunca la IP cruda (T-10.1-12-02).
+- **Sin secretos:** endpoint público de lectura/incremento, sin auth. El `.env` solo aporta
+  `WEBSITE_BASE_URL` (el origen CORS) y `DB_PATH` (el sqlite compartido).
+
+> **Nota Lanyard (D-05/A4):** si la instancia pública de Lanyard llega a rate-limitar el fetch
+> de presencia en vivo, un self-host de Lanyard podría vivir junto a este contador en cinema
+> (mismo patrón de unidad systemd hermana + bloque Caddy). Fuera de alcance de este plan.
+
+### 8.1 Instalar y arrancar la unidad systemd del contador
+
+```bash
+# En el repo nocturna-bot de cinema (mismo checkout que corre el bot + admin app):
+cd ~/nocturna-bot            # ajusta a la ruta real del checkout
+git pull
+
+# Copia la unidad y AJUSTA User= + las rutas (WorkingDirectory, venv, EnvironmentFile,
+# ReadWritePaths) igual que hiciste con nocturna-editor-admin.service:
+sudo cp deploy/nocturna-view-counter.service /etc/systemd/system/
+sudo nano /etc/systemd/system/nocturna-view-counter.service   # ajusta User + las rutas
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now nocturna-view-counter
+
+# Verifica que arrancó y que la DB es escribible (ReadWritePaths cubre el checkout):
+systemctl status nocturna-view-counter --no-pager
+journalctl -u nocturna-view-counter -n 50 --no-pager
+
+# Sanity local (loopback, aún sin TLS) — incrementa y luego lee:
+curl -sS "http://127.0.0.1:8771/api/views/aria?hit=1"   # -> {"count":1}
+curl -sS "http://127.0.0.1:8771/api/views/aria"         # -> {"count":1} (solo lectura)
+```
+
+### 8.2 Añadir la ruta `/api/views/*` a Caddy
+
+El bloque de `editors.nocturna-avatars.site` en `deploy/Caddyfile.snippet` ya incluye un
+`handle /api/views/*` que hace `reverse_proxy 127.0.0.1:8771` con un `rate_limit` por IP, y el
+resto del tráfico cae al admin app (`handle { reverse_proxy 127.0.0.1:8770 }`). Si ya pegaste
+una versión anterior del snippet (solo admin app), re-cópialo o añade a mano el `handle
+/api/views/*` + su `rate_limit @views`:
+
+```bash
+sudo cp deploy/Caddyfile.snippet /etc/caddy/sites/editors.nocturna-avatars.site.caddy
+sudo caddy validate --config /etc/caddy/Caddyfile     # valida sintaxis (incl. rate_limit)
+sudo systemctl reload caddy                            # recarga sin downtime
+
+# Verifica el contador por HTTPS a través de Caddy:
+curl -sS "https://editors.nocturna-avatars.site/api/views/aria?hit=1"   # -> {"count":N}
+```
+
+> **Nota rate-limit:** el `rate_limit @views` usa el mismo plugin `caddy-ratelimit` que los
+> bloques del admin app (§3.1). Si tu build de Caddy no lo trae, elimina el bloque
+> `rate_limit @views {...}` (el `handle /api/views/*` sigue funcionando; solo pierdes el
+> throttling a nivel de proxy) o reconstruye Caddy con el plugin.
+
+> Igual que el resto de esta fase, la **verificación end-to-end en vivo** (splash → ping →
+> incremento → render del contador en la página pública) es un paso **humano**; estos son
+> artefactos de despliegue.
+
+---
+
 *Fase 10 — Editor Profile Pages. Admin app: FastAPI + uvicorn (unidad systemd hermana
 en cinema), login Discord OAuth2 + comprobación server-side de rol con el bot token,
 commit cross-repo de `editors.json` vía `core/github_publish.py`. Artefactos de

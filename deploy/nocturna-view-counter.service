@@ -1,0 +1,61 @@
+; ─────────────────────────────────────────────────────────────────────────────
+; nocturna-view-counter.service — self-hosted view counter (Fase 10.1, 10.1-12, D-25)
+;
+; Sibling systemd unit to the discord.py bot (nocturna-bot.service) and the editor
+; admin app (nocturna-editor-admin.service). Runs the tiny FastAPI/uvicorn view
+; counter (app.counter_app:app) that ViewCounter.astro pings on splash dismiss —
+; sharing the SAME venv, core/ and .env as the bot but in its OWN process (a crash
+; here never takes the bot or the admin app down).
+;
+; SECURITY (Pitfall 8): uvicorn binds to 127.0.0.1 ONLY — the Caddy reverse proxy
+; (deploy/Caddyfile.snippet) terminates HTTPS on editors.nocturna-avatars.site and
+; routes /api/views/* to this loopback port. NEVER change --host to 0.0.0.0.
+;
+; NO SECRETS live in this file. It reuses the bot .env via EnvironmentFile (the app
+; only reads WEBSITE_BASE_URL + DB_PATH from it — no OAuth/session secret needed).
+;
+; Install:  see deploy/EDITOR_DEPLOY.md §8. Adjust User= and the two paths below
+;           (WorkingDirectory + the venv in ExecStart) to match the cinema checkout,
+;           exactly like you did for nocturna-editor-admin.service.
+; ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=Nocturna View Counter (FastAPI/uvicorn — per-slug editor page views)
+Documentation=file:deploy/EDITOR_DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+; ── EDIT THESE to match the cinema host (same values as nocturna-bot.service) ──
+; The bot user (least privilege — NOT root).
+User=YOUR_USER
+; The nocturna-bot repo checkout on cinema (holds app/, core/, venv/, .env).
+WorkingDirectory=/home/YOUR_USER/nocturna-bot
+
+; Shares the bot's .env — same file the bot loads. The counter only needs
+; WEBSITE_BASE_URL (the CORS origin) and DB_PATH (the shared sqlite file); it holds
+; NO secret of its own (public read/increment endpoint, no auth).
+EnvironmentFile=/home/YOUR_USER/nocturna-bot/.env
+
+; uvicorn from the SHARED bot venv, loopback bind, fixed port 8771 (matches
+; app/counter_app.py __main__ + the Caddyfile /api/views reverse_proxy target).
+ExecStart=/home/YOUR_USER/nocturna-bot/venv/bin/uvicorn app.counter_app:app --host 127.0.0.1 --port 8771
+
+Restart=on-failure
+RestartSec=5
+
+; Hardening — the counter reads the checkout but (unlike the admin app, which commits
+; to GitHub and writes nothing locally) it WRITES the shared sqlite db. ProtectHome is
+; kept read-only for the rest of $HOME, and ReadWritePaths carves out the checkout dir
+; so the view_counts/view_dedup writes succeed. If DB_PATH points elsewhere in the
+; cinema .env, add that directory to ReadWritePaths too.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/YOUR_USER/nocturna-bot
+
+[Install]
+WantedBy=multi-user.target

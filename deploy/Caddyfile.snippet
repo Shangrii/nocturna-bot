@@ -38,11 +38,33 @@ editors.nocturna-avatars.site {
 		}
 	}
 
-	# ── Reverse proxy → loopback uvicorn ────────────────────────────────────────
+	# ── View counter (Fase 10.1, 10.1-12, D-25) ─────────────────────────────────
+	# The tiny self-hosted per-slug view counter (app.counter_app on loopback 8771,
+	# nocturna-view-counter.service). ViewCounter.astro on the PUBLIC site pings
+	# GET /api/views/<slug>?hit=1 cross-origin on splash dismiss. Rate-limited per IP
+	# so the public increment can't be hammered (T-10.1-12-01) — a few req/s is ample
+	# for real page loads. Routed to its OWN port, separate from the editor admin app.
+	@views path /api/views/*
+	rate_limit @views {
+		zone view_counter_zone {
+			key    {remote_host}
+			events 5
+			window 1s
+		}
+	}
+	handle /api/views/* {
+		reverse_proxy 127.0.0.1:8771
+	}
+
+	# ── Reverse proxy → loopback uvicorn (editor admin app) ─────────────────────
 	# Caddy forwards the standard proxy headers (Host, X-Forwarded-For,
 	# X-Forwarded-Proto=https) automatically, so Starlette sees the request as
-	# secure and the Secure session cookie is honored end-to-end.
-	reverse_proxy 127.0.0.1:8770
+	# secure and the Secure session cookie is honored end-to-end. Wrapped in a
+	# catch-all `handle` so it is mutually exclusive with the /api/views handle
+	# above (a bare reverse_proxy would also match /api/views/* and double-route).
+	handle {
+		reverse_proxy 127.0.0.1:8770
+	}
 
 	# Optional access log to the journal for auditing the first public login surface.
 	log {
