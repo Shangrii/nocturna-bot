@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Nocturna · Editor de perfil</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&family=Permanent+Marker&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/editor.css" />
+</head>
+<body>
+  <div x-data="editorApp({{ entry | tojson }})" x-cloak>
+
+    <!-- Persistent top bar -->
+    <header class="topbar">
+      <h1 class="wordmark">Nocturna</h1>
+      <span class="label" x-text="page.published ? 'Publicada · Published' : 'Borrador · Draft'"></span>
+      <span class="spacer"></span>
+      <button class="btn btn--accent" type="button" @click="publish()" :disabled="saving"
+              x-text="saving ? 'Publicando…' : 'Publicar · Publish'"></button>
+      <button class="btn btn--danger" type="button" @click="unpublish()" :disabled="saving">
+        Despublicar · Unpublish
+      </button>
+      <a class="btn btn--ghost" href="/logout">Salir · Sign out</a>
+    </header>
+
+    <!-- Mobile pane tabs (hidden ≥1024px) -->
+    <div class="pane-tabs" style="padding: 0 var(--sp-md);">
+      <button class="btn btn--sm" type="button" @click="mobileView='edit'"
+              :class="mobileView==='edit' ? 'btn--accent' : ''">Editar · Edit</button>
+      <button class="btn btn--sm" type="button" @click="mobileView='preview'"
+              :class="mobileView==='preview' ? 'btn--accent' : ''">Vista · Preview</button>
+    </div>
+
+    <div class="panes">
+      <!-- ── LEFT: block list editor ─────────────────────────────────────── -->
+      <section class="pane pane--edit" :data-hidden="mobileView==='preview'">
+        <p class="label">Datos base · Core fields</p>
+
+        <div class="field">
+          <label class="label" for="f-name">Nombre · Name</label>
+          <input id="f-name" type="text" x-model="page.name" maxlength="100" />
+        </div>
+
+        <div class="field">
+          <label class="label">Avatar</label>
+          <div class="upload">
+            <template x-if="page.avatar">
+              <img class="thumb" :src="page.avatar" alt="" />
+            </template>
+            <label class="btn btn--sm">
+              Subir · Upload
+              <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                     @change="uploadImage($event, v => page.avatar = v)" />
+            </label>
+            <template x-if="page.avatar">
+              <button class="btn btn--sm btn--danger" type="button"
+                      @click="if (confirm('¿Quitar esta imagen? · Remove this image?')) page.avatar=''">
+                Quitar · Remove
+              </button>
+            </template>
+            <span class="upload-state" :data-kind="uploadKind" x-text="uploadMsg"></span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label">Tagline</label>
+          <div class="locale-pair">
+            <div>
+              <span class="label">ES</span>
+              <input type="text" x-model="page.tagline.es" maxlength="4000" />
+            </div>
+            <div>
+              <span class="label">EN</span>
+              <input type="text" x-model="page.tagline.en" maxlength="4000" />
+            </div>
+          </div>
+        </div>
+
+        <hr class="preview-divider" />
+        <p class="label">Bloques · Blocks</p>
+
+        <!-- Add-block picker over the CLOSED 8-type set -->
+        <div class="field">
+          <button class="btn" type="button" @click="showPicker = !showPicker" :aria-expanded="showPicker">
+            + Agregar bloque · Add block
+          </button>
+          <div class="picker" x-show="showPicker" x-cloak>
+            <div class="picker-grid">
+              <template x-for="t in blockTypes" :key="t">
+                <button class="btn btn--sm" type="button" @click="addBlock(t)" x-text="blockLabel(t)"></button>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div class="empty-hint" x-show="page.blocks.length === 0">
+          <p><strong>Tu página está en blanco · Your page is empty</strong></p>
+          <p>Agrega tu primer bloque para empezar a construir tu perfil.<br />
+             Add your first block to start building your profile.</p>
+        </div>
+
+        <!-- Block list (SortableJS drag + keyboard move up/down) -->
+        <div x-ref="blockList">
+          <template x-for="(block, i) in page.blocks" :key="block._id">
+            <article class="block-card">
+              <div class="block-head">
+                <span class="block-drag" title="Arrastrar · Drag" aria-hidden="true">⠿</span>
+                <span class="block-type-tag" x-text="blockLabel(block.type)"></span>
+                <span class="spacer"></span>
+                <button class="btn btn--sm" type="button" @click="moveUp(i)" :disabled="i===0"
+                        aria-label="Subir · Move up">↑</button>
+                <button class="btn btn--sm" type="button" @click="moveDown(i)"
+                        :disabled="i===page.blocks.length-1" aria-label="Bajar · Move down">↓</button>
+                <button class="btn btn--sm btn--danger" type="button" @click="removeBlock(i)"
+                        aria-label="Eliminar · Delete">✕</button>
+              </div>
+
+              <!-- text-like blocks (bio / heading / text / quote) -->
+              <template x-if="['bio','heading','text','quote'].includes(block.type)">
+                <div class="locale-pair">
+                  <div>
+                    <span class="label">ES</span>
+                    <textarea x-model="block.text.es" maxlength="4000"></textarea>
+                  </div>
+                  <div>
+                    <span class="label">EN</span>
+                    <textarea x-model="block.text.en" maxlength="4000"></textarea>
+                  </div>
+                </div>
+              </template>
+              <template x-if="block.type==='quote'">
+                <div class="field">
+                  <span class="label">Atribución · Attribution</span>
+                  <input type="text" x-model="block.attribution" maxlength="200" />
+                </div>
+              </template>
+
+              <!-- links block -->
+              <template x-if="block.type==='links'">
+                <div>
+                  <template x-for="(item, j) in block.items" :key="j">
+                    <div class="locale-pair" style="margin-bottom: var(--sp-2xs);">
+                      <input type="text" x-model="item.label" placeholder="Etiqueta · Label" maxlength="100" />
+                      <div style="display:flex; gap: var(--sp-2xs);">
+                        <input type="url" x-model="item.url" placeholder="https://…" maxlength="2048" />
+                        <button class="btn btn--sm btn--danger" type="button"
+                                @click="block.items.splice(j,1)" aria-label="Quitar enlace · Remove link">✕</button>
+                      </div>
+                    </div>
+                  </template>
+                  <button class="btn btn--sm" type="button" @click="block.items.push({label:'',url:''})">
+                    + Enlace · Link
+                  </button>
+                </div>
+              </template>
+
+              <!-- portfolio block -->
+              <template x-if="block.type==='portfolio'">
+                <div>
+                  <label class="label" style="display:flex; align-items:center; gap: var(--sp-2xs);">
+                    <input type="checkbox" x-model="block.auto" style="width:auto; min-height:auto;" />
+                    Auto — trabajo acreditado (tienda + galería) · Auto-pull credited work
+                  </label>
+                  <template x-for="(ex, k) in block.extra" :key="k">
+                    <div class="upload" style="margin-top: var(--sp-2xs);">
+                      <template x-if="ex.image"><img class="thumb" :src="ex.image" alt="" /></template>
+                      <label class="btn btn--sm">
+                        Imagen · Image
+                        <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                               @change="uploadImage($event, v => ex.image = v)" />
+                      </label>
+                      <input type="text" x-model="ex.caption.es" placeholder="Caption ES" maxlength="4000" />
+                      <input type="text" x-model="ex.caption.en" placeholder="Caption EN" maxlength="4000" />
+                      <button class="btn btn--sm btn--danger" type="button"
+                              @click="block.extra.splice(k,1)" aria-label="Quitar · Remove">✕</button>
+                    </div>
+                  </template>
+                  <button class="btn btn--sm" type="button" style="margin-top: var(--sp-2xs);"
+                          @click="block.extra.push({image:'',caption:{es:'',en:''}})">
+                    + Ítem · Item
+                  </button>
+                </div>
+              </template>
+
+              <!-- image block -->
+              <template x-if="block.type==='image'">
+                <div class="upload">
+                  <template x-if="block.src"><img class="thumb" :src="block.src" alt="" /></template>
+                  <label class="btn btn--sm">
+                    Subir · Upload
+                    <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                           @change="uploadImage($event, v => block.src = v)" />
+                  </label>
+                  <input type="text" x-model="block.alt" placeholder="Alt text" maxlength="300" />
+                </div>
+              </template>
+
+              <!-- divider block: no fields -->
+              <template x-if="block.type==='divider'">
+                <p class="label">Regla horizontal · Horizontal rule</p>
+              </template>
+            </article>
+          </template>
+        </div>
+      </section>
+
+      <!-- ── RIGHT: live preview ─────────────────────────────────────────── -->
+      <section class="pane pane--preview" :data-hidden="mobileView==='edit'">
+        <div class="pane-tabs" style="justify-content:center;">
+          <button class="btn btn--sm" type="button" @click="lang='es'"
+                  :class="lang==='es' ? 'btn--accent' : ''">ES</button>
+          <button class="btn btn--sm" type="button" @click="lang='en'"
+                  :class="lang==='en' ? 'btn--accent' : ''">EN</button>
+        </div>
+
+        <div class="preview-col">
+          <header class="preview-header">
+            <template x-if="page.avatar"><img class="preview-avatar" :src="page.avatar" alt="" /></template>
+            <h2 class="preview-name" x-text="page.name || 'Tu nombre'"></h2>
+            <p class="preview-tagline" x-text="loc(page.tagline)"></p>
+            <div style="margin-top: var(--sp-sm);">
+              <template x-for="(l, i) in page.links" :key="i">
+                <a class="preview-link" :href="l.url || '#'" x-text="l.label || l.url"></a>
+              </template>
+            </div>
+          </header>
+
+          <template x-for="(block, i) in page.blocks" :key="block._id">
+            <div class="preview-block">
+              <template x-if="block.type==='bio' || block.type==='text'">
+                <p x-text="loc(block.text)"></p>
+              </template>
+              <template x-if="block.type==='heading'">
+                <h3 x-text="loc(block.text)"></h3>
+              </template>
+              <template x-if="block.type==='quote'">
+                <blockquote class="preview-quote">
+                  <span x-text="loc(block.text)"></span>
+                  <cite x-show="block.attribution" x-text="block.attribution"></cite>
+                </blockquote>
+              </template>
+              <template x-if="block.type==='links'">
+                <div>
+                  <template x-for="(item, j) in block.items" :key="j">
+                    <a class="preview-link" :href="item.url || '#'" x-text="item.label || item.url"></a>
+                  </template>
+                </div>
+              </template>
+              <template x-if="block.type==='image'">
+                <img class="preview-img" x-show="block.src" :src="block.src" :alt="block.alt" />
+              </template>
+              <template x-if="block.type==='portfolio'">
+                <div>
+                  <p class="preview-note" x-show="block.auto">
+                    + Trabajo acreditado (auto) · Credited work (auto)
+                  </p>
+                  <div class="preview-grid">
+                    <template x-for="(ex, k) in block.extra" :key="k">
+                      <img x-show="ex.image" :src="ex.image" :alt="loc(ex.caption)" />
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <template x-if="block.type==='divider'">
+                <hr class="preview-divider" />
+              </template>
+            </div>
+          </template>
+
+          <p class="preview-note">
+            La vista es una aproximación; el sitio final se genera al publicar.<br />
+            Preview approximates the final static build.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" x-show="toast" x-cloak :data-kind="toastKind" x-text="toast"
+         @click="toast=''" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- editorApp defined BEFORE Alpine parses x-data; libs are VENDORED (not CDN) -->
+  <script>
+    function editorApp(initial) {
+      let _seq = 0;
+      const uid = () => 'b' + (++_seq);
+      const asLoc = (o) => ({ es: (o && o.es) || '', en: (o && o.en) || '' });
+
+      function normalizeBlock(b) {
+        const nb = { _id: uid(), type: b.type };
+        if (['bio', 'heading', 'text', 'quote'].includes(b.type)) nb.text = asLoc(b.text);
+        if (b.type === 'quote') nb.attribution = b.attribution || '';
+        if (b.type === 'links') nb.items = (b.items || []).map(i => ({ label: i.label || '', url: i.url || '' }));
+        if (b.type === 'portfolio') {
+          nb.auto = b.auto !== false;
+          nb.extra = (b.extra || []).map(e => ({ image: e.image || '', caption: asLoc(e.caption) }));
+        }
+        if (b.type === 'image') { nb.src = b.src || ''; nb.alt = b.alt || ''; }
+        return nb;
+      }
+
+      // Normalize the server entry into a reactive, keyable model.
+      const page = {
+        slug: initial.slug || '',
+        discordId: initial.discordId || '',
+        published: !!initial.published,
+        name: initial.name || '',
+        avatar: initial.avatar || '',
+        tagline: asLoc(initial.tagline),
+        links: (initial.links || []).map(l => ({ label: l.label || '', url: l.url || '' })),
+        blocks: (initial.blocks || []).map(b => normalizeBlock(b)),
+      };
+
+      const LABELS = {
+        bio: 'Bio', heading: 'Encabezado · Heading', text: 'Texto · Text',
+        links: 'Enlaces · Links', portfolio: 'Portafolio · Portfolio',
+        quote: 'Cita · Quote', image: 'Imagen · Image', divider: 'Divisor · Divider',
+      };
+
+      return {
+        page,
+        blockTypes: ['bio', 'heading', 'text', 'links', 'portfolio', 'quote', 'image', 'divider'],
+        lang: 'es',
+        mobileView: 'edit',
+        showPicker: false,
+        saving: false,
+        toast: '',
+        toastKind: 'ok',
+        uploadMsg: '',
+        uploadKind: 'ok',
+
+        init() {
+          if (window.Sortable) {
+            window.Sortable.create(this.$refs.blockList, {
+              handle: '.block-drag',
+              animation: 150,
+              ghostClass: 'sortable-ghost',
+              onEnd: (evt) => {
+                if (evt.oldIndex === evt.newIndex) return;
+                const arr = this.page.blocks;
+                const [moved] = arr.splice(evt.oldIndex, 1);
+                arr.splice(evt.newIndex, 0, moved);
+              },
+            });
+          }
+        },
+
+        blockLabel(t) { return LABELS[t] || t; },
+        loc(o) { return (o && o[this.lang]) || ''; },
+
+        addBlock(type) {
+          this.page.blocks.push(normalizeBlock({ type }));
+          this.showPicker = false;
+        },
+        removeBlock(i) {
+          if (confirm('¿Eliminar este bloque? · Delete this block?')) this.page.blocks.splice(i, 1);
+        },
+        moveUp(i) {
+          if (i > 0) {
+            const a = this.page.blocks;
+            [a[i - 1], a[i]] = [a[i], a[i - 1]];
+          }
+        },
+        moveDown(i) {
+          const a = this.page.blocks;
+          if (i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]];
+        },
+
+        async uploadImage(ev, onDone) {
+          const file = ev.target.files && ev.target.files[0];
+          ev.target.value = '';
+          if (!file) return;
+          this.uploadKind = 'ok';
+          this.uploadMsg = 'Optimizando… · Optimizing…';
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            const r = await fetch('/editor/image', { method: 'POST', body: fd });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok && data.path) {
+              onDone(data.path);
+              this.uploadMsg = '';
+            } else {
+              this.uploadKind = 'error';
+              this.uploadMsg = data.error ||
+                'Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP. · ' +
+                "That image couldn't be uploaded (format or size).";
+            }
+          } catch (e) {
+            this.uploadKind = 'error';
+            this.uploadMsg = 'Error de red · Network error';
+          }
+        },
+
+        // Strip client-only keys (_id) before sending; identity is NEVER in the body.
+        serialize() {
+          const clean = (b) => { const { _id, ...rest } = b; return rest; };
+          return {
+            name: this.page.name,
+            avatar: this.page.avatar,
+            tagline: this.page.tagline,
+            links: this.page.links.map(l => ({ label: l.label, url: l.url })),
+            blocks: this.page.blocks.map(clean),
+          };
+        },
+
+        async publish() {
+          this.saving = true;
+          this.toast = '';
+          try {
+            const r = await fetch('/editor/save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.serialize()),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok) {
+              this.page.published = true;
+              this.toastKind = 'ok';
+              this.toast = data.message ||
+                'Publicado — la web tarda un par de minutos en actualizarse. · ' +
+                'Published — the site takes a couple of minutes to update.';
+            } else {
+              this.toastKind = 'error';
+              this.toast = data.error ||
+                'No se pudo publicar. Inténtalo de nuevo en un momento. · ' +
+                "Couldn't publish. Try again in a moment.";
+            }
+          } catch (e) {
+            this.toastKind = 'error';
+            this.toast = "No se pudo publicar. Inténtalo de nuevo. · Couldn't publish. Try again.";
+          } finally {
+            this.saving = false;
+          }
+        },
+
+        async unpublish() {
+          if (!confirm(
+            '¿Despublicar tu página? Dejará de aparecer en el sitio hasta que la vuelvas a publicar. · ' +
+            'Unpublish your page? It will disappear from the site until you publish again.')) return;
+          this.saving = true;
+          this.toast = '';
+          try {
+            const r = await fetch('/editor/unpublish', { method: 'POST' });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok) {
+              this.page.published = false;
+              this.toastKind = 'ok';
+              this.toast = data.message || 'Página despublicada · Page unpublished';
+            } else {
+              this.toastKind = 'error';
+              this.toast = data.error ||
+                "No se pudo despublicar. Inténtalo de nuevo. · Couldn't unpublish. Try again.";
+            }
+          } catch (e) {
+            this.toastKind = 'error';
+            this.toast = 'Error de red · Network error';
+          } finally {
+            this.saving = false;
+          }
+        },
+      };
+    }
+  </script>
+  <style>[x-cloak] { display: none !important; }</style>
+  <script src="/static/Sortable.min.js"></script>
+  <script defer src="/static/alpine.min.js"></script>
+</body>
+</html>

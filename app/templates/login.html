@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Nocturna · Editores</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&family=Permanent+Marker&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/editor.css" />
+</head>
+<body>
+  <main class="login-wrap">
+    <p class="wordmark">Nocturna</p>
+
+    {% if forbidden %}
+    <p class="label">403 — Sin acceso · No access</p>
+    <p class="forbidden">
+      Esta herramienta es solo para editores de Nocturna. Si deberías tener acceso,
+      pídele a un mod que revise tu rol.
+      <br /><br />
+      This tool is for Nocturna editors only. If you should have access, ask a mod to
+      check your role.
+    </p>
+    <a class="btn btn--ghost" href="/login">Reintentar · Try again</a>
+    {% else %}
+    <p class="label">Editor de perfiles · Profile editor</p>
+    <a class="btn btn--accent" href="/login">Entrar con Discord · Sign in with Discord</a>
+    {% endif %}
+  </main>
+</body>
+</html>
