@@ -1,0 +1,57 @@
+; ─────────────────────────────────────────────────────────────────────────────
+; nocturna-editor-admin.service — Editor Profile Pages admin app (Fase 10, 10-11)
+;
+; Sibling systemd unit to the discord.py bot (nocturna-bot.service). Runs the
+; FastAPI/uvicorn admin app (app.main:app) that lets Nocturna editors build their
+; profile pages via Discord OAuth2, sharing the SAME venv, core/ and .env as the
+; bot but in its OWN process (a crash here never takes the bot down, RESEARCH).
+;
+; SECURITY (Pitfall 8): uvicorn binds to 127.0.0.1 ONLY — the Caddy reverse proxy
+; (deploy/Caddyfile.snippet) terminates HTTPS on editors.nocturna-avatars.site and
+; forwards to this loopback port. NEVER change --host to 0.0.0.0.
+;
+; NO SECRETS live in this file. All secrets (SESSION_SECRET, the OAuth client
+; secret, GITHUB_PAT, BOT_TOKEN) come from the cinema .env via EnvironmentFile.
+;
+; Install:  see deploy/EDITOR_DEPLOY.md §7. Adjust User= and the two paths below
+;           (WorkingDirectory + the venv in ExecStart) to match the cinema checkout,
+;           exactly like you did for nocturna-bot.service.
+; ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=Nocturna Editor Admin (FastAPI/uvicorn — editor profile pages)
+Documentation=file:deploy/EDITOR_DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+; ── EDIT THESE to match the cinema host (same values as nocturna-bot.service) ──
+; The bot user (least privilege — NOT root).
+User=YOUR_USER
+; The nocturna-bot repo checkout on cinema (holds app/, core/, venv/, .env).
+WorkingDirectory=/home/YOUR_USER/nocturna-bot
+
+; Shares the bot's .env — same file the bot loads. Holds SESSION_SECRET, the
+; Discord OAuth client id/secret, EDITOR_APP_BASE_URL, the redirect URI, plus the
+; already-live GITHUB_PAT / WEBSITE_REPO / WEBSITE_BRANCH / BOT_TOKEN. The app
+; fail-fasts at startup if any required OAuth/session key is empty (validate_config).
+EnvironmentFile=/home/YOUR_USER/nocturna-bot/.env
+
+; uvicorn from the SHARED bot venv, loopback bind, fixed port 8770 (matches
+; app/main.py __main__ + the Caddyfile reverse_proxy target).
+ExecStart=/home/YOUR_USER/nocturna-bot/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8770
+
+Restart=on-failure
+RestartSec=5
+
+; Hardening — the admin app only needs to read the checkout + write nothing to disk
+; (it commits to GitHub over the network, not the local FS).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

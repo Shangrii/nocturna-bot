@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddyfile.snippet — reverse proxy + automatic HTTPS for the Editor Admin app
+# (Fase 10, 10-11). Paste this block into the cinema Caddyfile (or drop it in the
+# sites dir Caddy imports), then `caddy reload`.
+#
+# Caddy obtains + renews the TLS cert for editors.nocturna-avatars.site
+# automatically (ACME) — no certbot, no manual cert paths. It TLS-terminates the
+# public subdomain and reverse-proxies to uvicorn on 127.0.0.1:8770 (the loopback
+# port the systemd unit binds — Pitfall 8: uvicorn is NEVER exposed directly).
+#
+# DNS prerequisite: an A/AAAA record for editors.nocturna-avatars.site must point
+# at cinema's public IP BEFORE reload, or the ACME challenge can't complete
+# (EDITOR_DEPLOY.md §2).
+# ─────────────────────────────────────────────────────────────────────────────
+
+editors.nocturna-avatars.site {
+	# ── Rate limiting (T-10-10-04) ──────────────────────────────────────────────
+	# Requires the caddy-ratelimit plugin (see EDITOR_DEPLOY.md §3.1:
+	#   xcaddy build --with github.com/mholt/caddy-ratelimit
+	# ). If your Caddy build lacks the plugin, delete the two rate_limit blocks
+	# below — the app still runs; you just lose proxy-level throttling.
+	@auth path /login /auth/callback
+	rate_limit @auth {
+		zone auth_zone {
+			key    {remote_host}
+			events 10
+			window 1m
+		}
+	}
+
+	@writes method POST
+	@writes path /editor/*
+	rate_limit @writes {
+		zone editor_writes_zone {
+			key    {remote_host}
+			events 30
+			window 1m
+		}
+	}
+
+	# ── Reverse proxy → loopback uvicorn ────────────────────────────────────────
+	# Caddy forwards the standard proxy headers (Host, X-Forwarded-For,
+	# X-Forwarded-Proto=https) automatically, so Starlette sees the request as
+	# secure and the Secure session cookie is honored end-to-end.
+	reverse_proxy 127.0.0.1:8770
+
+	# Optional access log to the journal for auditing the first public login surface.
+	log {
+		output stderr
+		format console
+	}
+}

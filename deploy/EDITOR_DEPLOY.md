@@ -196,7 +196,115 @@ habilitado en la app del bot (Developer Portal → Bot → Privileged Gateway In
 
 ---
 
+## 7. Despliegue en cinema — pasos concretos (10-11)
+
+Los artefactos de despliegue viven en `deploy/`:
+
+- `deploy/nocturna-editor-admin.service` — unidad systemd hermana (uvicorn `app.main:app`, loopback `127.0.0.1:8770`, `EnvironmentFile` = el `.env` del bot).
+- `deploy/Caddyfile.snippet` — bloque del subdominio con HTTPS automático que reenvía a `127.0.0.1:8770`.
+
+> **Antes de empezar**, confirma el registro DNS: `dig +short editors.nocturna-avatars.site`
+> debe devolver la IP pública de cinema (§2). Sin DNS, Caddy no puede emitir el certificado.
+
+### 7.1 Traer el código y las dependencias (en el venv del bot)
+
+```bash
+# En el repo nocturna-bot de cinema (mismo checkout que corre el bot):
+cd ~/nocturna-bot            # ajusta a la ruta real del checkout
+git pull
+
+# Instala las nuevas dependencias del admin app EN EL VENV COMPARTIDO del bot
+# (fastapi, uvicorn[standard], authlib, python-multipart, jinja2, httpx — 10-02):
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
+```
+
+### 7.2 Rellenar las claves `.env` (ver §4)
+
+Añade al `.env` de cinema (NUNCA al repo) las claves del admin app. Genera el
+`SESSION_SECRET` fresco en el propio host:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Claves a rellenar (valores confirmados donde aplica; los secretos se pegan solo aquí):
+
+```dotenv
+DISCORD_OAUTH_CLIENT_ID=1490114146895794246
+DISCORD_OAUTH_CLIENT_SECRET=<pega-el-client-secret-del-Developer-Portal>
+DISCORD_OAUTH_REDIRECT_URI=https://editors.nocturna-avatars.site/auth/callback
+SESSION_SECRET=<el-token_urlsafe(32)-generado-arriba>
+EDITOR_APP_BASE_URL=https://editors.nocturna-avatars.site
+```
+
+`GITHUB_PAT`, `WEBSITE_REPO`, `WEBSITE_BRANCH` y `BOT_TOKEN` ya están vivos — no los toques (§4).
+
+### 7.3 Instalar y arrancar la unidad systemd
+
+```bash
+# Copia la unidad y AJUSTA User= + las rutas (WorkingDirectory, venv, EnvironmentFile)
+# igual que hiciste con nocturna-bot.service:
+sudo cp deploy/nocturna-editor-admin.service /etc/systemd/system/
+sudo nano /etc/systemd/system/nocturna-editor-admin.service   # ajusta User + las 3 rutas
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now nocturna-editor-admin
+
+# Verifica que arrancó (si falta una clave OAuth/SESSION_SECRET, validate_config
+# hace fail-fast y el proceso NO arranca — el error nombra solo las claves que faltan):
+systemctl status nocturna-editor-admin --no-pager
+journalctl -u nocturna-editor-admin -n 50 --no-pager
+
+# Sanity local (debe responder detrás del loopback, aún sin TLS):
+curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8770/login   # espera 200
+```
+
+### 7.4 Configurar Caddy (HTTPS automático)
+
+```bash
+# Añade el bloque del subdominio al Caddyfile de cinema. Si Caddy hace `import`
+# de un directorio de sitios, copia el snippet ahí; si no, pégalo en el Caddyfile:
+sudo cp deploy/Caddyfile.snippet /etc/caddy/sites/editors.nocturna-avatars.site.caddy
+# (o edita /etc/caddy/Caddyfile y pega el bloque)
+
+sudo caddy validate --config /etc/caddy/Caddyfile     # valida sintaxis
+sudo systemctl reload caddy                            # recarga sin downtime
+
+# Caddy emite el certificado ACME al primer request HTTPS. Verifica:
+curl -sS -o /dev/null -w "%{http_code}\n" https://editors.nocturna-avatars.site/login  # 200 por HTTPS
+```
+
+> **Nota rate-limit:** el snippet usa la directiva `rate_limit` (plugin
+> `caddy-ratelimit`, §3.1). Si tu build de Caddy no lo trae, `caddy validate`
+> fallará — elimina los dos bloques `rate_limit @...` del snippet (la app sigue
+> corriendo; solo pierdes el throttling a nivel de proxy) o reconstruye Caddy con
+> `xcaddy build --with github.com/mholt/caddy-ratelimit`.
+
+### 7.5 Reiniciar el bot (cargar `cogs.editors` + intent `members`)
+
+El auto-unpublish por pérdida de rol (D-10) vive en el **proceso del bot**, no en el
+admin app. Reinícialo para que cargue `cogs.editors` y reconecte con el intent
+`members` habilitado (§5):
+
+```bash
+sudo systemctl restart nocturna-bot       # ajusta al nombre real de la unidad del bot
+journalctl -u nocturna-bot -n 50 --no-pager   # confirma que cargó cogs.editors sin error
+```
+
+### 7.6 Después del ship → **rota los secretos** (§6, obligatorio)
+
+Cierra el deploy ejecutando la rotación de la §6: resetea el Client Secret en el
+Developer Portal y confirma que `SESSION_SECRET` es un valor fresco de 32+ bytes que
+no aparece en ningún artefacto de planificación. Trata cualquier secreto pegado
+durante la planificación como comprometido.
+
+---
+
 *Fase 10 — Editor Profile Pages. Admin app: FastAPI + uvicorn (unidad systemd hermana
 en cinema), login Discord OAuth2 + comprobación server-side de rol con el bot token,
-commit cross-repo de `editors.json` vía `core/github_publish.py`. La configuración de
-la unidad systemd + el snippet del reverse proxy se cierran en 10-11.*
+commit cross-repo de `editors.json` vía `core/github_publish.py`. Artefactos de
+despliegue: `deploy/nocturna-editor-admin.service` + `deploy/Caddyfile.snippet`; pasos
+concretos de instalación/arranque/recarga en §7. La verificación end-to-end en vivo
+(login → editar → publicar → render público → auto-unpublish) es humana (10-11 Tarea 2).*
