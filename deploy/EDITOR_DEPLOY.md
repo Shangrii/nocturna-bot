@@ -97,6 +97,43 @@ web entrante** del proyecto.
 | HTTPS automático confirmado | Sí — Caddy gestiona el certificado automáticamente para el subdominio §2 |
 | uvicorn ligado a 127.0.0.1 tras el proxy | Sí (a confirmar en el Caddyfile final durante 10-11) |
 
+### 3.1 Rate limiting en `/login` + `/auth/callback` + escrituras (10-10, T-10-10-04)
+
+RESEARCH.md señala `slowapi` o límites a nivel de proxy como las dos opciones
+válidas (Don't-Hand-Roll). 10-10 elige **proxy-level (Caddy)** en vez de fijar
+una nueva dependencia pip a mitad del plan — instalar un paquete nuevo requiere
+su propio checkpoint de legitimidad (como el de 10-02) y Caddy ya cubre esto sin
+código adicional. Pendiente de aplicar en el `Caddyfile` final de 10-11:
+
+```caddyfile
+editors.nocturna-avatars.site {
+    @auth path /login /auth/callback
+    rate_limit @auth {
+        zone auth_zone {
+            key {remote_host}
+            events 10
+            window 1m
+        }
+    }
+
+    @writes method POST
+    @writes_path path /editor/*
+    rate_limit @writes {
+        zone editor_writes_zone {
+            key {remote_host}
+            events 30
+            window 1m
+        }
+    }
+
+    reverse_proxy 127.0.0.1:8770
+}
+```
+
+(Requiere el plugin `caddy-ratelimit` — `xcaddy build --with github.com/mholt/caddy-ratelimit`,
+o el equivalente ya empaquetado si cinema usa una build de Caddy con módulos.)
+Ajustar `events`/`window` según el tráfico real observado tras el despliegue.
+
 ---
 
 ## 4. Claves `.env` a rellenar en cinema
