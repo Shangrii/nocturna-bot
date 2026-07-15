@@ -331,7 +331,7 @@ def _commit_with_retry(repo, branch, message, build_tree, fetch=None):
 
 
 # ── sync publish/remove (run off the event loop via asyncio.to_thread) ─────────────
-def _publish_sync(message_id, entries, date):
+def _publish_sync(message_id, entries, date, editor=None, nsfw=False):
     repo = config.WEBSITE_REPO
     branch = config.WEBSITE_BRANCH
     image_dir = config.WEBSITE_IMAGE_DIR.rstrip("/")
@@ -359,6 +359,13 @@ def _publish_sync(message_id, entries, date):
         entry["width"] = width
         entry["height"] = height
         entry["date"] = date
+        # Optional D-11 editor credit + D-04 nsfw flag: both trail the Phase-4 shape and are
+        # OMITTED when unset — a missing `editor` means uncredited, a missing `nsfw` means SFW
+        # (so every historical entry stays valid and the 10-04 portfolio filter reads it right).
+        if editor:
+            entry["editor"] = editor
+        if nsfw:
+            entry["nsfw"] = True
         new_entries.append(entry)
         files.append(filename)
 
@@ -382,6 +389,67 @@ def _publish_sync(message_id, entries, date):
 
     commit_sha = _commit_with_retry(repo, branch, message, build_tree)
     return {"committed": True, "commit_sha": commit_sha, "count": len(entries), "files": files}
+
+
+def _set_gallery_editor_sync(message_id, editor=None, nsfw=None):
+    """Set the optional D-11 ``editor`` slug + D-04 ``nsfw`` flag on a published message's
+    ``gallery.json`` entries — the post-✅ credit affordance write path (EDIT-08).
+
+    Keyed by the D-14 ``{msgID}`` filename segment (like ``_remove_sync``): every entry whose
+    filename parses to ``message_id`` is updated. There is NO image re-upload — the photos are
+    already published; this is a pure JSON read-modify-write mirroring ``_set_store_editor_sync``.
+
+    Field semantics (each param independent so a partial credit never clobbers the other field):
+      * ``editor`` — a non-``None`` truthy slug is written; ``None`` leaves ``editor`` untouched.
+      * ``nsfw`` — ``True`` writes ``nsfw: true``; ``False`` REMOVES the key (missing = SFW, so
+        historical entries stay valid); ``None`` leaves ``nsfw`` untouched.
+
+    No-op guard (mirrors the store/reviews defensive no-op — every commit is one Pages rebuild):
+    if no entry matches ``message_id`` (never published / sample-named), OR the change is a no-op
+    (the matching entries already carry exactly these values), return ``committed: False`` with NO
+    ref PATCH. The commit message references the message id ONLY — the raw editor slug is never
+    interpolated into free text (mirrors the T-09-22 / T-10-05-02 commit hygiene).
+    """
+    repo = config.WEBSITE_REPO
+    branch = config.WEBSITE_BRANCH
+    gallery_path = config.WEBSITE_GALLERY_JSON
+    target = str(message_id)
+
+    def _apply(entry):
+        updated = dict(entry)
+        if editor is not None:
+            if editor:
+                updated["editor"] = editor
+            else:
+                updated.pop("editor", None)
+        if nsfw is not None:
+            if nsfw:
+                updated["nsfw"] = True
+            else:
+                updated.pop("nsfw", None)
+        return updated
+
+    # No-op guard: derive the matching entries from the live gallery.json before the ref.
+    current = _fetch_gallery(repo, branch)
+    matched = [e for e in current if _entry_message_id(e.get("file", "")) == target]
+    if not matched or all(_apply(e) == e for e in matched):
+        return {"committed": False, "commit_sha": None, "count": 0}
+
+    message = f"gallery: credit editor on discord msg {message_id}"
+
+    def build_tree(cur):
+        updated = [_apply(e) if _entry_message_id(e.get("file", "")) == target else e
+                   for e in cur]
+        gallery_entry = {
+            "path": gallery_path,
+            "mode": _MODE,
+            "type": "blob",
+            "content": _serialize_gallery(updated),
+        }
+        return [gallery_entry]
+
+    commit_sha = _commit_with_retry(repo, branch, message, build_tree)
+    return {"committed": True, "commit_sha": commit_sha, "count": len(matched)}
 
 
 def _remove_sync(message_id):
@@ -423,7 +491,7 @@ def _remove_sync(message_id):
 
 
 # ── public async API ───────────────────────────────────────────────────────────────
-async def publish_message(message_id, entries, date=None):
+async def publish_message(message_id, entries, date=None, *, editor=None, nsfw=False):
     """Publish a message's images + gallery.json entries as ONE atomic commit.
 
     Args:
@@ -432,6 +500,13 @@ async def publish_message(message_id, entries, date=None):
             optimized image. ``caption`` "" omits the key; ``filename`` is the
             bot-generated ``{date}-{msgID}-{index}.webp`` (numeric only, no user text).
         date: ISO 8601 string written to every entry's ``date`` (defaults to now UTC).
+        editor: an OPTIONAL credited editor slug (D-11/D-12) written to every entry's
+            ``editor``; falsy/``None`` omits the field (uncredited). The reaction-only ✅
+            approve carries no text, so this defaults off and the credit is normally applied
+            afterwards via :func:`set_gallery_editor` — the field/keyword is here so the
+            gallery entry writer has a single canonical shape for the optional credit.
+        nsfw: OPTIONAL D-04 flag; ``True`` writes ``nsfw: true`` (excluded from SFW-only editor
+            portfolios by 10-04), falsy omits the field (missing = SFW).
 
     Returns:
         ``{"committed": bool, "commit_sha": str|None, "count": int, "files": [str]}``.
@@ -442,7 +517,32 @@ async def publish_message(message_id, entries, date=None):
     if date is None:
         date = datetime.now(timezone.utc).isoformat()
     async with _commit_lock:
-        return await asyncio.to_thread(_publish_sync, message_id, entries, date)
+        return await asyncio.to_thread(_publish_sync, message_id, entries, date, editor, nsfw)
+
+
+async def set_gallery_editor(message_id, *, editor=None, nsfw=None):
+    """Credit an already-published message's gallery photos as ONE atomic commit (D-11/D-04).
+
+    The post-✅ affordance write path: a ✅ reaction carries no text, so the editor credit (and
+    an optional NSFW flag) is captured afterwards and applied to the entries this message already
+    published — matched by the D-14 ``{msgID}`` filename segment, no image re-upload.
+
+    Args:
+        message_id: the Discord message snowflake whose entries to credit.
+        editor: a validated editor slug (D-12) to write, or ``None`` to leave ``editor`` as-is.
+            The caller (the cog) validates the slug against ``editors.json`` first; the transport
+            stays dumb. NEVER interpolated into the commit message.
+        nsfw: ``True`` marks the photos NSFW, ``False`` clears the flag, ``None`` leaves it as-is.
+
+    Returns:
+        ``{"committed": bool, "commit_sha": str|None, "count": int}``. No matching entries or an
+        unchanged credit is a no-op (``committed: False``) — no empty commit, no Pages rebuild.
+
+    Raises:
+        GitHubPublishError: transport failed after the retry budget.
+    """
+    async with _commit_lock:
+        return await asyncio.to_thread(_set_gallery_editor_sync, message_id, editor, nsfw)
 
 
 async def remove_message(message_id):

@@ -20,6 +20,7 @@ import logging
 from datetime import timezone
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 import config
@@ -516,6 +517,129 @@ class GalleryCog(commands.Cog):
                 if member is not None and _is_staff(member):
                     return True
         return False
+
+    # ── D-11 editor credit + D-04 NSFW flag (EDIT-08) ─────────────────────────────────
+    # A ✅ reaction carries no text (RESEARCH Open Q1 / Pitfall 7), so the editor credit is
+    # captured by an ephemeral slug-autocomplete FOLLOW-UP after ✅ — reusing the Phase-9
+    # `/tienda editar` slug-autocomplete + staff-gate pattern (09-12). The chosen slug is
+    # validated against the live editors.json slug set (D-12 exact match) BEFORE the transport
+    # write, so an unknown slug can never reach gallery.json.
+    galeria = app_commands.Group(
+        name="galeria",
+        description="Gestión de la galería (staff)",
+    )
+
+    async def _fetch_editor_slugs(self) -> set:
+        """The set of existing editor slugs from the website's ``editors.json`` (D-12).
+
+        Reads the cross-repo ``editors.json`` array off the event loop via the transport's
+        generic reader. Any failure degrades to an empty set so the affordance rejects every
+        slug (fail closed) rather than crashing — a credit is never written against an
+        unverifiable slug set.
+        """
+        try:
+            editors = await asyncio.to_thread(
+                github_publish._fetch_json,
+                config.WEBSITE_REPO, config.WEBSITE_BRANCH, config.WEBSITE_EDITORS_JSON)
+        except Exception:
+            log.exception("gallery credit: could not fetch editors.json for slug validation")
+            return set()
+        return {e.get("slug") for e in editors
+                if isinstance(e, dict) and e.get("slug")}
+
+    async def _editor_choices(self, interaction: discord.Interaction, current: str):
+        """Slug-autocomplete Choices — ``[]`` for a non-staff caller (T-10-06-01).
+
+        The staff gate returns an empty list BEFORE any cross-repo read (an autocomplete
+        callback cannot send an ephemeral reply). For staff, offers each existing editor slug
+        (label == value == slug), substring-filtered by ``current``, capped at Discord's 25.
+        """
+        if not _is_staff(interaction.user):
+            return []
+        slugs = await self._fetch_editor_slugs()
+        needle = (current or "").lower()
+        choices = []
+        for slug in sorted(slugs):
+            if needle and needle not in slug.lower():
+                continue
+            choices.append(app_commands.Choice(name=slug, value=slug))
+            if len(choices) >= 25:
+                break
+        return choices
+
+    @galeria.command(
+        name="creditar",
+        description="Acredita al editor de una foto ya publicada (staff)")
+    @app_commands.describe(
+        mensaje="ID del mensaje de la foto ya publicada",
+        editor="Slug del editor a acreditar (usa el autocompletar)",
+        nsfw="Marca la foto como NSFW (se excluye de los perfiles de editores)")
+    async def creditar(self, interaction: discord.Interaction, mensaje: str,
+                       editor: str, nsfw: bool = False):
+        """Ephemeral slug-autocomplete follow-up after ✅ (D-11). Delegates to the plainly
+        testable :meth:`_do_creditar` (the registered Command is awkward to reach in tests)."""
+        await self._do_creditar(interaction, mensaje, editor, nsfw)
+
+    @creditar.autocomplete("editor")
+    async def _creditar_editor_autocomplete(
+            self, interaction: discord.Interaction, current: str):
+        return await self._editor_choices(interaction, current)
+
+    async def _do_creditar(self, interaction: discord.Interaction, mensaje: str,
+                           editor: str, nsfw: bool):
+        """Credit an already-published photo's editor slug into gallery.json (D-11/D-12/D-04).
+
+        Order mirrors ``/tienda editar`` (09-12): (1) staff gate FIRST (T-10-06-01) — a
+        non-staff invoker gets "Sin permisos." before any work; (2) parse the message id BEFORE
+        defer; (3) defer, then VALIDATE the slug against the live editors.json slug set (D-12
+        exact match, T-10-06-02) — an unknown slug is rejected with an ephemeral reply and NO
+        write; (4) commit via ``set_gallery_editor`` (no-op-safe when the photo isn't published);
+        (5) confirm. A ``GitHubPublishError`` is logged and answered with a single ephemeral
+        reply — never a public post.
+        """
+        # 1. Staff gate FIRST — before defer or any transport work (T-10-06-01).
+        if not _is_staff(interaction.user):
+            await interaction.response.send_message("Sin permisos.", ephemeral=True)
+            return
+
+        # 2. Parse the message id BEFORE defer (cheap, no network).
+        try:
+            message_id = int(mensaje)
+        except (TypeError, ValueError):
+            await interaction.response.send_message(
+                "ID de mensaje inválido (usa el ID numérico de la foto publicada).",
+                ephemeral=True)
+            return
+
+        # 3. Defer (validating the slug reads editors.json cross-repo — can exceed the 3s ack).
+        await interaction.response.defer(ephemeral=True)
+        slugs = await self._fetch_editor_slugs()
+        if editor not in slugs:                              # D-12: exact existing slug only
+            await interaction.followup.send(
+                f"«{editor}» no es un editor existente (usa el autocompletar).",
+                ephemeral=True)
+            return
+
+        # 4. Commit the credit (+ optional NSFW flag) onto the message's entries.
+        try:
+            result = await github_publish.set_gallery_editor(
+                message_id, editor=editor, nsfw=nsfw)
+        except github_publish.GitHubPublishError:
+            log.exception("gallery credit failed for discord msg %s", message_id)
+            await interaction.followup.send(
+                "No pude acreditar la foto; revisa los logs.", ephemeral=True)
+            return
+
+        # 5. Confirm (honor the transport's no-op guard for an unpublished/no-match message).
+        if result.get("committed"):
+            tag = " (NSFW)" if nsfw else ""
+            await interaction.followup.send(
+                f"Acredité «{editor}»{tag} en la foto — la web tarda un par de minutos.",
+                ephemeral=True)
+        else:
+            await interaction.followup.send(
+                "No encontré fotos publicadas para ese mensaje (¿ya está publicada?).",
+                ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
