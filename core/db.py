@@ -404,3 +404,90 @@ def delete_store_snapshot(checkout_url: str):
         conn.execute(
             "DELETE FROM store_snapshot WHERE checkout_url = ?", (checkout_url,)
         )
+
+
+# ── Contador de vistas (Fase 10.1: view counter self-hosted, D-25) ────────────
+# El endpoint público (app/counter_app.py, unidad systemd hermana en cinema) incrementa
+# y lee un contador por-slug para las páginas de editor. Se guarda SOLO un HASH de la IP
+# del cliente (nunca la IP cruda — privacidad, T-10.1-12-02) en una ventana de dedup corta
+# para que un reload/loop no infle el contador (T-10.1-12-01). Todas las sentencias usan
+# placeholders `?`; el slug se valida en la capa de la app (`[a-z0-9-]+`) antes de llegar
+# aquí (T-10.1-12-03). El app llama a init_view_counts() al arrancar (mismo patrón que
+# init_gallery_state/init_store_state), NO init_db().
+
+# Ventana de dedup: un mismo (slug, ip_hash) dentro de esta ventana NO vuelve a incrementar.
+_VIEW_DEDUP_WINDOW_SEC = 6 * 3600  # 6h — retención corta del hash de IP
+
+
+def init_view_counts():
+    """Crea las tablas del contador de vistas si no existen (CREATE TABLE IF NOT EXISTS).
+
+    ``view_counts`` guarda el total por ``slug``; ``view_dedup`` guarda solo un HASH de la
+    IP (columna ``ip_hash`` — nunca la IP cruda) + un timestamp epoch para la ventana de
+    dedup. Idempotente: llamarla dos veces no falla. La app la invoca al arrancar.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS view_counts (
+                slug  TEXT    PRIMARY KEY,
+                count INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS view_dedup (
+                slug    TEXT    NOT NULL,
+                ip_hash TEXT    NOT NULL,        -- SOLO un hash de la IP, nunca la IP cruda
+                ts      INTEGER NOT NULL,        -- epoch UTC del último hit de este par
+                PRIMARY KEY (slug, ip_hash)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_view_dedup_ts ON view_dedup(ts)")
+
+
+def get_view_count(slug: str) -> int:
+    """Devuelve el contador de vistas del slug; 0 si el slug es desconocido (nunca falla)."""
+    with _get_conn() as conn:
+        row = conn.execute(
+            "SELECT count FROM view_counts WHERE slug = ?", (slug,)
+        ).fetchone()
+    return row["count"] if row else 0
+
+
+def increment_view(slug: str, ip_hash: str) -> int:
+    """Incrementa el contador del slug y lo devuelve; no-op dentro de la ventana de dedup.
+
+    Si el mismo ``(slug, ip_hash)`` ya golpeó dentro de ``_VIEW_DEDUP_WINDOW_SEC``, devuelve
+    el conteo actual SIN incrementar (un reload no infla el contador, T-10.1-12-01). Solo se
+    persiste ``ip_hash`` (un hash de la IP), nunca la IP cruda (T-10.1-12-02). Un ``ip_hash``
+    vacío salta el dedup y siempre incrementa (best-effort cuando no hay IP disponible).
+    Un slug desconocido se inserta con count 1. Placeholders `?` en todas las sentencias.
+    """
+    now = int(datetime.now(timezone.utc).timestamp())
+    cutoff = now - _VIEW_DEDUP_WINDOW_SEC
+    with _get_conn() as conn:
+        if ip_hash:
+            # Purga las entradas de dedup expiradas (retención corta del hash).
+            conn.execute("DELETE FROM view_dedup WHERE ts < ?", (cutoff,))
+            recent = conn.execute(
+                "SELECT 1 FROM view_dedup WHERE slug = ? AND ip_hash = ? AND ts >= ?",
+                (slug, ip_hash, cutoff),
+            ).fetchone()
+            if recent is not None:
+                # Dentro de la ventana → no-op; devuelve el conteo actual sin tocar nada.
+                row = conn.execute(
+                    "SELECT count FROM view_counts WHERE slug = ?", (slug,)
+                ).fetchone()
+                return row["count"] if row else 0
+            conn.execute(
+                "INSERT OR REPLACE INTO view_dedup (slug, ip_hash, ts) VALUES (?, ?, ?)",
+                (slug, ip_hash, now),
+            )
+        conn.execute(
+            "INSERT INTO view_counts (slug, count) VALUES (?, 1) "
+            "ON CONFLICT(slug) DO UPDATE SET count = count + 1",
+            (slug,),
+        )
+        row = conn.execute(
+            "SELECT count FROM view_counts WHERE slug = ?", (slug,)
+        ).fetchone()
+    return row["count"] if row else 0
