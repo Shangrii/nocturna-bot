@@ -29,10 +29,11 @@ dependency, and the plan itself names this as an accepted alternative.
 """
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -44,6 +45,7 @@ import config
 from app import auth
 from app.deps import require_editor
 from core import github_publish
+from core.image_optimize import optimize_to_webp
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +54,25 @@ templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 
 # Short session TTL (seconds) — Pitfall 2: a revoked editor's cookie must not linger.
 _SESSION_MAX_AGE = 6 * 3600
+
+# ── image upload limits (D-17 / Pitfall 3 / T-10-10-01) ────────────────────────────
+# Byte-size cap enforced BEFORE the body is read in full (streamed chunk-by-chunk).
+_MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB — generous for a profile/portfolio image
+_UPLOAD_CHUNK = 256 * 1024
+# SVG is rejected outright (raster only) — never trust Content-Type alone; also gate
+# on filename extension since a client can lie about content_type.
+_REJECTED_EXTS = (".svg",)
+_REJECTED_CONTENT_TYPES = ("image/svg+xml",)
+
+# UI-SPEC copy (bilingual, single string carrying both locales like the 403 copy).
+_IMAGE_ERROR_COPY = (
+    "Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP de menos de 8 MB. — "
+    "That image couldn't be uploaded (format or size). Use PNG/JPG/WebP under 8 MB."
+)
+_SAVE_FAILED_COPY = (
+    "No se pudo publicar. Inténtalo de nuevo en un momento. — "
+    "Couldn't publish. Try again in a moment."
+)
 
 
 async def _fetch_current_entry(discord_id: str) -> dict:
@@ -164,6 +185,66 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
             "tagline": {"es": "", "en": ""}, "links": [], "blocks": [],
         }
     return templates.TemplateResponse(request, "editor.html", {"entry": entry})
+
+
+@app.post("/editor/image")
+async def upload_image(request: Request, file: UploadFile,
+                        ident: dict = Depends(require_editor)):
+    """Validate + re-encode an uploaded image, commit it under the SESSION slug's dir.
+
+    Order (Pitfall 3 / T-10-10-01): (1) reject SVG outright by content-type/extension —
+    never trusted enough to even attempt a Pillow decode; (2) enforce the byte-size cap
+    by streaming in chunks and aborting BEFORE the full body is buffered; (3) decode +
+    re-encode via ``optimize_to_webp`` (Pillow's own bomb guard + metadata strip); only
+    the RE-ENCODED bytes are ever committed — the raw upload is never persisted.
+
+    The commit path is built from ``ident["slug"]`` (the SESSION slug) ONLY — never a
+    client-supplied path segment (T-10-10-06 path traversal / D-08 IDOR).
+    """
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if content_type in _REJECTED_CONTENT_TYPES or filename.endswith(_REJECTED_EXTS):
+        return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
+
+    # Stream-read with an early abort — never buffer past the cap (size cap BEFORE
+    # a full read, Pitfall 3).
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _MAX_UPLOAD_BYTES:
+            return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    if not raw:
+        return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
+
+    try:
+        webp_bytes, _w, _h = await run_in_threadpool(optimize_to_webp, raw)
+    except Exception:
+        # Non-image / decompression-bomb / corrupt input → Pillow decode failure.
+        # Never leak the exception internals; nothing has been committed.
+        return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
+
+    slug = ident["slug"]
+    out_name = f"{uuid.uuid4().hex}.webp"
+    current = await _fetch_current_entry(ident["discord_id"])
+    if current is None:
+        return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
+
+    try:
+        result = await github_publish.sync_editors(
+            current, images=[(out_name, webp_bytes)])
+    except github_publish.GitHubPublishError:
+        log.exception("editor image upload commit failed")
+        return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
+
+    image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
+    path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
+    return {"path": path, "committed": result.get("committed", True)}
 
 
 if __name__ == "__main__":  # pragma: no cover
