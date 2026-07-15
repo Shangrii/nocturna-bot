@@ -174,7 +174,8 @@ def test_upload_image_path_uses_session_slug_never_body(monkeypatch, client):
 _VALID_BODY = {
     "name": "Aria",
     "avatar": "",
-    "tagline": {"es": "Editora", "en": "Editor"},
+    "lang": "es",
+    "tagline": "Editora",
     "links": [{"label": "Discord", "url": "https://discord.gg/example"}],
     "blocks": [{"type": "bio", "text": {"es": "Hola", "en": "Hi"}}],
 }

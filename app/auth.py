@@ -150,11 +150,14 @@ async def ensure_draft(discord_id, username) -> dict:
     slug = _unique_slug(base, taken)
 
     # Validate the shape through the same server-side gate every save passes (10-02).
+    # A fresh draft defaults to Spanish (the team's primary language, D-13) and the
+    # Midnight-Nocturna theme (ThemeModel default, D-26) — the editor tunes both later.
     entry = EditorPage(
         slug=slug,
         discordId=target,
         published=False,
         name=(username or slug)[:100],
+        lang="es",
     ).model_dump()
 
     await github_publish.sync_editors(entry)
