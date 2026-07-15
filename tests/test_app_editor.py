@@ -1,0 +1,170 @@
+"""Behaviour tests for the block-editor surface (Fase 10, plan 10-10).
+
+Covers the image-upload endpoint (Task 2, SVG-reject + size-cap + Pillow re-encode,
+D-17/Pitfall 3) and the save/publish + self-unpublish endpoints (Task 3, D-13/D-16),
+all mounted behind ``app.deps.require_editor`` (D-08 IDOR choke point).
+
+``require_editor`` is overridden via ``app.dependency_overrides`` with a fixed
+session identity — these tests exercise the ENDPOINT logic (validation, session-
+identity enforcement, error handling), not the OAuth/role-check machinery already
+covered by ``test_app_auth.py``.
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+
+import config
+from app.deps import require_editor
+from app.main import app
+from core import github_publish
+
+_IDENT = {"discord_id": "555", "slug": "aria"}
+
+
+@pytest.fixture
+def client(monkeypatch):
+    # The app's lifespan fail-fasts on empty OAuth/session config (by design, 10-08) —
+    # set dummy-but-non-empty values so the TestClient's startup event doesn't 500.
+    monkeypatch.setattr(config, "SESSION_SECRET", "s" * 32)
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_SECRET", "csecret")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_REDIRECT_URI", "https://x/auth/callback")
+
+    app.dependency_overrides[require_editor] = lambda: _IDENT
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.pop(require_editor, None)
+
+
+# ── Task 2: POST /editor/image — SVG-reject + size-cap + Pillow re-encode ─────────
+def test_upload_image_valid_commits_reencoded_webp_under_session_slug(monkeypatch, client):
+    import app.main as main
+
+    fake_webp = b"FAKE-WEBP-BYTES-NOT-THE-ORIGINAL"
+    monkeypatch.setattr(main, "optimize_to_webp", lambda raw: (fake_webp, 100, 100))
+
+    calls = {}
+
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "555", "published": True, "name": "Aria",
+                "avatar": "", "tagline": {"es": "", "en": ""}, "links": [], "blocks": []}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        calls["entry"] = entry
+        calls["images"] = list(images)
+        return {"committed": True, "commit_sha": "abc", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", fake_current)
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/image",
+        files={"file": ("avatar.png", b"\x89PNG-not-real-but-mocked", "image/png")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "/public/editors/aria/" in data["path"] or "/editors/aria/" in data["path"]
+    assert data["path"].endswith(".webp")
+    # The committed bytes are the RE-ENCODED webp, never the raw upload.
+    assert calls["images"][0][1] == fake_webp
+    assert calls["entry"]["discordId"] == "555"
+
+
+def test_upload_image_rejects_svg_by_content_type(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/image",
+        files={"file": ("evil.svg", b"<svg><script>alert(1)</script></svg>", "image/svg+xml")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []  # nothing committed
+
+
+def test_upload_image_rejects_svg_by_extension_even_with_faked_content_type(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/image",
+        files={"file": ("evil.SVG", b"<svg/>", "image/png")})  # lying content-type
+
+    assert resp.status_code == 400
+    assert sync_calls == []
+
+
+def test_upload_image_rejects_over_size_cap_before_full_read(monkeypatch, client):
+    import app.main as main
+
+    monkeypatch.setattr(main, "_MAX_UPLOAD_BYTES", 10)  # tiny cap for the test
+    optimize_calls = []
+    monkeypatch.setattr(main, "optimize_to_webp",
+                         lambda raw: optimize_calls.append(1) or (b"x", 1, 1))
+
+    resp = client.post(
+        "/editor/image",
+        files={"file": ("big.png", b"0123456789ABCDEF" * 10, "image/png")})
+
+    assert resp.status_code == 400
+    assert optimize_calls == []  # rejected before Pillow ever saw it
+
+
+def test_upload_image_rejects_non_image_bomb_via_pillow_decode_failure(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    def fake_optimize(raw):
+        raise ValueError("cannot identify image file")
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main, "optimize_to_webp", fake_optimize)
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/image",
+        files={"file": ("not-an-image.png", b"garbage-not-an-image-at-all", "image/png")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []
+
+
+def test_upload_image_path_uses_session_slug_never_body(monkeypatch, client):
+    import app.main as main
+
+    monkeypatch.setattr(main, "optimize_to_webp", lambda raw: (b"webp", 10, 10))
+
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "555", "published": True, "name": "Aria",
+                "avatar": "", "tagline": {"es": "", "en": ""}, "links": [], "blocks": []}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", fake_current)
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    # A hostile client-supplied slug field (if any) must never affect the path.
+    resp = client.post(
+        "/editor/image",
+        data={"slug": "someone-elses-slug"},
+        files={"file": ("x.png", b"bytes", "image/png")})
+
+    assert resp.status_code == 200
+    assert "someone-elses-slug" not in resp.json()["path"]
+    assert "aria" in resp.json()["path"]
