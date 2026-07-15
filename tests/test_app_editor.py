@@ -168,3 +168,164 @@ def test_upload_image_path_uses_session_slug_never_body(monkeypatch, client):
     assert resp.status_code == 200
     assert "someone-elses-slug" not in resp.json()["path"]
     assert "aria" in resp.json()["path"]
+
+
+# ── Task 3: POST /editor/save + POST /editor/unpublish (D-13/D-16) ────────────────
+_VALID_BODY = {
+    "name": "Aria",
+    "avatar": "",
+    "tagline": {"es": "Editora", "en": "Editor"},
+    "links": [{"label": "Discord", "url": "https://discord.gg/example"}],
+    "blocks": [{"type": "bio", "text": {"es": "Hola", "en": "Hi"}}],
+}
+
+
+def test_save_valid_body_validates_forces_session_identity_and_publishes(monkeypatch, client):
+    import app.main as main
+    calls = {}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        calls["entry"] = entry
+        return {"committed": True, "commit_sha": "abc", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/save", json=_VALID_BODY)
+
+    assert resp.status_code == 200
+    assert calls["entry"]["discordId"] == "555"
+    assert calls["entry"]["slug"] == "aria"
+    assert calls["entry"]["published"] is True
+    assert calls["entry"]["name"] == "Aria"
+
+
+def test_save_invalid_block_returns_4xx_and_does_not_commit(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    bad_body = dict(_VALID_BODY)
+    bad_body["blocks"] = [{"type": "not-a-real-block-type", "text": {"es": "x", "en": "y"}}]
+
+    resp = client.post("/editor/save", json=bad_body)
+
+    assert 400 <= resp.status_code < 500
+    assert sync_calls == []
+
+
+def test_save_invalid_link_url_returns_4xx_and_does_not_commit(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    bad_body = dict(_VALID_BODY)
+    bad_body["links"] = [{"label": "Evil", "url": "javascript:alert(1)"}]
+
+    resp = client.post("/editor/save", json=bad_body)
+
+    assert 400 <= resp.status_code < 500
+    assert sync_calls == []
+
+
+def test_save_ignores_body_supplied_discord_id_and_slug(monkeypatch, client):
+    import app.main as main
+    calls = {}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        calls["entry"] = entry
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    hostile_body = dict(_VALID_BODY)
+    hostile_body["discordId"] = "999-someone-else"
+    hostile_body["slug"] = "someone-elses-slug"
+
+    resp = client.post("/editor/save", json=hostile_body)
+
+    assert resp.status_code == 200
+    # Session identity wins — the hostile body values are discarded entirely.
+    assert calls["entry"]["discordId"] == "555"
+    assert calls["entry"]["slug"] == "aria"
+
+
+def test_save_transient_commit_failure_returns_generic_copy_no_internals(monkeypatch, client):
+    import app.main as main
+
+    async def fake_sync(*a, **k):
+        raise main.github_publish.GitHubPublishError("PAT abc123 rejected by GitHub")
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/save", json=_VALID_BODY)
+
+    assert resp.status_code >= 500
+    body_text = resp.text
+    assert "PAT" not in body_text
+    assert "abc123" not in body_text
+
+
+def test_save_requires_a_session(monkeypatch):
+    """Without the require_editor override, an unauthenticated POST is rejected."""
+    import config
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(config, "SESSION_SECRET", "s" * 32)
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_CLIENT_SECRET", "csecret")
+    monkeypatch.setattr(config, "DISCORD_OAUTH_REDIRECT_URI", "https://x/auth/callback")
+
+    from app.main import app as real_app
+
+    async def deny(*a, **k):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    real_app.dependency_overrides[require_editor] = deny
+    try:
+        with TestClient(real_app) as c:
+            resp = c.post("/editor/save", json=_VALID_BODY)
+            assert resp.status_code == 401
+    finally:
+        real_app.dependency_overrides.pop(require_editor, None)
+
+
+def test_unpublish_flips_session_editor_to_unpublished(monkeypatch, client):
+    import app.main as main
+    calls = {}
+
+    async def fake_unpublish(discord_id, *, message=None):
+        calls["discord_id"] = discord_id
+        return {"committed": True, "commit_sha": "abc", "slug": "aria"}
+
+    monkeypatch.setattr(main.github_publish, "unpublish_editor", fake_unpublish)
+
+    resp = client.post("/editor/unpublish")
+
+    assert resp.status_code == 200
+    assert calls["discord_id"] == "555"
+
+
+def test_unpublish_transient_failure_returns_generic_copy(monkeypatch, client):
+    import app.main as main
+
+    async def fake_unpublish(discord_id, *, message=None):
+        raise main.github_publish.GitHubPublishError("PAT abc123 rejected")
+
+    monkeypatch.setattr(main.github_publish, "unpublish_editor", fake_unpublish)
+
+    resp = client.post("/editor/unpublish")
+
+    assert resp.status_code >= 500
+    assert "PAT" not in resp.text
+    assert "abc123" not in resp.text
