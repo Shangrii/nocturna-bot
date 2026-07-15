@@ -33,10 +33,11 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Request, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
@@ -45,6 +46,7 @@ import config
 from app import auth
 from app.deps import require_editor
 from core import github_publish
+from core.editors_model import EditorPage
 from core.image_optimize import optimize_to_webp
 
 log = logging.getLogger(__name__)
@@ -73,6 +75,14 @@ _SAVE_FAILED_COPY = (
     "No se pudo publicar. Inténtalo de nuevo en un momento. — "
     "Couldn't publish. Try again in a moment."
 )
+_PUBLISH_SUCCESS_COPY = (
+    "Publicado — la web tarda un par de minutos en actualizarse. — "
+    "Published — the site takes a couple of minutes to update."
+)
+_UNPUBLISH_FAILED_COPY = (
+    "No se pudo despublicar. Inténtalo de nuevo. — Couldn't unpublish. Try again."
+)
+_UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
 
 
 async def _fetch_current_entry(discord_id: str) -> dict:
@@ -245,6 +255,69 @@ async def upload_image(request: Request, file: UploadFile,
     image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
     path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
+
+
+def _apply_session_identity(payload: dict, ident: dict, *, published: bool) -> dict:
+    """Merge a client save payload with the SESSION identity (never the body's, D-08).
+
+    ``discordId``/``slug``/``published`` are always forced from the trusted server
+    values — a body attempting to smuggle a different identity is silently ignored
+    (Pitfall 1 IDOR guard), not merely rejected.
+    """
+    merged = dict(payload)
+    merged["discordId"] = str(ident["discord_id"])
+    merged["slug"] = ident["slug"]
+    merged["published"] = published
+    return merged
+
+
+@app.post("/editor/save")
+async def save_editor(request: Request, ident: dict = Depends(require_editor)):
+    """Validate the submitted page via ``EditorPage``, then publish immediately (D-13).
+
+    Identity (``discordId``/``slug``) is ALWAYS overridden from the session — any body
+    value is discarded before validation, never merely rejected (Pitfall 1 / D-08).
+    ``published`` is forced ``True`` — this project has no separate draft/publish state
+    (D-13: save publishes immediately).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    merged = _apply_session_identity(body, ident, published=True)
+
+    try:
+        entry = EditorPage(**merged).model_dump()
+    except ValidationError as exc:
+        # Validation errors are safe to surface (input feedback, not infra internals).
+        return JSONResponse(status_code=422, content={"error": str(exc)})
+
+    try:
+        await github_publish.sync_editors(entry)
+    except github_publish.GitHubPublishError:
+        log.exception("editor save commit failed")
+        return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
+
+    return {"message": _PUBLISH_SUCCESS_COPY, "published": True}
+
+
+@app.post("/editor/unpublish")
+async def unpublish_self(ident: dict = Depends(require_editor)):
+    """Self-unpublish (D-16): flip the SESSION editor's page to ``published=false``.
+
+    Delegates to ``unpublish_editor`` keyed by the session's ``discord_id`` only — no
+    other editor's page can ever be targeted (D-08).
+    """
+    try:
+        result = await github_publish.unpublish_editor(ident["discord_id"])
+    except github_publish.GitHubPublishError:
+        log.exception("editor unpublish commit failed")
+        return JSONResponse(status_code=502, content={"error": _UNPUBLISH_FAILED_COPY})
+
+    return {"message": _UNPUBLISH_SUCCESS_COPY, "committed": result.get("committed", False)}
 
 
 if __name__ == "__main__":  # pragma: no cover

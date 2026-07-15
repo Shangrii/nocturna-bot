@@ -288,7 +288,7 @@ def test_save_requires_a_session(monkeypatch):
 
     from app.main import app as real_app
 
-    async def deny(*a, **k):
+    async def deny():
         raise HTTPException(status_code=401, detail="Not authenticated")
 
     real_app.dependency_overrides[require_editor] = deny
