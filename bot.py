@@ -26,13 +26,14 @@ for _noisy in ("discord.ext.voice_recv.gateway",
 # ── Intents ───────────────────────────────────────────────────────────────────
 intents = discord.Intents.default()
 intents.message_content = True   # Para leer la respuesta del usuario en el foro
-# NOTA (CR-03): el intent privilegiado `members` queda APAGADO a propósito — activarlo
-# en código sin el toggle "Server Members Intent" del Developer Portal tumbaría el bot
-# al arrancar (PrivilegedIntentsRequired). El backfill de la galería resuelve members
-# con fetch_member() cuando la caché está fría (cogs/gallery.py::_resolve_member), así
-# que los role-checks funcionan sin el intent. Si algún día se activa el toggle en el
-# portal, añadir aquí `intents.members = True` convierte esos fetch REST en lookups
-# de caché (optimización, no requisito).
+# El intent privilegiado `members` está ACTIVADO (Fase 10, plan 10-09). El toggle
+# "Server Members Intent" del Developer Portal quedó habilitado en 10-03 (confirmado en
+# deploy/EDITOR_DEPLOY.md §5), así que activarlo aquí es seguro y ya NO tumba el bot al
+# arrancar. Es REQUISITO de EditorsCog: sin `intents.members = True` el evento
+# `on_member_update` nunca se dispara y la despublicación por pérdida de rol en tiempo
+# real (D-10, mecanismo PRIMARIO) no funcionaría — sólo quedaría el sweep periódico de
+# respaldo. Bono: convierte los fetch_member() REST de la galería en lookups de caché.
+intents.members = True
 
 
 class NocturnaBot(commands.Bot):
@@ -46,6 +47,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.reviews")
         await self.load_extension("cogs.reminders")
         await self.load_extension("cogs.jinxxy")
+        await self.load_extension("cogs.editors")
         await self.load_extension("cogs.help")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
