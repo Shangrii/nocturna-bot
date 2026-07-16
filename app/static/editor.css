@@ -322,6 +322,39 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .chip:hover { border-color: var(--fg); }
 .chip--on { border-color: var(--red); color: var(--fg); background: rgba(192, 25, 44, 0.14); }
 
+/* ── Theme presets (D-24) — one-click swatch row + reset inline confirm ────────── */
+.preset-row {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--sp-2xs);
+}
+.preset-swatch {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-3xs);
+  padding: var(--sp-2xs);
+  border: 1px solid var(--line); border-radius: 6px;
+  background: var(--sw-b, var(--ink-raised));
+  color: var(--sw-c, var(--fg));
+  cursor: pointer; min-height: var(--touch-min);
+}
+.preset-swatch:hover { border-color: var(--fg); }
+.preset-swatch--on { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+.preset-swatch__dots {
+  width: 100%; height: 14px; border-radius: 3px;
+  border: 1px solid var(--line);
+  background: linear-gradient(90deg,
+    var(--sw-b) 0 33%, var(--sw-c) 33% 66%, var(--sw-a) 66% 100%);
+}
+.preset-swatch__name {
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.2; text-align: center;
+}
+
+.theme-reset { margin-bottom: var(--sp-md); }
+.confirm-inline {
+  border: 1px solid var(--red-on-ink); border-radius: 6px;
+  padding: var(--sp-sm); background: rgba(232, 74, 94, 0.08);
+}
+.confirm-text { margin: 0 0 var(--sp-xs); font-size: 14px; color: var(--fg); }
+.confirm-actions { display: flex; gap: var(--sp-2xs); flex-wrap: wrap; }
+
 /* Preview badges + socials (mirror the public header card) */
 .preview-badges { display: flex; flex-wrap: wrap; gap: var(--sp-2xs); justify-content: center; margin-bottom: var(--sp-2xs); }
 .preview-badge {

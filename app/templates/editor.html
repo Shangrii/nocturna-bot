@@ -113,7 +113,23 @@
         <hr class="preview-divider" />
         <p class="label">Tema · Theme</p>
 
-        <!-- ── Theme preset picker + reset injected here (this plan, Task 2) ── -->
+        <!-- ── Theme preset picker (D-24): one click = full palette+font+buttons+effects,
+             then every knob below stays editable (apply-then-tweak) ── -->
+        <div class="field">
+          <span class="label">Presets · Temas rápidos</span>
+          <div class="preset-row">
+            <template x-for="p in presetList" :key="p.key">
+              <button class="preset-swatch" type="button"
+                      :class="page.theme.preset === p.name ? 'preset-swatch--on' : ''"
+                      @click="applyPreset(p.key)"
+                      :style="`--sw-a:${p.accent}; --sw-b:${p.bg}; --sw-c:${p.text}`"
+                      :title="p.name">
+                <span class="preset-swatch__dots" aria-hidden="true"></span>
+                <span class="preset-swatch__name" x-text="p.name"></span>
+              </button>
+            </template>
+          </div>
+        </div>
 
         <div class="theme-panel">
           <!-- 1 · Background -->
@@ -234,6 +250,29 @@
               </template>
             </div>
           </fieldset>
+        </div>
+
+        <!-- Reset theme — inline confirm (non-committing until Save), mirrors the
+             self-unpublish confirm pattern. Destructive copy per UI-SPEC. -->
+        <div class="theme-reset" x-data="{ confirm: false }">
+          <template x-if="!confirm">
+            <button class="btn btn--sm btn--danger" type="button" @click="confirm = true">
+              Restablecer tema · Reset theme
+            </button>
+          </template>
+          <template x-if="confirm">
+            <div class="confirm-inline">
+              <p class="confirm-text">
+                ¿Restablecer el tema a los valores por defecto? Se perderán tus ajustes.<br />
+                Reset theme to defaults? Your customizations will be lost.
+              </p>
+              <div class="confirm-actions">
+                <button class="btn btn--sm btn--danger" type="button"
+                        @click="resetTheme(); confirm = false">Confirmar · Confirm</button>
+                <button class="btn btn--sm" type="button" @click="confirm = false">Cancelar · Cancel</button>
+              </div>
+            </div>
+          </template>
         </div>
 
         <hr class="preview-divider" />
@@ -496,6 +535,65 @@
         'Outfits', 'Accessories', 'Dances', 'Textures', 'Blender', 'Modeling3D',
       ];
 
+      // ── 8 one-click theme presets (UI-SPEC Theme Presets, D-24). Each is a complete
+      // {palette + font + buttons + effects} combo; applying one overwrites those knobs
+      // yet leaves every control editable afterward (apply-then-tweak, D-24). All colors
+      // are strict hex / rgba() and all fonts+effects come from the curated sets so a
+      // preset always validates against plan-09's ThemeModel.
+      const PRESETS = {
+        midnight: {
+          name: 'Midnight Nocturna', bg: '#0a0c14', surface: 'rgba(240,234,228,0.06)',
+          accent: '#c0192c', text: '#f0eae4', textMuted: '#9a9198',
+          font: 'Space Grotesk', btnStyle: 'glass', btnShape: 'rounded',
+          effects: ['glow', 'glass'],
+        },
+        neon: {
+          name: 'Neon Night', bg: '#05060a', surface: 'rgba(0,229,255,0.08)',
+          accent: '#00e5ff', text: '#f2f2f7', textMuted: '#8a8aa0',
+          font: 'Orbitron', btnStyle: 'outline', btnShape: 'sharp',
+          effects: ['gradient', 'glow', 'particles'],
+        },
+        pastel: {
+          name: 'Soft Pastel', bg: '#fbf7f2', surface: 'rgba(201,167,235,0.12)',
+          accent: '#c9a7eb', text: '#3a2f4a', textMuted: '#8b7f96',
+          font: 'Fraunces', btnStyle: 'filled', btnShape: 'pill',
+          effects: ['tilt', 'glow'],
+        },
+        gothic: {
+          name: 'Gothic', bg: '#0a0708', surface: 'rgba(139,0,0,0.12)',
+          accent: '#8b0000', text: '#e6dede', textMuted: '#9a8a8a',
+          font: 'UnifrakturMaguntia', btnStyle: 'outline', btnShape: 'sharp',
+          effects: ['glass', 'glow'],
+        },
+        y2k: {
+          name: 'Y2K', bg: '#1a1030', surface: 'rgba(255,79,216,0.12)',
+          accent: '#ff4fd8', text: '#f0f0ff', textMuted: '#b0a0c0',
+          font: 'Press Start 2P', btnStyle: 'filled', btnShape: 'rounded',
+          effects: ['gradient', 'particles'],
+        },
+        vaporwave: {
+          name: 'Vaporwave', bg: '#1b1035', surface: 'rgba(255,113,206,0.12)',
+          accent: '#ff71ce', text: '#f6f0ff', textMuted: '#a89ec7',
+          font: 'VT323', btnStyle: 'glass', btnShape: 'rounded',
+          effects: ['typewriter', 'tilt'],
+        },
+        mono: {
+          name: 'Minimal Mono', bg: '#101012', surface: 'rgba(255,255,255,0.05)',
+          accent: '#d0d0d2', text: '#f4f4f5', textMuted: '#9a9a9d',
+          font: 'Inter', btnStyle: 'outline', btnShape: 'sharp',
+          effects: [],
+        },
+        sakura: {
+          name: 'Sakura', bg: '#fff5f7', surface: 'rgba(255,183,197,0.16)',
+          accent: '#ff8fab', text: '#4a3033', textMuted: '#a98a90',
+          font: 'Caveat', btnStyle: 'filled', btnShape: 'pill',
+          effects: ['particles', 'glow'],
+        },
+      };
+      // Compact list for the swatch row (order = UI-SPEC Theme Presets table order).
+      const PRESET_LIST = ['midnight', 'neon', 'pastel', 'gothic', 'y2k', 'vaporwave', 'mono', 'sakura']
+        .map(key => ({ key, name: PRESETS[key].name, accent: PRESETS[key].accent, bg: PRESETS[key].bg, text: PRESETS[key].text }));
+
       function normalizeBlock(b) {
         const nb = { _id: uid(), type: b.type };
         if (['bio', 'heading', 'text', 'quote'].includes(b.type)) nb.text = asLoc(b.text);
@@ -540,6 +638,7 @@
         curatedFonts: CURATED_FONTS,
         effectKeys: EFFECT_KEYS,
         specialtyBadges: SPECIALTY_BADGES,
+        presetList: PRESET_LIST,
         lang: page.lang,
         mobileView: 'edit',
         showPicker: false,
@@ -581,6 +680,28 @@
           const i = b.indexOf(k);
           if (i >= 0) b.splice(i, 1); else b.push(k);
         },
+
+        // ── Presets (D-24) — one click applies a full combo, then every knob stays
+        // editable. Mutates LOCAL state only; nothing commits until the existing Save.
+        applyPreset(key) {
+          const p = PRESETS[key];
+          if (!p) return;
+          const t = this.page.theme;
+          t.bg = p.bg;
+          t.surface = p.surface;
+          t.accent = p.accent;
+          t.text = p.text;
+          t.textMuted = p.textMuted;
+          t.font = p.font;
+          t.btnStyle = p.btnStyle;
+          t.btnShape = p.btnShape;
+          t.effects = p.effects.slice();
+          t.preset = p.name;
+          // bgMedia / audio / overlay / blur / tint are NOT part of a palette preset —
+          // an editor's uploaded media survives a preset switch (apply-then-tweak).
+        },
+        // Reset to Midnight-Nocturna defaults — LOCAL only, commits nothing until Save.
+        resetTheme() { this.page.theme = asTheme(null); },
 
         // Background audio upload → plan-11's /editor/audio endpoint (site-relative path).
         async uploadAudio(ev, onDone) {
