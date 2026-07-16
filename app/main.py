@@ -29,6 +29,10 @@ dependency, and the plan itself names this as an accepted alternative.
 """
 
 import logging
+import os
+import shutil
+import subprocess
+import tempfile
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -83,6 +87,123 @@ _UNPUBLISH_FAILED_COPY = (
     "No se pudo despublicar. Inténtalo de nuevo. — Couldn't unpublish. Try again."
 )
 _UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
+
+# ── background media + audio upload limits (D-18 / D-06 / D-19 / T-10.1-11-01) ───────
+# Per-kind byte caps enforced BEFORE the body is buffered in full (streamed chunk read,
+# Pitfall 3). Moderate caps keep the GitHub-Pages repo budget in check (D-19).
+_MEDIA_IMAGE_MAX_BYTES = 2 * 1024 * 1024   # raster image ≤ 2 MB
+_MEDIA_VIDEO_MAX_BYTES = 10 * 1024 * 1024  # background video / GIF ≤ 10 MB
+_AUDIO_MAX_BYTES = 5 * 1024 * 1024         # background audio ≤ 5 MB
+
+# Human-facing cap strings interpolated into the too-large copy.
+_MEDIA_IMAGE_CAP_HUMAN = "2 MB"
+_MEDIA_VIDEO_CAP_HUMAN = "10 MB"
+_AUDIO_CAP_HUMAN = "5 MB"
+
+# Media allowlists — content-type AND extension are both checked (a client can lie about
+# either). SVG and every non-media type are rejected before any decode/transcode.
+_MEDIA_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+_MEDIA_IMAGE_CONTENT_TYPES = ("image/png", "image/jpeg", "image/webp")
+_MEDIA_GIF_EXTS = (".gif",)
+_MEDIA_GIF_CONTENT_TYPES = ("image/gif",)
+_MEDIA_VIDEO_EXTS = (".mp4", ".webm")
+_MEDIA_VIDEO_CONTENT_TYPES = ("video/mp4", "video/webm")
+
+_AUDIO_EXTS = (".mp3", ".ogg", ".m4a", ".webm", ".wav")
+_AUDIO_CONTENT_TYPES = (
+    "audio/mpeg", "audio/mp3", "audio/ogg", "audio/mp4", "audio/m4a",
+    "audio/x-m4a", "audio/webm", "audio/wav", "audio/wave", "audio/x-wav",
+)
+
+_MEDIA_ERROR_COPY = (
+    "Ese archivo no se pudo procesar (formato o compresión). Usa una imagen, GIF o vídeo "
+    "compatible. — That file couldn't be processed (format or compression). Use a supported "
+    "image, GIF or video."
+)
+_AUDIO_ERROR_COPY = (
+    "Ese audio no se pudo subir (formato o tamaño). Usa MP3/OGG/M4A de menos de 5 MB. — "
+    "That audio couldn't be uploaded (format or size). Use MP3/OGG/M4A under 5 MB."
+)
+
+
+class MediaProcessingError(Exception):
+    """Raised when ffmpeg is unavailable or transcoding fails (fail-closed, T-10.1-11-03)."""
+
+
+def _too_large_copy(cap_human: str) -> str:
+    """Bilingual over-cap copy (D-19) interpolating the human-readable size limit."""
+    return (
+        f"El archivo supera el límite ({cap_human}). Comprime o elige otro. — "
+        f"File exceeds the limit ({cap_human}). Compress or choose another."
+    )
+
+
+def _classify_media(content_type: str, filename: str):
+    """Return the media kind for an upload, or ``None`` if it is not accepted media.
+
+    Both content-type AND extension must agree with one allowlist — an SVG or any
+    non-media file (even with a spoofed content-type) falls through to ``None`` and is
+    rejected before any decode/transcode (T-10.1-11-03 type-confusion guard).
+    """
+    if content_type in _MEDIA_IMAGE_CONTENT_TYPES and filename.endswith(_MEDIA_IMAGE_EXTS):
+        return "image"
+    if content_type in _MEDIA_GIF_CONTENT_TYPES and filename.endswith(_MEDIA_GIF_EXTS):
+        return "gif"
+    if content_type in _MEDIA_VIDEO_CONTENT_TYPES and filename.endswith(_MEDIA_VIDEO_EXTS):
+        return "video"
+    return None
+
+
+def _is_allowed_audio(content_type: str, filename: str) -> bool:
+    """True only if BOTH content-type and extension match the audio allowlist."""
+    ext_ok = filename.endswith(_AUDIO_EXTS)
+    ct_ok = content_type in _AUDIO_CONTENT_TYPES or content_type.startswith("audio/")
+    return ext_ok and ct_ok
+
+
+def _ffmpeg_transcode_video(raw: bytes) -> bytes:
+    """Transcode an uploaded GIF/video to a web-optimized MUTED looping-friendly MP4.
+
+    Runs the system ``ffmpeg`` binary (a distro package on cinema, T-10.1-11-SC — NOT a
+    pip dependency) on a temp file. Strips any audio track (``-an`` — background video is
+    muted, D-20), normalizes to H.264/yuv420p with ``+faststart`` for fast web start, and
+    returns ONLY the re-encoded bytes (the raw upload is never persisted, T-10.1-11-03).
+
+    Raises ``MediaProcessingError`` when ffmpeg is absent, exits non-zero, or produces no
+    output — the caller MUST fail closed (never commit an un-optimized file).
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise MediaProcessingError("ffmpeg binary not available")
+    with tempfile.TemporaryDirectory() as tmp:
+        in_path = os.path.join(tmp, "in")
+        out_path = os.path.join(tmp, "out.mp4")
+        with open(in_path, "wb") as fh:
+            fh.write(raw)
+        try:
+            proc = subprocess.run(
+                [
+                    ffmpeg, "-y", "-i", in_path,
+                    "-an",                       # strip audio — bg video is muted (D-20)
+                    "-c:v", "libx264", "-preset", "medium", "-crf", "28",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    out_path,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise MediaProcessingError("ffmpeg invocation failed") from exc
+        if proc.returncode != 0 or not os.path.exists(out_path):
+            raise MediaProcessingError("ffmpeg transcode failed")
+        with open(out_path, "rb") as fh:
+            out = fh.read()
+    if not out:
+        raise MediaProcessingError("ffmpeg produced empty output")
+    return out
 
 
 async def _fetch_current_entry(discord_id: str) -> dict:
@@ -250,6 +371,129 @@ async def upload_image(request: Request, file: UploadFile,
             current, images=[(out_name, webp_bytes)])
     except github_publish.GitHubPublishError:
         log.exception("editor image upload commit failed")
+        return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
+
+    image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
+    path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
+    return {"path": path, "committed": result.get("committed", True)}
+
+
+@app.post("/editor/media")
+async def upload_media(request: Request, file: UploadFile,
+                       ident: dict = Depends(require_editor)):
+    """Validate + optimize an uploaded BACKGROUND media file (image/GIF/video), then
+    commit only the optimized bytes under the SESSION slug's dir (D-18/D-19).
+
+    Order (Pitfall 3 / T-10.1-11-01/03): (1) classify by content-type AND extension —
+    SVG + any non-media type is rejected before any decode; (2) stream-read with an early
+    abort at the KIND-SPECIFIC cap (image 2 MB · GIF/video 10 MB, D-19) — never buffer
+    past the cap; (3) optimize server-side: raster → ``optimize_to_webp`` (Pillow bomb
+    guard + metadata strip); GIF/video → ffmpeg transcode to a muted web MP4 (D-20), which
+    FAILS CLOSED when ffmpeg is missing/errors (never commit an un-optimized file); (4)
+    commit ONLY the re-encoded bytes under ``ident['slug']`` (SESSION slug only, never a
+    client path — T-10.1-11-02 / 10-D-08). Returns the site-relative path the theme panel
+    writes into ``page.theme.bgMedia``.
+    """
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    kind = _classify_media(content_type, filename)
+    if kind is None:
+        return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
+
+    if kind == "image":
+        cap, cap_human = _MEDIA_IMAGE_MAX_BYTES, _MEDIA_IMAGE_CAP_HUMAN
+    else:  # gif / video share the 10 MB cap (D-19)
+        cap, cap_human = _MEDIA_VIDEO_MAX_BYTES, _MEDIA_VIDEO_CAP_HUMAN
+
+    # Stream-read with an early abort — never buffer past the per-kind cap (Pitfall 3).
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > cap:
+            return JSONResponse(status_code=400, content={"error": _too_large_copy(cap_human)})
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    if not raw:
+        return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
+
+    try:
+        if kind == "image":
+            out_bytes, _w, _h = await run_in_threadpool(optimize_to_webp, raw)
+            out_ext = "webp"
+        else:  # gif / video → ffmpeg transcode; fail closed if unavailable/failing
+            out_bytes = await run_in_threadpool(_ffmpeg_transcode_video, raw)
+            out_ext = "mp4"
+    except Exception:
+        # Non-media / decompression-bomb / ffmpeg-missing/failure → nothing committed.
+        return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
+
+    slug = ident["slug"]
+    out_name = f"{uuid.uuid4().hex}.{out_ext}"
+    current = await _fetch_current_entry(ident["discord_id"])
+    if current is None:
+        return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
+
+    try:
+        result = await github_publish.sync_editors(
+            current, images=[(out_name, out_bytes)])
+    except github_publish.GitHubPublishError:
+        log.exception("editor media upload commit failed")
+        return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
+
+    image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
+    path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
+    return {"path": path, "committed": result.get("committed", True)}
+
+
+@app.post("/editor/audio")
+async def upload_audio(request: Request, file: UploadFile,
+                       ident: dict = Depends(require_editor)):
+    """Validate + commit an uploaded BACKGROUND audio track under the SESSION slug (D-06).
+
+    (1) Accept only audio by content-type AND extension (MP3/OGG/M4A/WEBM/WAV) — any other
+    type is rejected before commit; (2) stream-read with an early abort at the 5 MB cap
+    (D-19) — never buffer past the cap; (3) commit the bytes under ``ident['slug']``
+    (SESSION slug only — never a client path, T-10.1-11-02 / 10-D-08). Audio is committed
+    as-is within the cap (no transcode required); the theme panel (plan 10) writes the
+    returned path into ``page.theme.audio``.
+    """
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    if not _is_allowed_audio(content_type, filename):
+        return JSONResponse(status_code=400, content={"error": _AUDIO_ERROR_COPY})
+
+    # Stream-read with an early abort — never buffer past the 5 MB cap (Pitfall 3, D-19).
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > _AUDIO_MAX_BYTES:
+            return JSONResponse(
+                status_code=400, content={"error": _too_large_copy(_AUDIO_CAP_HUMAN)})
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    if not raw:
+        return JSONResponse(status_code=400, content={"error": _AUDIO_ERROR_COPY})
+
+    slug = ident["slug"]
+    out_ext = next((e for e in _AUDIO_EXTS if filename.endswith(e)), ".mp3").lstrip(".")
+    out_name = f"{uuid.uuid4().hex}.{out_ext}"
+    current = await _fetch_current_entry(ident["discord_id"])
+    if current is None:
+        return JSONResponse(status_code=400, content={"error": _AUDIO_ERROR_COPY})
+
+    try:
+        result = await github_publish.sync_editors(
+            current, images=[(out_name, raw)])
+    except github_publish.GitHubPublishError:
+        log.exception("editor audio upload commit failed")
         return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
 
     image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")

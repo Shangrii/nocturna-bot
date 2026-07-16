@@ -170,6 +170,245 @@ def test_upload_image_path_uses_session_slug_never_body(monkeypatch, client):
     assert "aria" in resp.json()["path"]
 
 
+# ── 10.1-11 Task 1: POST /editor/media — per-kind caps + optimize + slug commit ───
+def _fake_current():
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "555", "published": True, "name": "Aria",
+                "avatar": "", "tagline": {"es": "", "en": ""}, "links": [], "blocks": []}
+    return fake_current
+
+
+def test_upload_media_image_optimizes_and_commits_under_session_slug(monkeypatch, client):
+    import app.main as main
+
+    fake_webp = b"FAKE-WEBP-OPTIMIZED"
+    monkeypatch.setattr(main, "optimize_to_webp", lambda raw: (fake_webp, 100, 100))
+
+    calls = {}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        calls["images"] = list(images)
+        return {"committed": True, "commit_sha": "abc", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", _fake_current())
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/media",
+        files={"file": ("bg.png", b"\x89PNG-mocked", "image/png")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "/editors/aria/" in data["path"]
+    assert data["path"].endswith(".webp")
+    assert calls["images"][0][1] == fake_webp  # only the re-encoded bytes are committed
+
+
+def test_upload_media_video_transcodes_via_ffmpeg_and_commits_mp4(monkeypatch, client):
+    import app.main as main
+
+    fake_mp4 = b"FAKE-MP4-TRANSCODED"
+    monkeypatch.setattr(main, "_ffmpeg_transcode_video", lambda raw: fake_mp4)
+
+    calls = {}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        calls["images"] = list(images)
+        return {"committed": True, "commit_sha": "abc", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", _fake_current())
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/media",
+        files={"file": ("loop.mp4", b"rawvideobytes", "video/mp4")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["path"].endswith(".mp4")
+    assert "/editors/aria/" in data["path"]
+    assert calls["images"][0][1] == fake_mp4  # only the transcoded bytes are committed
+
+
+def test_upload_media_fails_closed_when_ffmpeg_unavailable(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    def boom(raw):
+        raise main.MediaProcessingError("ffmpeg binary not available")
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main, "_ffmpeg_transcode_video", boom)
+    monkeypatch.setattr(main, "_fetch_current_entry", _fake_current())
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/media",
+        files={"file": ("loop.mp4", b"rawvideobytes", "video/mp4")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []  # nothing committed when ffmpeg can't optimize
+
+
+def test_upload_media_rejects_svg(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/media",
+        files={"file": ("evil.svg", b"<svg><script>x</script></svg>", "image/svg+xml")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []
+
+
+def test_upload_media_rejects_non_media_type(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/media",
+        files={"file": ("payload.exe", b"MZ-not-media", "application/octet-stream")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []
+
+
+def test_upload_media_rejects_over_cap_before_optimize(monkeypatch, client):
+    import app.main as main
+
+    monkeypatch.setattr(main, "_MEDIA_IMAGE_MAX_BYTES", 10)  # tiny cap for the test
+    optimize_calls = []
+    monkeypatch.setattr(main, "optimize_to_webp",
+                        lambda raw: optimize_calls.append(1) or (b"x", 1, 1))
+
+    resp = client.post(
+        "/editor/media",
+        files={"file": ("big.png", b"0123456789ABCDEF" * 4, "image/png")})
+
+    assert resp.status_code == 400
+    assert optimize_calls == []  # rejected before the optimizer ever saw it
+
+
+def test_upload_media_path_uses_session_slug_never_body(monkeypatch, client):
+    import app.main as main
+
+    monkeypatch.setattr(main, "optimize_to_webp", lambda raw: (b"webp", 10, 10))
+
+    async def fake_sync(entry, images=(), *, message=None):
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", _fake_current())
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/media",
+        data={"slug": "someone-elses-slug"},
+        files={"file": ("bg.png", b"bytes", "image/png")})
+
+    assert resp.status_code == 200
+    assert "someone-elses-slug" not in resp.json()["path"]
+    assert "aria" in resp.json()["path"]
+
+
+# ── 10.1-11 Task 2: POST /editor/audio — 5 MB cap + audio allowlist + slug commit ──
+def test_upload_audio_commits_under_session_slug(monkeypatch, client):
+    import app.main as main
+
+    raw_audio = b"ID3-fake-mp3-bytes"
+    calls = {}
+
+    async def fake_sync(entry, images=(), *, message=None):
+        calls["images"] = list(images)
+        return {"committed": True, "commit_sha": "abc", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", _fake_current())
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/audio",
+        files={"file": ("track.mp3", raw_audio, "audio/mpeg")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "/editors/aria/" in data["path"]
+    assert data["path"].endswith(".mp3")
+    assert calls["images"][0][1] == raw_audio
+
+
+def test_upload_audio_rejects_non_audio_type(monkeypatch, client):
+    import app.main as main
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/audio",
+        files={"file": ("payload.exe", b"MZ-not-audio", "application/octet-stream")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []
+
+
+def test_upload_audio_rejects_over_cap_before_commit(monkeypatch, client):
+    import app.main as main
+
+    monkeypatch.setattr(main, "_AUDIO_MAX_BYTES", 10)  # tiny cap for the test
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/audio",
+        files={"file": ("big.mp3", b"0123456789ABCDEF" * 4, "audio/mpeg")})
+
+    assert resp.status_code == 400
+    assert sync_calls == []  # rejected before any commit
+
+
+def test_upload_audio_path_uses_session_slug_never_body(monkeypatch, client):
+    import app.main as main
+
+    async def fake_sync(entry, images=(), *, message=None):
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", _fake_current())
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post(
+        "/editor/audio",
+        data={"slug": "someone-elses-slug"},
+        files={"file": ("track.ogg", b"OggS-bytes", "audio/ogg")})
+
+    assert resp.status_code == 200
+    assert "someone-elses-slug" not in resp.json()["path"]
+    assert "aria" in resp.json()["path"]
+    assert resp.json()["path"].endswith(".ogg")
+
+
 # ── Task 3: POST /editor/save + POST /editor/unpublish (D-13/D-16) ────────────────
 _VALID_BODY = {
     "name": "Aria",
