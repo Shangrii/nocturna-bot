@@ -68,17 +68,172 @@
         </div>
 
         <div class="field">
-          <label class="label">Tagline</label>
-          <div class="locale-pair">
-            <div>
-              <span class="label">ES</span>
-              <input type="text" x-model="page.tagline.es" maxlength="4000" />
-            </div>
-            <div>
-              <span class="label">EN</span>
-              <input type="text" x-model="page.tagline.en" maxlength="4000" />
-            </div>
+          <label class="label" for="f-lang">Idioma · Language</label>
+          <select id="f-lang" x-model="page.lang">
+            <option value="es">Español · Spanish</option>
+            <option value="en">English · Inglés</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="label" for="f-tagline">Tagline</label>
+          <input id="f-tagline" type="text" x-model="page.tagline" maxlength="300"
+                 placeholder="Una línea · One line" />
+        </div>
+
+        <div class="field">
+          <span class="label">Especialidades · Specialty badges</span>
+          <div class="badge-grid">
+            <template x-for="b in specialtyBadges" :key="b">
+              <label class="chip" :class="hasBadge(b) ? 'chip--on' : ''">
+                <input type="checkbox" :checked="hasBadge(b)" @change="toggleBadge(b)" hidden />
+                <span x-text="b"></span>
+              </label>
+            </template>
           </div>
+        </div>
+
+        <div class="field">
+          <span class="label">Redes · Socials</span>
+          <template x-for="(s, j) in page.socials" :key="j">
+            <div class="locale-pair" style="margin-bottom: var(--sp-2xs);">
+              <input type="text" x-model="s.label" placeholder="Etiqueta · Label" maxlength="100" />
+              <div style="display:flex; gap: var(--sp-2xs);">
+                <input type="url" x-model="s.url" placeholder="https://…" maxlength="2048" />
+                <button class="btn btn--sm btn--danger" type="button"
+                        @click="page.socials.splice(j,1)" aria-label="Quitar red · Remove social">✕</button>
+              </div>
+            </div>
+          </template>
+          <button class="btn btn--sm" type="button" @click="page.socials.push({label:'',url:''})">
+            + Red · Social
+          </button>
+        </div>
+
+        <hr class="preview-divider" />
+        <p class="label">Tema · Theme</p>
+
+        <!-- ── Theme preset picker + reset injected here (this plan, Task 2) ── -->
+
+        <div class="theme-panel">
+          <!-- 1 · Background -->
+          <fieldset class="theme-group">
+            <legend class="label">Background · Fondo</legend>
+            <div class="upload">
+              <template x-if="page.theme.bgMedia"><img class="thumb" :src="page.theme.bgMedia" alt="" /></template>
+              <label class="btn btn--sm">
+                Media · Subir
+                <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                       @change="uploadImage($event, v => page.theme.bgMedia = v)" />
+              </label>
+              <template x-if="page.theme.bgMedia">
+                <button class="btn btn--sm btn--danger" type="button"
+                        x-data="{ confirm: false }"
+                        @click="confirm ? (page.theme.bgMedia = null, confirm = false) : (confirm = true)"
+                        x-text="confirm ? '¿Seguro? · Sure?' : 'Quitar · Remove'"></button>
+              </template>
+              <span class="upload-state" :data-kind="uploadKind" x-text="uploadMsg"></span>
+            </div>
+            <label class="range-row">
+              <span class="label">Overlay <span x-text="page.theme.overlay + '%'"></span></span>
+              <input type="range" min="0" max="100" x-model.number="page.theme.overlay" />
+            </label>
+            <label class="range-row">
+              <span class="label">Blur <span x-text="page.theme.blur + 'px'"></span></span>
+              <input type="range" min="0" max="20" x-model.number="page.theme.blur" />
+            </label>
+            <div class="range-row">
+              <span class="label">Tint · Tinte</span>
+              <span style="display:flex; gap: var(--sp-2xs); align-items:center;">
+                <input type="color" :value="page.theme.tint || '#000000'"
+                       @input="page.theme.tint = $event.target.value"
+                       aria-label="Media tint" />
+                <button class="btn btn--sm" type="button" @click="page.theme.tint = null"
+                        :disabled="!page.theme.tint">None</button>
+              </span>
+            </div>
+          </fieldset>
+
+          <!-- 2 · Colors -->
+          <fieldset class="theme-group">
+            <legend class="label">Colors · Colores</legend>
+            <label class="color-row"><span class="label">Accent · Acento</span>
+              <input type="color" x-model="page.theme.accent" /></label>
+            <label class="color-row"><span class="label">Text · Texto</span>
+              <input type="color" x-model="page.theme.text" /></label>
+            <label class="color-row"><span class="label">Text muted · Atenuado</span>
+              <input type="color" x-model="page.theme.textMuted" /></label>
+            <label class="color-row"><span class="label">Background · Fondo</span>
+              <input type="color" x-model="page.theme.bg" /></label>
+            <label class="color-row"><span class="label">Surface · Superficie</span>
+              <input type="text" x-model="page.theme.surface" maxlength="64"
+                     placeholder="rgba(240,234,228,0.06)" /></label>
+          </fieldset>
+
+          <!-- 3 · Typography -->
+          <fieldset class="theme-group">
+            <legend class="label">Typography · Tipografía</legend>
+            <select x-model="page.theme.font" aria-label="Curated font">
+              <template x-for="f in curatedFonts" :key="f">
+                <option :value="f" x-text="f"></option>
+              </template>
+            </select>
+          </fieldset>
+
+          <!-- 4 · Buttons -->
+          <fieldset class="theme-group">
+            <legend class="label">Buttons · Botones</legend>
+            <div class="seg-row">
+              <span class="label">Style · Estilo</span>
+              <select x-model="page.theme.btnStyle" aria-label="Button style">
+                <option value="filled">Filled · Relleno</option>
+                <option value="outline">Outline · Contorno</option>
+                <option value="glass">Glass · Cristal</option>
+              </select>
+            </div>
+            <div class="seg-row">
+              <span class="label">Shape · Forma</span>
+              <select x-model="page.theme.btnShape" aria-label="Button shape">
+                <option value="sharp">Sharp · Recto</option>
+                <option value="rounded">Rounded · Redondeado</option>
+                <option value="pill">Pill · Píldora</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <!-- 5 · Effects -->
+          <fieldset class="theme-group">
+            <legend class="label">Effects · Efectos</legend>
+            <div class="effect-grid">
+              <template x-for="fx in effectKeys" :key="fx.key">
+                <label class="chip" :class="hasEffect(fx.key) ? 'chip--on' : ''">
+                  <input type="checkbox" :checked="hasEffect(fx.key)" @change="toggleEffect(fx.key)" hidden />
+                  <span x-text="fx.label"></span>
+                </label>
+              </template>
+            </div>
+          </fieldset>
+
+          <!-- 6 · Audio -->
+          <fieldset class="theme-group">
+            <legend class="label">Audio</legend>
+            <div class="upload">
+              <template x-if="page.theme.audio">
+                <span class="upload-state" x-text="page.theme.audio"></span>
+              </template>
+              <label class="btn btn--sm">
+                Audio · Subir
+                <input type="file" accept="audio/mpeg,audio/ogg,audio/wav" hidden
+                       @change="uploadAudio($event, v => page.theme.audio = v)" />
+              </label>
+              <template x-if="page.theme.audio">
+                <button class="btn btn--sm btn--danger" type="button"
+                        x-data="{ confirm: false }"
+                        @click="confirm ? (page.theme.audio = null, confirm = false) : (confirm = true)"
+                        x-text="confirm ? '¿Seguro? · Sure?' : 'Quitar · Remove'"></button>
+              </template>
+            </div>
+          </fieldset>
         </div>
 
         <hr class="preview-divider" />
@@ -219,11 +374,22 @@
                   :class="lang==='en' ? 'btn--accent' : ''">EN</button>
         </div>
 
-        <div class="preview-col">
+        <div class="preview-col"
+             :style="`--theme-bg:${page.theme.bg}; --theme-surface:${page.theme.surface}; --theme-accent:${page.theme.accent}; --theme-text:${page.theme.text}; --theme-text-muted:${page.theme.textMuted}; --theme-font:'${page.theme.font}'; --theme-overlay:${page.theme.overlay}; --theme-blur:${page.theme.blur}px; --theme-btn-shape:${page.theme.btnShape};` + (page.theme.tint ? ` --theme-tint:${page.theme.tint};` : '')">
           <header class="preview-header">
             <template x-if="page.avatar"><img class="preview-avatar" :src="page.avatar" alt="" /></template>
             <h2 class="preview-name" x-text="page.name || 'Tu nombre'"></h2>
-            <p class="preview-tagline" x-text="loc(page.tagline)"></p>
+            <div class="preview-badges" x-show="page.badges.length">
+              <template x-for="b in page.badges" :key="b">
+                <span class="preview-badge" x-text="b"></span>
+              </template>
+            </div>
+            <p class="preview-tagline" x-text="page.tagline"></p>
+            <div class="preview-socials" x-show="page.socials.length">
+              <template x-for="(s, i) in page.socials" :key="i">
+                <a class="preview-social" :href="s.url || '#'" x-text="s.label || s.url"></a>
+              </template>
+            </div>
             <div style="margin-top: var(--sp-sm);">
               <template x-for="(l, i) in page.links" :key="i">
                 <a class="preview-link" :href="l.url || '#'" x-text="l.label || l.url"></a>
@@ -293,6 +459,43 @@
       const uid = () => 'b' + (++_seq);
       const asLoc = (o) => ({ es: (o && o.es) || '', en: (o && o.en) || '' });
 
+      // ── Theme (10.1-10) — defaults mirror plan-09 ThemeModel (Midnight Nocturna, D-26).
+      // Every value here validates against core/editors_model.py::ThemeModel on save.
+      const DEFAULT_THEME = {
+        bg: '#0a0c14', bgMedia: null, overlay: 40, blur: 0, tint: null,
+        surface: 'rgba(240,234,228,0.06)', accent: '#c0192c', text: '#f0eae4',
+        textMuted: '#9a9198', font: 'Inter', btnStyle: 'glass', btnShape: 'rounded',
+        effects: [], audio: null, preset: null,
+      };
+      // Merge a possibly-partial server theme onto the defaults; effects is always a
+      // fresh array (never a shared reference) so per-page toggles stay isolated.
+      const asTheme = (t) => Object.assign({}, DEFAULT_THEME, t || {}, {
+        effects: Array.isArray(t && t.effects) ? t.effects.slice() : [],
+      });
+
+      // The 14 curated families (UI-SPEC Curated Font Palette / ThemeModel.CURATED_FONTS).
+      const CURATED_FONTS = [
+        'Inter', 'Space Grotesk', 'Sora', 'Playfair Display', 'Fraunces', 'Bebas Neue',
+        'UnifrakturMaguntia', 'Pirata One', 'Caveat', 'Permanent Marker',
+        'Press Start 2P', 'VT323', 'Orbitron', 'Rajdhani',
+      ];
+      // The 9 opt-in effect keys (UI-SPEC Effects Catalog / ThemeModel.KNOWN_EFFECTS).
+      const EFFECT_KEYS = [
+        { key: 'glass', label: 'Glass · Tarjetas cristal' },
+        { key: 'glow', label: 'Glow · Halo avatar' },
+        { key: 'hover', label: 'Hover · Botón animado' },
+        { key: 'gradient', label: 'Gradient · Nombre animado' },
+        { key: 'typewriter', label: 'Typewriter · Tagline' },
+        { key: 'tilt', label: 'Tilt · Inclinación 3D' },
+        { key: 'particles', label: 'Particles · Nieve/partículas' },
+        { key: 'presence', label: 'Presence · Discord en vivo' },
+        { key: 'audio', label: 'Audio · Fondo' },
+      ];
+      // The curated specialty badge set (UI-SPEC / EditorPage.SPECIALTY_BADGES) — no free text.
+      const SPECIALTY_BADGES = [
+        'Outfits', 'Accessories', 'Dances', 'Textures', 'Blender', 'Modeling3D',
+      ];
+
       function normalizeBlock(b) {
         const nb = { _id: uid(), type: b.type };
         if (['bio', 'heading', 'text', 'quote'].includes(b.type)) nb.text = asLoc(b.text);
@@ -313,9 +516,16 @@
         published: !!initial.published,
         name: initial.name || '',
         avatar: initial.avatar || '',
-        tagline: asLoc(initial.tagline),
+        // Single-language now (D-13): accept a legacy {es,en} tagline OR a plain string.
+        lang: initial.lang === 'en' ? 'en' : 'es',
+        tagline: typeof initial.tagline === 'string'
+          ? initial.tagline
+          : ((initial.tagline && (initial.tagline.es || initial.tagline.en)) || ''),
+        badges: Array.isArray(initial.badges) ? initial.badges.slice() : [],
+        socials: (initial.socials || []).map(s => ({ label: s.label || '', url: s.url || '' })),
         links: (initial.links || []).map(l => ({ label: l.label || '', url: l.url || '' })),
         blocks: (initial.blocks || []).map(b => normalizeBlock(b)),
+        theme: asTheme(initial.theme),
       };
 
       const LABELS = {
@@ -327,7 +537,10 @@
       return {
         page,
         blockTypes: ['bio', 'heading', 'text', 'links', 'portfolio', 'quote', 'image', 'divider'],
-        lang: 'es',
+        curatedFonts: CURATED_FONTS,
+        effectKeys: EFFECT_KEYS,
+        specialtyBadges: SPECIALTY_BADGES,
+        lang: page.lang,
         mobileView: 'edit',
         showPicker: false,
         saving: false,
@@ -354,6 +567,47 @@
 
         blockLabel(t) { return LABELS[t] || t; },
         loc(o) { return (o && o[this.lang]) || ''; },
+
+        // ── Theme toggles (local state only — nothing commits until Save, D-13) ──────
+        hasEffect(k) { return this.page.theme.effects.includes(k); },
+        toggleEffect(k) {
+          const e = this.page.theme.effects;
+          const i = e.indexOf(k);
+          if (i >= 0) e.splice(i, 1); else e.push(k);
+        },
+        hasBadge(k) { return this.page.badges.includes(k); },
+        toggleBadge(k) {
+          const b = this.page.badges;
+          const i = b.indexOf(k);
+          if (i >= 0) b.splice(i, 1); else b.push(k);
+        },
+
+        // Background audio upload → plan-11's /editor/audio endpoint (site-relative path).
+        async uploadAudio(ev, onDone) {
+          const file = ev.target.files && ev.target.files[0];
+          ev.target.value = '';
+          if (!file) return;
+          this.uploadKind = 'ok';
+          this.uploadMsg = 'Subiendo… · Uploading…';
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            const r = await fetch('/editor/audio', { method: 'POST', body: fd });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok && data.path) {
+              onDone(data.path);
+              this.uploadMsg = '';
+            } else {
+              this.uploadKind = 'error';
+              this.uploadMsg = data.error ||
+                'El archivo supera el límite. Comprime o elige otro. · ' +
+                'File exceeds the limit. Compress or choose another.';
+            }
+          } catch (e) {
+            this.uploadKind = 'error';
+            this.uploadMsg = 'Error de red · Network error';
+          }
+        },
 
         addBlock(type) {
           this.page.blocks.push(normalizeBlock({ type }));
@@ -402,12 +656,23 @@
         // Strip client-only keys (_id) before sending; identity is NEVER in the body.
         serialize() {
           const clean = (b) => { const { _id, ...rest } = b; return rest; };
+          const t = this.page.theme;
           return {
             name: this.page.name,
             avatar: this.page.avatar,
+            lang: this.page.lang,
             tagline: this.page.tagline,
+            badges: this.page.badges.slice(),
+            socials: this.page.socials.map(s => ({ label: s.label, url: s.url })),
             links: this.page.links.map(l => ({ label: l.label, url: l.url })),
             blocks: this.page.blocks.map(clean),
+            theme: {
+              bg: t.bg, bgMedia: t.bgMedia || null, overlay: t.overlay, blur: t.blur,
+              tint: t.tint || null, surface: t.surface, accent: t.accent, text: t.text,
+              textMuted: t.textMuted, font: t.font, btnStyle: t.btnStyle,
+              btnShape: t.btnShape, effects: t.effects.slice(),
+              audio: t.audio || null, preset: t.preset || null,
+            },
           };
         },
 
