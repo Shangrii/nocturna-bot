@@ -148,12 +148,18 @@
           <!-- 1 · Background -->
           <fieldset class="theme-group">
             <legend class="label">Background · Fondo</legend>
+            <p class="field-hint">Imagen, GIF o vídeo (mp4/webm, máx 10 MB) · Image, GIF or video</p>
             <div class="upload">
-              <template x-if="page.theme.bgMedia"><img class="thumb" :src="mediaUrl(page.theme.bgMedia)" alt="" /></template>
+              <template x-if="page.theme.bgMedia && isVideo(page.theme.bgMedia)">
+                <video class="thumb" :src="mediaUrl(page.theme.bgMedia)" autoplay muted loop playsinline></video>
+              </template>
+              <template x-if="page.theme.bgMedia && !isVideo(page.theme.bgMedia)">
+                <img class="thumb" :src="mediaUrl(page.theme.bgMedia)" alt="" />
+              </template>
               <label class="btn btn--sm">
                 Media · Subir
-                <input type="file" accept="image/png,image/jpeg,image/webp" hidden
-                       @change="uploadImage($event, v => page.theme.bgMedia = v)" />
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" hidden
+                       @change="uploadMedia($event, v => page.theme.bgMedia = v)" />
               </label>
               <template x-if="page.theme.bgMedia">
                 <button class="btn btn--sm btn--danger" type="button"
@@ -543,8 +549,14 @@
           <!-- Background layers mirror the real page EXACTLY (D-21): media (cover+blur),
                a tint via mix-blend-mode:color, and a black darken scrim from overlay.
                Tint + scrim only apply WITH media (they only muddy a solid bg otherwise). -->
-          <div class="preview-bg" x-show="page.theme.bgMedia"
-               :style="`background-image:url('${mediaUrl(page.theme.bgMedia)}')`"></div>
+          <template x-if="page.theme.bgMedia && isVideo(page.theme.bgMedia)">
+            <video class="preview-bg preview-bg--video" :src="mediaUrl(page.theme.bgMedia)"
+                   autoplay muted loop playsinline></video>
+          </template>
+          <template x-if="page.theme.bgMedia && !isVideo(page.theme.bgMedia)">
+            <div class="preview-bg"
+                 :style="`background-image:url('${mediaUrl(page.theme.bgMedia)}')`"></div>
+          </template>
           <div class="preview-tint" x-show="page.theme.bgMedia && page.theme.tint"></div>
           <div class="preview-scrim" x-show="page.theme.bgMedia"></div>
           <!-- Faux particle drift so the `particles` effect is visible in the preview. -->
@@ -939,6 +951,8 @@
           if (p && this.localPreviews[p]) return this.localPreviews[p];
           return (p && p.charAt(0) === '/') ? MEDIA_BASE + p : (p || '');
         },
+        // Background media can be an image OR a transcoded video (.mp4/.webm).
+        isVideo(p) { return /\.(mp4|webm)$/i.test(p || ''); },
         // URL hostname -> social platform icon slug (mirrors the site's SocialIconRow).
         socialKey(url) {
           let host = '';
@@ -1137,6 +1151,41 @@
         moveDown(i) {
           const a = this.page.blocks;
           if (i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]];
+        },
+
+        // Background media (image / GIF / video) → /editor/media (GIF+video are
+        // transcoded server-side to a muted, web-optimized MP4, D-20). Instant local
+        // preview via a blob URL (works for both <img> and <video>).
+        async uploadMedia(ev, onDone) {
+          const file = ev.target.files && ev.target.files[0];
+          ev.target.value = '';
+          if (!file) return;
+          const localUrl = URL.createObjectURL(file);
+          const isVid = /^video\//.test(file.type) || file.type === 'image/gif';
+          this.uploadKind = 'ok';
+          this.uploadMsg = isVid ? 'Procesando vídeo… · Processing video…' : 'Optimizando… · Optimizing…';
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            const r = await fetch('/editor/media', { method: 'POST', body: fd });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok && data.path) {
+              onDone(data.path);
+              // Only reuse the local blob when the output kind matches (image→image);
+              // a GIF/video becomes an .mp4, so let the committed file load instead.
+              if (!/\.(mp4|webm)$/i.test(data.path) || /^video\//.test(file.type)) {
+                this.localPreviews[data.path] = localUrl;
+              }
+              this.uploadMsg = '';
+            } else {
+              this.uploadKind = 'error';
+              this.uploadMsg = data.error ||
+                'No se pudo subir (formato o tamaño). Imagen/GIF/vídeo, máx 10 MB. · Upload failed.';
+            }
+          } catch (e) {
+            this.uploadKind = 'error';
+            this.uploadMsg = 'Error de red · Network error';
+          }
         },
 
         async uploadImage(ev, onDone) {

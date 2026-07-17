@@ -288,6 +288,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   filter: blur(var(--theme-blur, 0px));
   transform: scale(1.06); /* absorb the blur edge bleed (matches real page) */
 }
+.preview-bg--video { width: 100%; height: 100%; object-fit: cover; }
 /* Tint colorizes the image (hue+sat of the tint, keeping image luminance) — a gray
    tint therefore desaturates. Matches .editor-bg__tint on the real page exactly. */
 .preview-tint {
