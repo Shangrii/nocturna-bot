@@ -13,7 +13,11 @@
   <link rel="stylesheet" href="/static/editor.css" />
 </head>
 <body>
-  <div x-data="editorApp({{ entry | tojson }})" x-cloak>
+  {#- x-data MUST be single-quoted: `entry | tojson` emits double-quoted JSON, and
+      Jinja escapes ' -> ', so a single-quoted attribute can never be broken by
+      the data. A double-quoted attribute is closed by the JSON's first " (the whole
+      Alpine scope then fails to build -> every binding throws "not defined"). -#}
+  <div x-data='editorApp({{ entry | tojson }})' x-cloak>
 
     <!-- Persistent top bar -->
     <header class="topbar">
