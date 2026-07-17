@@ -315,6 +315,11 @@ class ThemeModel(BaseModel):
     font: str = Field(default="Inter", max_length=_FONT_MAX)
     btnStyle: Literal["filled", "outline", "glass"] = "glass"
     btnShape: Literal["sharp", "rounded", "pill"] = "rounded"
+    # Independent link-button color (D-11 extension). None = fall back to accent so old
+    # entries and "auto" keep the current behaviour.
+    btnColor: str | None = Field(default=None, max_length=_COLOR_MAX)
+    # Global text-size multiplier for the page (name/tagline/blocks/buttons). 1.0 = as-is.
+    fontScale: float = Field(default=1.0, ge=0.8, le=1.6)
     effects: list[str] = Field(default_factory=list)
     audio: str | None = Field(default=None, max_length=_PATH_MAX)
     preset: str | None = Field(default=None, max_length=_FONT_MAX)
@@ -333,6 +338,15 @@ class ThemeModel(BaseModel):
             return v
         if not _is_color_or_alpha(v):
             raise ValueError("must be a hex color or a strict rgb()/rgba() value")
+        return v
+
+    @field_validator("btnColor")
+    @classmethod
+    def _btn_color_hex(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not _is_hex_color(v):
+            raise ValueError("btnColor must be a hex value (#rgb / #rrggbb / #rrggbbaa)")
         return v
 
     @field_validator("font")

@@ -237,6 +237,12 @@
                 <option :value="f" x-text="f"></option>
               </template>
             </select>
+            <label class="range-row">
+              <span class="label">Tamaño · Size <span x-text="Math.round((page.theme.fontScale||1)*100) + '%'"></span></span>
+              <input type="range" min="80" max="160" step="5"
+                     :value="Math.round((page.theme.fontScale||1)*100)"
+                     @input="page.theme.fontScale = $event.target.value/100" />
+            </label>
           </fieldset>
 
           <!-- Buttons moved down next to Blocks (they style the link buttons). -->
@@ -307,6 +313,15 @@
         <fieldset class="theme-group theme-group--inline">
           <legend class="label">Botones de enlace · Link buttons</legend>
           <p class="field-hint">Estilo de los botones de enlace · Link button style</p>
+          <div class="color-row">
+            <span class="label">Color · Auto = acento</span>
+            <span style="display:flex; gap: var(--sp-2xs); align-items:center;">
+              <input type="color" :value="page.theme.btnColor || page.theme.accent"
+                     @input="page.theme.btnColor = $event.target.value" aria-label="Button color" />
+              <button class="btn btn--sm" type="button" @click="page.theme.btnColor = null"
+                      :disabled="!page.theme.btnColor">Auto</button>
+            </span>
+          </div>
           <div class="seg-row">
             <span class="label">Estilo · Style</span>
             <select x-model="page.theme.btnStyle" aria-label="Button style">
@@ -475,7 +490,7 @@
              :data-btn-style="page.theme.btnStyle"
              :data-btn-shape="page.theme.btnShape"
              :data-fx="(page.theme.effects || []).join(' ')"
-             :style="`--theme-bg:${page.theme.bg}; --theme-surface:${page.theme.surface}; --theme-accent:${page.theme.accent}; --theme-text:${page.theme.text}; --theme-text-muted:${page.theme.textMuted}; --theme-font:'${page.theme.font}'; --theme-overlay:${page.theme.overlay}; --theme-blur:${page.theme.blur}px; --theme-btn-shape:${page.theme.btnShape};` + (page.theme.tint ? ` --theme-tint:${page.theme.tint};` : '')">
+             :style="`--theme-bg:${page.theme.bg}; --theme-surface:${page.theme.surface}; --theme-accent:${page.theme.accent}; --theme-btn-color:${page.theme.btnColor || page.theme.accent}; --theme-font-scale:${page.theme.fontScale || 1}; --theme-text:${page.theme.text}; --theme-text-muted:${page.theme.textMuted}; --theme-font:'${page.theme.font}'; --theme-overlay:${page.theme.overlay}; --theme-blur:${page.theme.blur}px; --theme-btn-shape:${page.theme.btnShape};` + (page.theme.tint ? ` --theme-tint:${page.theme.tint};` : '')">
           <!-- Background layers mirror the real page EXACTLY (D-21): media (cover+blur),
                a tint via mix-blend-mode:color, and a black darken scrim from overlay.
                Tint + scrim only apply WITH media (they only muddy a solid bg otherwise). -->
@@ -593,6 +608,7 @@
         bg: '#0a0c14', bgMedia: null, overlay: 40, blur: 0, tint: null,
         surface: 'rgba(240,234,228,0.06)', accent: '#c0192c', text: '#f0eae4',
         textMuted: '#9a9198', font: 'Inter', btnStyle: 'glass', btnShape: 'rounded',
+        btnColor: null, fontScale: 1,
         effects: [], audio: null, preset: null,
       };
       // Merge a possibly-partial server theme onto the defaults; effects is always a
@@ -976,6 +992,8 @@
           t.btnStyle = p.btnStyle;
           t.btnShape = p.btnShape;
           t.effects = p.effects.slice();
+          t.btnColor = null;   // preset buttons use the preset accent
+          t.fontScale = 1;
           t.preset = p.name;
           this.syncSurface();
           // bgMedia / audio / overlay / blur / tint are NOT part of a palette preset —
@@ -1076,7 +1094,8 @@
               bg: t.bg, bgMedia: t.bgMedia || null, overlay: t.overlay, blur: t.blur,
               tint: t.tint || null, surface: t.surface, accent: t.accent, text: t.text,
               textMuted: t.textMuted, font: t.font, btnStyle: t.btnStyle,
-              btnShape: t.btnShape, effects: t.effects.slice(),
+              btnShape: t.btnShape, btnColor: t.btnColor || null,
+              fontScale: Number(t.fontScale) || 1, effects: t.effects.slice(),
               audio: t.audio || null, preset: t.preset || null,
             },
           };

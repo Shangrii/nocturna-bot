@@ -321,7 +321,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-family: var(--theme-font, var(--font-display));
   font-weight: 700; line-height: 1.1;
   color: var(--theme-text, var(--fg));
-  font-size: clamp(28px, 6vw, 44px);
+  font-size: calc(clamp(28px, 6vw, 44px) * var(--theme-font-scale, 1));
   margin: 0 0 var(--sp-2xs);
 }
 /* gradient effect → animated-gradient username (slides so it reads as "animated") */
@@ -334,19 +334,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @keyframes fx-gradient { to { background-position: 200% center; } }
 .preview-tagline {
   font-family: var(--theme-font, var(--font-body));
+  font-size: calc(15px * var(--theme-font-scale, 1));
   color: var(--theme-text-muted, var(--dim)); margin: 0 0 var(--sp-sm);
 }
-.preview-block { margin-bottom: var(--sp-md); color: var(--theme-text, var(--fg)); }
+.preview-block {
+  margin-bottom: var(--sp-md); color: var(--theme-text, var(--fg));
+  font-size: calc(15px * var(--theme-font-scale, 1));
+}
 .preview-block h3 { font-family: var(--theme-font, var(--font-display)); color: var(--theme-text); }
 
-/* Link buttons reflect the theme's btnStyle × btnShape + accent (data-attrs on .preview-col). */
+/* Link buttons reflect btnStyle × btnShape and the independent --theme-btn-color
+   (falls back to accent). Label scales with --theme-font-scale. */
 .preview-link {
   display: block; text-align: center;
   min-height: var(--touch-min); line-height: var(--touch-min);
   padding: 0 var(--sp-md);
   font-family: var(--theme-font, inherit);
+  font-size: calc(15px * var(--theme-font-scale, 1));
   text-decoration: none; margin-bottom: var(--sp-2xs);
-  border: 1px solid var(--theme-accent, var(--line));
+  border: 1px solid var(--theme-btn-color, var(--theme-accent, var(--line)));
   color: var(--theme-text, var(--fg));
   border-radius: 10px;
   transition: filter 0.15s ease, transform 0.15s ease;
@@ -354,10 +360,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .preview-col[data-btn-shape="sharp"] .preview-link { border-radius: 0; }
 .preview-col[data-btn-shape="pill"] .preview-link { border-radius: 999px; }
 .preview-col[data-btn-style="filled"] .preview-link {
-  background: var(--theme-accent); color: var(--theme-bg); border-color: var(--theme-accent);
+  background: var(--theme-btn-color, var(--theme-accent)); color: var(--theme-bg);
+  border-color: var(--theme-btn-color, var(--theme-accent));
 }
 .preview-col[data-btn-style="outline"] .preview-link {
-  background: transparent; color: var(--theme-text); border-color: var(--theme-accent);
+  background: transparent; color: var(--theme-text);
+  border-color: var(--theme-btn-color, var(--theme-accent));
 }
 .preview-col[data-btn-style="glass"] .preview-link {
   background: color-mix(in srgb, var(--theme-text) 8%, transparent);
@@ -369,7 +377,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 .preview-quote {
   font-family: var(--theme-font, var(--font-display)); font-weight: 700;
-  font-size: clamp(20px, 3vw, 28px);
+  font-size: calc(clamp(20px, 3vw, 28px) * var(--theme-font-scale, 1));
   border-left: 3px solid var(--theme-accent); padding-left: var(--sp-sm);
   color: var(--theme-text);
 }
@@ -664,9 +672,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .preview-col .preview-tagline { color: var(--theme-text-muted, var(--dim)); }
 .preview-col .preview-link {
   color: var(--theme-text, var(--fg));
-  border-color: color-mix(in srgb, var(--theme-accent, var(--red)) 45%, transparent);
+  border-color: color-mix(in srgb, var(--theme-btn-color, var(--theme-accent, var(--red))) 45%, transparent);
 }
-.preview-col .preview-link:hover { border-color: var(--theme-accent, var(--red)); }
+.preview-col .preview-link:hover { border-color: var(--theme-btn-color, var(--theme-accent, var(--red))); }
 .preview-col .preview-quote { border-left-color: var(--theme-accent, var(--red)); font-family: inherit; }
 .preview-col .preview-divider { border-top-color: var(--theme-accent, var(--red)); }
 .preview-col .preview-avatar {
