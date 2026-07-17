@@ -64,7 +64,7 @@ _SESSION_MAX_AGE = 6 * 3600
 
 # ── image upload limits (D-17 / Pitfall 3 / T-10-10-01) ────────────────────────────
 # Byte-size cap enforced BEFORE the body is read in full (streamed chunk-by-chunk).
-_MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 MB — generous for a profile/portfolio image
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB — same cap as background video
 _UPLOAD_CHUNK = 256 * 1024
 # SVG is rejected outright (raster only) — never trust Content-Type alone; also gate
 # on filename extension since a client can lie about content_type.
@@ -73,8 +73,8 @@ _REJECTED_CONTENT_TYPES = ("image/svg+xml",)
 
 # UI-SPEC copy (bilingual, single string carrying both locales like the 403 copy).
 _IMAGE_ERROR_COPY = (
-    "Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP de menos de 8 MB. — "
-    "That image couldn't be uploaded (format or size). Use PNG/JPG/WebP under 8 MB."
+    "Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP de menos de 10 MB. — "
+    "That image couldn't be uploaded (format or size). Use PNG/JPG/WebP under 10 MB."
 )
 _SAVE_FAILED_COPY = (
     "No se pudo publicar. Inténtalo de nuevo en un momento. — "
@@ -92,12 +92,12 @@ _UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
 # ── background media + audio upload limits (D-18 / D-06 / D-19 / T-10.1-11-01) ───────
 # Per-kind byte caps enforced BEFORE the body is buffered in full (streamed chunk read,
 # Pitfall 3). Moderate caps keep the GitHub-Pages repo budget in check (D-19).
-_MEDIA_IMAGE_MAX_BYTES = 2 * 1024 * 1024   # raster image ≤ 2 MB
+_MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024  # raster image ≤ 10 MB (same as video)
 _MEDIA_VIDEO_MAX_BYTES = 10 * 1024 * 1024  # background video / GIF ≤ 10 MB
 _AUDIO_MAX_BYTES = 5 * 1024 * 1024         # background audio ≤ 5 MB
 
 # Human-facing cap strings interpolated into the too-large copy.
-_MEDIA_IMAGE_CAP_HUMAN = "2 MB"
+_MEDIA_IMAGE_CAP_HUMAN = "10 MB"
 _MEDIA_VIDEO_CAP_HUMAN = "10 MB"
 _AUDIO_CAP_HUMAN = "5 MB"
 
@@ -433,7 +433,7 @@ async def upload_media(request: Request, file: UploadFile,
 
     Order (Pitfall 3 / T-10.1-11-01/03): (1) classify by content-type AND extension —
     SVG + any non-media type is rejected before any decode; (2) stream-read with an early
-    abort at the KIND-SPECIFIC cap (image 2 MB · GIF/video 10 MB, D-19) — never buffer
+    abort at the KIND-SPECIFIC cap (image 10 MB · GIF/video 10 MB, D-19) — never buffer
     past the cap; (3) optimize server-side: raster → ``optimize_to_webp`` (Pillow bomb
     guard + metadata strip); GIF/video → ffmpeg transcode to a muted web MP4 (D-20), which
     FAILS CLOSED when ffmpeg is missing/errors (never commit an un-optimized file); (4)
