@@ -38,6 +38,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -49,7 +50,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import config
 from app import auth
 from app.deps import require_editor
-from core import github_publish
+from core import db, github_publish
 from core.editors_model import EditorPage
 from core.image_optimize import optimize_to_webp
 
@@ -269,6 +270,16 @@ app.add_middleware(
     max_age=_SESSION_MAX_AGE,
 )
 
+# CORS — the ONLY cross-origin consumer is the public site (nocturna-avatars.site)
+# fetching the read-only /api/presence/<id> endpoint from this editors-domain app.
+# Restrict to that origin + GET; everything else here is same-origin browser navigation.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[config.WEBSITE_BASE_URL],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
 @app.exception_handler(StarletteHTTPException)
 async def _auth_html_or_json(request: Request, exc: StarletteHTTPException):
     """Render ``login.html`` for a browser navigation hitting a 401/403; JSON otherwise.
@@ -294,6 +305,22 @@ app.add_route("/logout", auth.logout, methods=["GET", "POST"])
 
 # Vendored front-end libs (Alpine 3.15.12 + SortableJS 1.15.7, NOT CDN) + editor.css.
 app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
+
+
+# ── Public: live Discord presence for editor pages (no auth) ───────────────────
+@app.get("/api/presence/{discord_id}")
+async def api_presence(discord_id: str):
+    """Read-only live status for one editor, written by the bot's PresenceCog.
+
+    PUBLIC (no ``require_editor``): the public site polls this per page owner. Returns
+    ``{"status": "online"|"idle"|"dnd"|"offline"}`` for a tracked editor, or
+    ``{"status": null}`` for anyone we don't monitor / a malformed id. Only editors are
+    ever in the table (the cog filters on the role), so this never leaks arbitrary users.
+    """
+    if not discord_id.isdigit() or len(discord_id) > 20:
+        return JSONResponse({"status": None})
+    row = await run_in_threadpool(db.get_presence, discord_id)
+    return JSONResponse({"status": row["status"] if row else None})
 
 
 # ── 10-10: the block editor surface ────────────────────────────────────────────────

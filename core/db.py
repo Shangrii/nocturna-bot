@@ -491,3 +491,40 @@ def increment_view(slug: str, ip_hash: str) -> int:
             "SELECT count FROM view_counts WHERE slug = ?", (slug,)
         ).fetchone()
     return row["count"] if row else 0
+
+
+# ── Live Discord presence (native integration) ─────────────────────────────────
+# The bot process (gateway, GUILD_PRESENCES intent) writes editor member statuses
+# here; the editor app (separate process, same sqlite file) serves them read-only at
+# /api/presence/<id>. Only editors are ever written (the cog filters on the role), so
+# this table is never a general presence-lookup for arbitrary Discord users.
+def init_presence():
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS presence (
+                discord_id TEXT PRIMARY KEY,
+                status     TEXT NOT NULL,      -- online | idle | dnd | offline
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+
+def set_presence(discord_id, status: str):
+    """Upsert one editor's live status. Called from the bot's presence cog."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO presence (discord_id, status, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(discord_id) DO UPDATE SET status = excluded.status, "
+            "updated_at = excluded.updated_at",
+            (str(discord_id), status, now),
+        )
+
+
+def get_presence(discord_id) -> sqlite3.Row | None:
+    """Read one editor's stored status (None if we've never seen them)."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT discord_id, status, updated_at FROM presence WHERE discord_id = ?",
+            (str(discord_id),),
+        ).fetchone()

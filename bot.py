@@ -34,6 +34,11 @@ intents.message_content = True   # Para leer la respuesta del usuario en el foro
 # real (D-10, mecanismo PRIMARIO) no funcionaría — sólo quedaría el sweep periódico de
 # respaldo. Bono: convierte los fetch_member() REST de la galería en lookups de caché.
 intents.members = True
+# El intent privilegiado `presences` alimenta PresenceCog: el bot lee el estado
+# (online/idle/dnd/offline) de cada editor y lo sirve a sus páginas públicas sin
+# depender de Lanyard. Requiere el toggle "Presence Intent" del Developer Portal
+# ACTIVADO (hecho); sin él el bot no arrancaría.
+intents.presences = True
 
 
 class NocturnaBot(commands.Bot):
@@ -48,6 +53,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.reminders")
         await self.load_extension("cogs.jinxxy")
         await self.load_extension("cogs.editors")
+        await self.load_extension("cogs.presence")
         await self.load_extension("cogs.help")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
