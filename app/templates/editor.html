@@ -262,22 +262,54 @@
 
           <!-- Audio upload REMOVED — music is now the Spotify vinyl below. -->
 
-          <!-- 7 · Spotify (static picked track → vinyl player on the page) -->
+          <!-- 7 · Música — Spotify O un MP3 propio (mutuamente excluyentes) -->
           <fieldset class="theme-group">
-            <legend class="label">Música · Spotify</legend>
-            <p class="field-hint">Pega el link de una canción · Paste a track link</p>
+            <legend class="label">Música · Music</legend>
+            <p class="field-hint">Spotify o un MP3 propio · Spotify or your own MP3</p>
+
+            <!-- Spotify (oculto si hay MP3) -->
             <input type="url" x-model="page.theme.spotify" maxlength="2048"
+                   x-show="!page.theme.audio" x-cloak
                    placeholder="https://open.spotify.com/track/…"
-                   @input.debounce.600ms="resolveSpotify()" />
+                   @input.debounce.600ms="onSpotifyInput()" />
             <div class="spotify-admin" x-show="spotifyMeta.image" x-cloak>
               <img class="spotify-admin__art" :src="spotifyMeta.image" alt="" />
               <span class="spotify-admin__title" x-text="spotifyMeta.title"></span>
-              <button class="btn btn--sm btn--danger" type="button"
-                      @click="page.theme.spotify = null; page.theme.spotifyStart = 0; spotifyMeta = { image: '', title: '' }">
+              <button class="btn btn--sm btn--danger" type="button" @click="clearSpotify()">
                 Quitar · Remove
               </button>
             </div>
-            <label class="range-row" x-show="spotifyMeta.image" x-cloak>
+
+            <!-- MP3 propio (oculto si hay Spotify) -->
+            <div x-show="!page.theme.spotify" x-cloak>
+              <p class="field-hint" x-show="!page.theme.audio" x-cloak>— o sube un MP3 · or upload an MP3 —</p>
+              <div class="upload">
+                <template x-if="page.theme.audioCover">
+                  <img class="thumb" :src="mediaUrl(page.theme.audioCover)" alt="" />
+                </template>
+                <label class="btn btn--sm">
+                  MP3 · Subir
+                  <input type="file" accept="audio/mpeg,audio/ogg,audio/wav" hidden
+                         @change="uploadAudio($event, v => onMp3Uploaded(v))" />
+                </label>
+                <label class="btn btn--sm" x-show="page.theme.audio" x-cloak>
+                  Portada · Cover
+                  <input type="file" accept="image/png,image/jpeg,image/webp" hidden
+                         @change="uploadImage($event, v => page.theme.audioCover = v)" />
+                </label>
+                <span class="upload-state" :data-kind="uploadKind" x-text="uploadMsg"></span>
+              </div>
+              <input type="text" x-model="page.theme.audioTitle" maxlength="120"
+                     x-show="page.theme.audio" x-cloak style="margin-top: var(--sp-2xs);"
+                     placeholder="Título de la canción · Song title" />
+              <button class="btn btn--sm btn--danger" type="button" x-show="page.theme.audio" x-cloak
+                      style="margin-top: var(--sp-2xs);" @click="clearMp3()">
+                Quitar MP3 · Remove MP3
+              </button>
+            </div>
+
+            <!-- Inicio (ambos) -->
+            <label class="range-row" x-show="page.theme.spotify || page.theme.audio" x-cloak>
               <span class="label">Empieza en · Starts at
                 <span x-text="fmtTime(page.theme.spotifyStart || 0)"></span>
               </span>
@@ -285,7 +317,7 @@
                      :value="page.theme.spotifyStart || 0"
                      @input="page.theme.spotifyStart = Math.max(0, parseInt($event.target.value) || 0)" />
             </label>
-            <p class="field-hint" x-show="spotifyMeta.image" x-cloak>Segundos · Seconds (0 = inicio)</p>
+            <p class="field-hint" x-show="page.theme.spotify || page.theme.audio" x-cloak>Segundos · Seconds (0 = inicio)</p>
           </fieldset>
         </div>
 
@@ -539,9 +571,12 @@
           </header>
 
           <!-- Spotify vinyl preview (spins continuously here; on the page it spins while playing). -->
-          <div class="preview-spotify" x-show="spotifyMeta.image" x-cloak>
-            <span class="preview-spotify__disc" :style="`--art:url('${spotifyMeta.image}')`"></span>
-            <span class="preview-spotify__title" x-text="spotifyMeta.title"></span>
+          <div class="preview-spotify" x-cloak
+               x-show="spotifyMeta.image || (page.theme.audio && page.theme.audioCover)">
+            <span class="preview-spotify__disc"
+                  :style="`--art:url('${spotifyMeta.image || mediaUrl(page.theme.audioCover)}')`"></span>
+            <span class="preview-spotify__title"
+                  x-text="spotifyMeta.title || page.theme.audioTitle || ''"></span>
             <span class="preview-spotify__play" aria-hidden="true">▶</span>
           </div>
 
@@ -618,7 +653,8 @@
         surface: 'rgba(240,234,228,0.06)', accent: '#c0192c', text: '#f0eae4',
         textMuted: '#9a9198', font: 'Inter', btnStyle: 'glass', btnShape: 'rounded',
         btnColor: null, fontScale: 1,
-        effects: [], audio: null, spotify: null, spotifyStart: 0, preset: null,
+        effects: [], audio: null, audioCover: null, audioTitle: null,
+        spotify: null, spotifyStart: 0, preset: null,
       };
       // Merge a possibly-partial server theme onto the defaults; effects is always a
       // fresh array (never a shared reference) so per-page toggles stay isolated.
@@ -944,6 +980,23 @@
           const m = Math.floor(s / 60), sec = s % 60;
           return m + ':' + String(sec).padStart(2, '0');
         },
+        // Music source is EITHER Spotify OR an MP3 — setting one clears the other.
+        onSpotifyInput() {
+          this.resolveSpotify();
+          if (this.page.theme.spotify) {
+            this.page.theme.audio = null; this.page.theme.audioCover = null; this.page.theme.audioTitle = null;
+          }
+        },
+        onMp3Uploaded(v) {
+          this.page.theme.audio = v;
+          this.page.theme.spotify = null; this.spotifyMeta = { image: '', title: '' };
+        },
+        clearSpotify() {
+          this.page.theme.spotify = null; this.spotifyMeta = { image: '', title: '' };
+        },
+        clearMp3() {
+          this.page.theme.audio = null; this.page.theme.audioCover = null; this.page.theme.audioTitle = null;
+        },
 
         // ── Effects legend: short label per effect key (feedback for ALL effects) ──
         fxShort(k) {
@@ -1125,7 +1178,9 @@
               textMuted: t.textMuted, font: t.font, btnStyle: t.btnStyle,
               btnShape: t.btnShape, btnColor: t.btnColor || null,
               fontScale: Number(t.fontScale) || 1, effects: t.effects.slice(),
-              audio: t.audio || null, spotify: t.spotify || null,
+              audio: t.audio || null, audioCover: t.audioCover || null,
+              audioTitle: t.audioTitle || null,
+              spotify: t.spotify || null,
               spotifyStart: Math.max(0, parseInt(t.spotifyStart) || 0),
               preset: t.preset || null,
             },

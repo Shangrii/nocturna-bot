@@ -321,7 +321,11 @@ class ThemeModel(BaseModel):
     # Global text-size multiplier for the page (name/tagline/blocks/buttons). 1.0 = as-is.
     fontScale: float = Field(default=1.0, ge=0.8, le=1.6)
     effects: list[str] = Field(default_factory=list)
-    audio: str | None = Field(default=None, max_length=_PATH_MAX)
+    # ── Music (EITHER an uploaded MP3 OR a Spotify track — the admin keeps them
+    #    mutually exclusive; the page shows the SAME vinyl player for both). ──────
+    audio: str | None = Field(default=None, max_length=_PATH_MAX)     # uploaded MP3 path
+    audioCover: str | None = Field(default=None, max_length=_PATH_MAX)  # vinyl cover image
+    audioTitle: str | None = Field(default=None, max_length=_TEXT_MAX)  # song title text
     # A picked Spotify TRACK url (static — the page resolves art/title via oEmbed and
     # plays via Spotify's IFrame API). Only the open.spotify.com/track/<id> form.
     spotify: str | None = Field(default=None, max_length=_PATH_MAX)
@@ -382,7 +386,7 @@ class ThemeModel(BaseModel):
                 raise ValueError(f"unknown effect key: {effect!r}")
         return v
 
-    @field_validator("bgMedia", "audio")
+    @field_validator("bgMedia", "audio", "audioCover")
     @classmethod
     def _safe_media(cls, v: str | None) -> str | None:
         if v is None:
