@@ -322,6 +322,9 @@ class ThemeModel(BaseModel):
     fontScale: float = Field(default=1.0, ge=0.8, le=1.6)
     effects: list[str] = Field(default_factory=list)
     audio: str | None = Field(default=None, max_length=_PATH_MAX)
+    # A picked Spotify TRACK url (static — the page resolves art/title via oEmbed and
+    # plays via Spotify's IFrame API). Only the open.spotify.com/track/<id> form.
+    spotify: str | None = Field(default=None, max_length=_PATH_MAX)
     preset: str | None = Field(default=None, max_length=_FONT_MAX)
 
     @field_validator("bg", "accent", "text", "textMuted")
@@ -348,6 +351,19 @@ class ThemeModel(BaseModel):
         if not _is_hex_color(v):
             raise ValueError("btnColor must be a hex value (#rgb / #rrggbb / #rrggbbaa)")
         return v
+
+    @field_validator("spotify")
+    @classmethod
+    def _spotify_track_url(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        # Only a Spotify TRACK url (optional intl-xx locale segment + optional query).
+        if not re.fullmatch(
+            r"https://open\.spotify\.com/(?:intl-[a-z]{2}/)?track/[A-Za-z0-9]+(?:\?[^\s]*)?",
+            v.strip(),
+        ):
+            raise ValueError("spotify must be an https://open.spotify.com/track/<id> URL")
+        return v.strip()
 
     @field_validator("font")
     @classmethod

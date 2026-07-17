@@ -280,6 +280,23 @@
               </template>
             </div>
           </fieldset>
+
+          <!-- 7 · Spotify (static picked track → vinyl player on the page) -->
+          <fieldset class="theme-group">
+            <legend class="label">Música · Spotify</legend>
+            <p class="field-hint">Pega el link de una canción · Paste a track link</p>
+            <input type="url" x-model="page.theme.spotify" maxlength="2048"
+                   placeholder="https://open.spotify.com/track/…"
+                   @input.debounce.600ms="resolveSpotify()" />
+            <div class="spotify-admin" x-show="spotifyMeta.image" x-cloak>
+              <img class="spotify-admin__art" :src="spotifyMeta.image" alt="" />
+              <span class="spotify-admin__title" x-text="spotifyMeta.title"></span>
+              <button class="btn btn--sm btn--danger" type="button"
+                      @click="page.theme.spotify = null; spotifyMeta = { image: '', title: '' }">
+                Quitar · Remove
+              </button>
+            </div>
+          </fieldset>
         </div>
 
         <!-- Reset theme — inline confirm (non-committing until Save), mirrors the
@@ -536,6 +553,16 @@
             </div>
           </header>
 
+          <!-- Spotify vinyl preview (spins continuously here; on the page it spins while playing). -->
+          <div class="preview-spotify" x-show="spotifyMeta.image" x-cloak>
+            <span class="preview-spotify__disc" :style="`background-image:url('${spotifyMeta.image}')`"></span>
+            <span class="preview-spotify__body">
+              <span class="preview-spotify__eyebrow">Spotify</span>
+              <span class="preview-spotify__title" x-text="spotifyMeta.title"></span>
+            </span>
+            <span class="preview-spotify__play" aria-hidden="true">▶</span>
+          </div>
+
           <template x-for="(block, i) in page.blocks" :key="block._id">
             <div class="preview-block">
               <template x-if="block.type==='bio' || block.type==='text'">
@@ -609,7 +636,7 @@
         surface: 'rgba(240,234,228,0.06)', accent: '#c0192c', text: '#f0eae4',
         textMuted: '#9a9198', font: 'Inter', btnStyle: 'glass', btnShape: 'rounded',
         btnColor: null, fontScale: 1,
-        effects: [], audio: null, preset: null,
+        effects: [], audio: null, spotify: null, preset: null,
       };
       // Merge a possibly-partial server theme onto the defaults; effects is always a
       // fresh array (never a shared reference) so per-page toggles stay isolated.
@@ -846,6 +873,8 @@
         uploadKind: 'ok',
         // Free-form specialty tag draft (committed to page.badges on Enter/comma/blur).
         badgeDraft: '',
+        // Resolved Spotify oEmbed (album art + title) for the picked track.
+        spotifyMeta: { image: '', title: '' },
         // Surface picker state (color + alpha) — composed into page.theme.surface rgba().
         surfaceHex: '#f0eae4',
         surfaceAlpha: 0.06,
@@ -860,6 +889,7 @@
         init() {
           this.syncSurface();
           this.syncTint();
+          this.resolveSpotify();
           if (window.Sortable) {
             window.Sortable.create(this.$refs.blockList, {
               handle: '.block-drag',
@@ -914,6 +944,19 @@
           if (this.page.badges.length >= 10) return;               // model cap
           if (this.page.badges.some(b => b.toLowerCase() === t.toLowerCase())) return; // dedupe
           this.page.badges.push(t);
+        },
+
+        // ── Spotify: resolve album art + title via CORS-open oEmbed (no auth) ─────
+        async resolveSpotify() {
+          const u = (this.page.theme.spotify || '').trim();
+          this.spotifyMeta = { image: '', title: '' };
+          if (!/^https:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\//.test(u)) return;
+          try {
+            const r = await fetch('https://open.spotify.com/oembed?url=' + encodeURIComponent(u));
+            if (!r.ok) return;
+            const d = await r.json();
+            this.spotifyMeta = { image: d.thumbnail_url || '', title: d.title || '' };
+          } catch (e) { /* leave empty */ }
         },
 
         // ── Effects legend: short label per effect key (feedback for ALL effects) ──
@@ -1096,7 +1139,7 @@
               textMuted: t.textMuted, font: t.font, btnStyle: t.btnStyle,
               btnShape: t.btnShape, btnColor: t.btnColor || null,
               fontScale: Number(t.fontScale) || 1, effects: t.effects.slice(),
-              audio: t.audio || null, preset: t.preset || null,
+              audio: t.audio || null, spotify: t.spotify || null, preset: t.preset || null,
             },
           };
         },
