@@ -293,9 +293,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   opacity: calc(var(--theme-overlay, 0) / 100);
 }
 .preview-header { text-align: center; margin-bottom: var(--sp-lg); }
+/* Wrapper centers the avatar and anchors the corner status dot. */
+.preview-avatar-wrap {
+  position: relative; display: inline-block;
+  margin: 0 auto var(--sp-sm); line-height: 0;
+}
 .preview-avatar {
+  display: block;
   width: 128px; height: 128px; border-radius: 50%;
-  object-fit: cover; margin: 0 auto var(--sp-sm);
+  object-fit: cover; margin: 0;
   border: 3px solid var(--theme-accent, var(--red));
 }
 /* glow effect → halo behind the avatar */
@@ -606,18 +612,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   to   { background-position: 0 90px, 40px 200px; }
 }
 
-/* presence → live Discord status chip under the avatar. */
-.preview-presence {
-  display: inline-flex; align-items: center; gap: 7px;
-  margin: 0 auto var(--sp-2xs); padding: 4px 12px; border-radius: 999px;
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
-  color: var(--theme-text, var(--fg));
-  background: color-mix(in srgb, var(--theme-text, #fff) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--theme-text, #fff) 18%, transparent);
-}
-.preview-presence__dot {
-  width: 9px; height: 9px; border-radius: 50%; background: #3ba55d;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #3ba55d 30%, transparent);
+/* presence → Discord-style status dot punched into the avatar's corner. */
+.preview-presence-dot {
+  position: absolute; right: 7%; bottom: 7%; z-index: 3;
+  width: 22px; height: 22px; border-radius: 50%; background: #3ba55d;
+  border: 4px solid var(--theme-bg, var(--ink)); /* cut-out ring like Discord */
+  box-shadow: 0 0 10px 1px color-mix(in srgb, #3ba55d 60%, transparent);
   animation: fx-pulse 2s ease-in-out infinite;
 }
 @keyframes fx-pulse { 50% { opacity: 0.55; } }

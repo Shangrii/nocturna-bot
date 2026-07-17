@@ -475,11 +475,10 @@
           <div class="preview-particles" x-show="hasEffect('particles')" aria-hidden="true"></div>
 
           <header class="preview-header">
-            <template x-if="page.avatar"><img class="preview-avatar" :src="mediaUrl(page.avatar)" alt="" /></template>
-            <!-- presence effect → live Discord status chip (approximated). -->
-            <div class="preview-presence" x-show="hasEffect('presence')" aria-hidden="true">
-              <span class="preview-presence__dot"></span>
-              <span x-text="lang==='es' ? 'En línea · Discord' : 'Online · Discord'"></span>
+            <div class="preview-avatar-wrap" x-show="page.avatar">
+              <img class="preview-avatar" :src="mediaUrl(page.avatar)" alt="" />
+              <!-- presence effect → Discord-style status dot on the avatar corner. -->
+              <span class="preview-presence-dot" x-show="hasEffect('presence')" aria-hidden="true"></span>
             </div>
             <h2 class="preview-name" x-text="page.name || 'Tu nombre'"></h2>
             <div class="preview-badges" x-show="page.badges.length">
