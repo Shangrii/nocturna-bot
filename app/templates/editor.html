@@ -260,26 +260,7 @@
             </div>
           </fieldset>
 
-          <!-- 6 · Audio -->
-          <fieldset class="theme-group">
-            <legend class="label">Audio</legend>
-            <div class="upload">
-              <template x-if="page.theme.audio">
-                <span class="upload-state" x-text="page.theme.audio"></span>
-              </template>
-              <label class="btn btn--sm">
-                Audio · Subir
-                <input type="file" accept="audio/mpeg,audio/ogg,audio/wav" hidden
-                       @change="uploadAudio($event, v => page.theme.audio = v)" />
-              </label>
-              <template x-if="page.theme.audio">
-                <button class="btn btn--sm btn--danger" type="button"
-                        x-data="{ confirm: false }"
-                        @click="confirm ? (page.theme.audio = null, confirm = false) : (confirm = true)"
-                        x-text="confirm ? '¿Seguro? · Sure?' : 'Quitar · Remove'"></button>
-              </template>
-            </div>
-          </fieldset>
+          <!-- Audio upload REMOVED — music is now the Spotify vinyl below. -->
 
           <!-- 7 · Spotify (static picked track → vinyl player on the page) -->
           <fieldset class="theme-group">
@@ -532,11 +513,6 @@
             </div>
             <p class="preview-tagline" :class="hasEffect('typewriter') ? 'is-typewriter' : ''"
                x-text="page.tagline"></p>
-            <!-- audio effect → background-audio indicator (approximated). -->
-            <div class="preview-audio" x-show="hasEffect('audio') && page.theme.audio" aria-hidden="true">
-              <span class="preview-audio__ico">♪</span>
-              <span x-text="lang==='es' ? 'Audio de fondo' : 'Background audio'"></span>
-            </div>
             <div class="preview-socials" x-show="page.socials.length">
               <template x-for="(s, i) in page.socials" :key="i">
                 <a class="preview-social" :href="s.url || '#'" :title="s.label || s.url"
@@ -660,7 +636,6 @@
         { key: 'tilt', label: 'Tilt · Inclinación 3D' },
         { key: 'particles', label: 'Particles · Nieve/partículas' },
         { key: 'presence', label: 'Presence · Discord en vivo' },
-        { key: 'audio', label: 'Audio · Fondo' },
       ];
       // The curated specialty badge set (UI-SPEC / EditorPage.SPECIALTY_BADGES) — no free text.
       const SPECIALTY_BADGES = [

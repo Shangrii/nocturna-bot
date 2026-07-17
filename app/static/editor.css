@@ -279,7 +279,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-family: var(--theme-font, var(--font-body));
 }
 /* Lift real content above the bg/scrim/particles layers (legend keeps its own z-index). */
-.preview-col > *:not(.preview-bg):not(.preview-tint):not(.preview-scrim):not(.preview-particles):not(.preview-fx-legend) {
+.preview-col > *:not(.preview-bg):not(.preview-tint):not(.preview-scrim):not(.preview-particles):not(.preview-fx-legend):not(.preview-spotify) {
   position: relative; z-index: 2;
 }
 .preview-bg {
@@ -705,10 +705,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @keyframes spotify-spin { to { transform: rotate(360deg); } }
 
 .preview-spotify {
-  display: flex; align-items: center; gap: var(--sp-sm);
-  max-width: 420px; margin: 0 auto var(--sp-md); padding: var(--sp-2xs) var(--sp-sm);
-  border-radius: 16px; background: rgba(18, 20, 28, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.1); color: #f0eae4;
+  position: absolute; top: 12px; right: 12px; z-index: 3;
+  display: flex; align-items: center; gap: var(--sp-2xs);
+  width: min(240px, 66%); padding: var(--sp-2xs);
+  border-radius: 16px; background: rgba(18, 20, 28, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12); color: #f0eae4;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
 }
 .preview-spotify__disc {
   flex: 0 0 auto; position: relative; width: 64px; height: 64px; border-radius: 50%;
@@ -717,7 +719,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   animation: spotify-spin 8s linear infinite;
 }
 .preview-spotify__disc::before { /* album art label (wide centre) */
-  content: ""; position: absolute; inset: 18%; border-radius: 50%;
+  content: ""; position: absolute; inset: 11%; border-radius: 50%;
   background: var(--art) center / cover no-repeat, #2a2a30;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
 }
