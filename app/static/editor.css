@@ -711,14 +711,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.1); color: #f0eae4;
 }
 .preview-spotify__disc {
-  flex: 0 0 auto; position: relative; width: 60px; height: 60px; border-radius: 50%;
-  background-size: cover; background-position: center; overflow: hidden;
+  flex: 0 0 auto; position: relative; width: 64px; height: 64px; border-radius: 50%;
+  background: repeating-radial-gradient(circle at 50% 50%, #0b0b0d 0 1.5px, #1a1a1e 1.5px 3px), #121214;
   box-shadow: 0 3px 10px -3px rgba(0, 0, 0, 0.7);
-  animation: spotify-spin 3.4s linear infinite;
+  animation: spotify-spin 8s linear infinite;
 }
-.preview-spotify__disc::before { /* groove overlay */
-  content: ""; position: absolute; inset: 0; border-radius: 50%;
-  background: repeating-radial-gradient(circle at 50% 50%, rgba(0,0,0,0.35) 0 1px, transparent 1px 3px);
+.preview-spotify__disc::before { /* album art label (wide centre) */
+  content: ""; position: absolute; inset: 18%; border-radius: 50%;
+  background: var(--art) center / cover no-repeat, #2a2a30;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55);
 }
 .preview-spotify__disc::after { /* spindle hole */
   content: ""; position: absolute; top: 50%; left: 50%; width: 8px; height: 8px;
