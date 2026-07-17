@@ -451,6 +451,17 @@
                   :class="lang==='en' ? 'btn--accent' : ''">EN</button>
         </div>
 
+        <!-- Active-effects legend — admin chrome ABOVE the themed card (not overlapping
+             it), so you always see what's on without it clashing with the design. -->
+        <div class="fx-legend-bar" x-show="page.theme.effects.length" x-cloak>
+          <span class="label">Efectos · Effects</span>
+          <div class="fx-legend-bar__chips">
+            <template x-for="fx in page.theme.effects" :key="fx">
+              <span class="fx-legend-chip" x-text="fxShort(fx)"></span>
+            </template>
+          </div>
+        </div>
+
         <div class="preview-col"
              :data-btn-style="page.theme.btnStyle"
              :data-btn-shape="page.theme.btnShape"
@@ -462,14 +473,6 @@
           <div class="preview-scrim" x-show="page.theme.bgMedia"></div>
           <!-- Faux particle drift so the `particles` effect is visible in the preview. -->
           <div class="preview-particles" x-show="hasEffect('particles')" aria-hidden="true"></div>
-
-          <!-- Active-effects legend — guarantees feedback for EVERY effect (even the
-               JS-only ones we can't fully render statically): you always see what's on. -->
-          <div class="preview-fx-legend" x-show="page.theme.effects.length">
-            <template x-for="fx in page.theme.effects" :key="fx">
-              <span class="preview-fx-chip" x-text="fxShort(fx)"></span>
-            </template>
-          </div>
 
           <header class="preview-header">
             <template x-if="page.avatar"><img class="preview-avatar" :src="mediaUrl(page.avatar)" alt="" /></template>

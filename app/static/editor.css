@@ -535,18 +535,20 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
    PLUS the always-on legend below, so you always see what's active.
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* Active-effects legend — a small chip row pinned top-right of the preview. */
-.preview-fx-legend {
-  position: absolute; top: 10px; right: 10px; z-index: 3;
-  display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end;
-  max-width: 70%;
+/* Active-effects legend — admin chrome ABOVE the themed card (never overlapping it).
+   Uses the app's own dark tokens so it reads as a tool label, not part of the design. */
+.fx-legend-bar {
+  display: flex; align-items: baseline; gap: var(--sp-2xs);
+  max-width: 640px; margin: 0 auto var(--sp-2xs);
+  padding: 0 var(--sp-2xs);
 }
-.preview-fx-chip {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 2px 7px; border-radius: 999px;
-  background: color-mix(in srgb, var(--theme-accent, var(--red)) 22%, black 40%);
-  color: var(--theme-text, var(--fg));
-  border: 1px solid color-mix(in srgb, var(--theme-accent, var(--red)) 55%, transparent);
+.fx-legend-bar .label { flex: 0 0 auto; }
+.fx-legend-bar__chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.fx-legend-chip {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px;
+  color: var(--fg); background: rgba(192, 25, 44, 0.16);
+  border: 1px solid color-mix(in srgb, var(--red) 55%, transparent);
 }
 
 /* glass → header/quote/portfolio blocks become frosted glass cards. */
