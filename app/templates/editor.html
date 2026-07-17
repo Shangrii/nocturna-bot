@@ -532,10 +532,7 @@
           <!-- Spotify vinyl preview (spins continuously here; on the page it spins while playing). -->
           <div class="preview-spotify" x-show="spotifyMeta.image" x-cloak>
             <span class="preview-spotify__disc" :style="`--art:url('${spotifyMeta.image}')`"></span>
-            <span class="preview-spotify__body">
-              <span class="preview-spotify__eyebrow">Spotify</span>
-              <span class="preview-spotify__title" x-text="spotifyMeta.title"></span>
-            </span>
+            <span class="preview-spotify__title" x-text="spotifyMeta.title"></span>
             <span class="preview-spotify__play" aria-hidden="true">▶</span>
           </div>
 
