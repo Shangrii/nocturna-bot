@@ -402,8 +402,26 @@ class EditorPage(BaseModel):
 
     @field_validator("badges")
     @classmethod
-    def _badges_curated(cls, v: list[str]) -> list[str]:
+    def _badges_free_text(cls, v: list[str]) -> list[str]:
+        """Free-form specialty tags (loosened from the D-07 curated set on user request).
+
+        Editors type their own tags (not everyone is an "editor" — e.g. modelers,
+        managers), so the fixed set no longer fits. Free text is accepted but kept
+        injection-safe and bounded: each tag is trimmed, may not contain angle
+        brackets / quotes / control chars, is capped at 40 chars, and at most 10
+        tags are allowed. Empty tags are dropped. The value is only ever rendered
+        as text (never raw HTML) on the site, mirroring the other string fields.
+        """
+        cleaned: list[str] = []
         for badge in v:
-            if badge not in SPECIALTY_BADGES:
-                raise ValueError(f"unknown specialty badge: {badge!r} (D-07 curated set)")
-        return v
+            tag = str(badge).strip()
+            if not tag:
+                continue
+            if len(tag) > 40:
+                raise ValueError(f"specialty tag too long (max 40 chars): {tag[:20]!r}…")
+            if any(ord(ch) < 0x20 for ch in tag) or any(ch in tag for ch in '<>"\'\\`'):
+                raise ValueError(f"specialty tag has invalid characters: {tag!r}")
+            cleaned.append(tag)
+        if len(cleaned) > 10:
+            raise ValueError("too many specialty tags (max 10)")
+        return cleaned

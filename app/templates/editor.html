@@ -88,14 +88,24 @@
         </div>
 
         <div class="field">
-          <span class="label">Especialidades · Specialty badges</span>
-          <div class="badge-grid">
-            <template x-for="b in specialtyBadges" :key="b">
-              <label class="chip" :class="hasBadge(b) ? 'chip--on' : ''">
-                <input type="checkbox" :checked="hasBadge(b)" @change="toggleBadge(b)" hidden />
+          <span class="label">Especialidades · Skills &amp; tags</span>
+          <p class="field-hint">
+            Escribe lo que haces y pulsa Enter. Libre — ej. «Outfits», «Manager», «Rigging».<br />
+            Type what you do and press Enter. Free-form — e.g. “Outfits”, “Manager”, “Rigging”.
+          </p>
+          <div class="tag-input">
+            <template x-for="(b, bi) in page.badges" :key="bi">
+              <span class="tag-chip">
                 <span x-text="b"></span>
-              </label>
+                <button type="button" class="tag-chip__x" @click="page.badges.splice(bi,1)"
+                        aria-label="Quitar · Remove">✕</button>
+              </span>
             </template>
+            <input type="text" x-model="badgeDraft" maxlength="40"
+                   placeholder="Añadir… · Add…"
+                   @keydown.enter.prevent="addBadge()"
+                   @keydown="if ($event.key===',') { $event.preventDefault(); addBadge(); }"
+                   @blur="addBadge()" />
           </div>
         </div>
 
@@ -187,9 +197,24 @@
               <input type="color" x-model="page.theme.textMuted" /></label>
             <label class="color-row"><span class="label">Background · Fondo</span>
               <input type="color" x-model="page.theme.bg" /></label>
-            <label class="color-row"><span class="label">Surface · Superficie</span>
-              <input type="text" x-model="page.theme.surface" maxlength="64"
-                     placeholder="rgba(240,234,228,0.06)" /></label>
+          </fieldset>
+
+          <!-- Surface (glass tint) — made intuitive: a color + opacity, composed into
+               the rgba() the model expects. Only visible/relevant with glass effects. -->
+          <fieldset class="theme-group">
+            <legend class="label">Surface · Tarjetas cristal</legend>
+            <p class="field-hint">
+              Color y transparencia de las tarjetas de cristal (efecto Glass).<br />
+              Color &amp; transparency of the glass cards (Glass effect).
+            </p>
+            <label class="color-row"><span class="label">Color</span>
+              <input type="color" :value="surfaceHex"
+                     @input="setSurface($event.target.value, surfaceAlpha)" /></label>
+            <label class="range-row">
+              <span class="label">Opacidad · Opacity <span x-text="Math.round(surfaceAlpha*100) + '%'"></span></span>
+              <input type="range" min="0" max="100" :value="Math.round(surfaceAlpha*100)"
+                     @input="setSurface(surfaceHex, $event.target.value/100)" />
+            </label>
           </fieldset>
 
           <!-- 3 · Typography -->
@@ -202,26 +227,7 @@
             </select>
           </fieldset>
 
-          <!-- 4 · Buttons -->
-          <fieldset class="theme-group">
-            <legend class="label">Buttons · Botones</legend>
-            <div class="seg-row">
-              <span class="label">Style · Estilo</span>
-              <select x-model="page.theme.btnStyle" aria-label="Button style">
-                <option value="filled">Filled · Relleno</option>
-                <option value="outline">Outline · Contorno</option>
-                <option value="glass">Glass · Cristal</option>
-              </select>
-            </div>
-            <div class="seg-row">
-              <span class="label">Shape · Forma</span>
-              <select x-model="page.theme.btnShape" aria-label="Button shape">
-                <option value="sharp">Sharp · Recto</option>
-                <option value="rounded">Rounded · Redondeado</option>
-                <option value="pill">Pill · Píldora</option>
-              </select>
-            </div>
-          </fieldset>
+          <!-- Buttons moved down next to Blocks (they style the link buttons). -->
 
           <!-- 5 · Effects -->
           <fieldset class="theme-group">
@@ -283,6 +289,32 @@
 
         <hr class="preview-divider" />
         <p class="label">Bloques · Blocks</p>
+
+        <!-- Button style/shape lives HERE (next to Blocks): it styles the link
+             buttons that the Links blocks below produce, so it belongs with them. -->
+        <fieldset class="theme-group theme-group--inline">
+          <legend class="label">Botones de enlace · Link buttons</legend>
+          <p class="field-hint">
+            Apariencia de los botones de tus enlaces (bloques «Enlaces»).<br />
+            Look of your link buttons (the “Links” blocks).
+          </p>
+          <div class="seg-row">
+            <span class="label">Estilo · Style</span>
+            <select x-model="page.theme.btnStyle" aria-label="Button style">
+              <option value="filled">Relleno · Filled</option>
+              <option value="outline">Contorno · Outline</option>
+              <option value="glass">Cristal · Glass</option>
+            </select>
+          </div>
+          <div class="seg-row">
+            <span class="label">Forma · Shape</span>
+            <select x-model="page.theme.btnShape" aria-label="Button shape">
+              <option value="sharp">Recto · Sharp</option>
+              <option value="rounded">Redondeado · Rounded</option>
+              <option value="pill">Píldora · Pill</option>
+            </select>
+          </div>
+        </fieldset>
 
         <!-- Add-block picker over the CLOSED 8-type set -->
         <div class="field">
@@ -428,15 +460,37 @@
           <div class="preview-bg" x-show="page.theme.bgMedia"
                :style="`background-image:url('${mediaUrl(page.theme.bgMedia)}')`"></div>
           <div class="preview-scrim" x-show="page.theme.bgMedia"></div>
+          <!-- Faux particle drift so the `particles` effect is visible in the preview. -->
+          <div class="preview-particles" x-show="hasEffect('particles')" aria-hidden="true"></div>
+
+          <!-- Active-effects legend — guarantees feedback for EVERY effect (even the
+               JS-only ones we can't fully render statically): you always see what's on. -->
+          <div class="preview-fx-legend" x-show="page.theme.effects.length">
+            <template x-for="fx in page.theme.effects" :key="fx">
+              <span class="preview-fx-chip" x-text="fxShort(fx)"></span>
+            </template>
+          </div>
+
           <header class="preview-header">
             <template x-if="page.avatar"><img class="preview-avatar" :src="mediaUrl(page.avatar)" alt="" /></template>
+            <!-- presence effect → live Discord status chip (approximated). -->
+            <div class="preview-presence" x-show="hasEffect('presence')" aria-hidden="true">
+              <span class="preview-presence__dot"></span>
+              <span x-text="lang==='es' ? 'En línea · Discord' : 'Online · Discord'"></span>
+            </div>
             <h2 class="preview-name" x-text="page.name || 'Tu nombre'"></h2>
             <div class="preview-badges" x-show="page.badges.length">
               <template x-for="b in page.badges" :key="b">
                 <span class="preview-badge" x-text="b"></span>
               </template>
             </div>
-            <p class="preview-tagline" x-text="page.tagline"></p>
+            <p class="preview-tagline" :class="hasEffect('typewriter') ? 'is-typewriter' : ''"
+               x-text="page.tagline"></p>
+            <!-- audio effect → background-audio indicator (approximated). -->
+            <div class="preview-audio" x-show="hasEffect('audio') && page.theme.audio" aria-hidden="true">
+              <span class="preview-audio__ico">♪</span>
+              <span x-text="lang==='es' ? 'Audio de fondo' : 'Background audio'"></span>
+            </div>
             <div class="preview-socials" x-show="page.socials.length">
               <template x-for="(s, i) in page.socials" :key="i">
                 <a class="preview-social" :href="s.url || '#'" :title="s.label || s.url"
@@ -658,10 +712,53 @@
           font: 'VT323', btnStyle: 'outline', btnShape: 'sharp',
           effects: ['typewriter', 'particles'],
         },
+        crimson: {
+          name: 'Crimson Brand', bg: '#0a0c14', surface: 'rgba(192,25,44,0.12)',
+          accent: '#c0192c', text: '#f0eae4', textMuted: '#9a9198',
+          font: 'Bebas Neue', btnStyle: 'filled', btnShape: 'rounded',
+          effects: ['glow', 'hover'],
+        },
+        noir: {
+          name: 'Noir', bg: '#0b0b0d', surface: 'rgba(255,255,255,0.06)',
+          accent: '#e6e6e6', text: '#f4f4f5', textMuted: '#8f8f95',
+          font: 'Playfair Display', btnStyle: 'outline', btnShape: 'sharp',
+          effects: [],
+        },
+        sepia: {
+          name: 'Vintage Sepia', bg: '#1c1712', surface: 'rgba(201,161,90,0.14)',
+          accent: '#c9a15a', text: '#f2e8d5', textMuted: '#b0a084',
+          font: 'Fraunces', btnStyle: 'filled', btnShape: 'pill',
+          effects: ['glass'],
+        },
+        bubblegum: {
+          name: 'Bubblegum', bg: '#fff0f6', surface: 'rgba(255,95,162,0.14)',
+          accent: '#ff5fa2', text: '#4a2036', textMuted: '#a97e92',
+          font: 'Sora', btnStyle: 'filled', btnShape: 'pill',
+          effects: ['gradient', 'tilt'],
+        },
+        emerald: {
+          name: 'Emerald', bg: '#04140f', surface: 'rgba(46,204,155,0.10)',
+          accent: '#2ecc9b', text: '#e6fbf3', textMuted: '#8fb8ac',
+          font: 'Space Grotesk', btnStyle: 'glass', btnShape: 'rounded',
+          effects: ['glass', 'glow'],
+        },
+        solarized: {
+          name: 'Solarized', bg: '#002b36', surface: 'rgba(181,137,0,0.12)',
+          accent: '#b58900', text: '#eee8d5', textMuted: '#93a1a1',
+          font: 'Rajdhani', btnStyle: 'outline', btnShape: 'sharp',
+          effects: ['glow'],
+        },
+        ice: {
+          name: 'Ice', bg: '#0a1420', surface: 'rgba(127,211,255,0.10)',
+          accent: '#7fd3ff', text: '#eaf6ff', textMuted: '#93aec2',
+          font: 'Orbitron', btnStyle: 'glass', btnShape: 'rounded',
+          effects: ['glass', 'particles'],
+        },
       };
       // Compact list for the swatch row (order = UI-SPEC Theme Presets table order).
       const PRESET_LIST = ['midnight', 'neon', 'pastel', 'gothic', 'y2k', 'vaporwave', 'mono', 'sakura',
-                           'cyberpunk', 'forest', 'sunset', 'ocean', 'royal', 'lavender', 'matcha', 'terminal']
+                           'cyberpunk', 'forest', 'sunset', 'ocean', 'royal', 'lavender', 'matcha', 'terminal',
+                           'crimson', 'noir', 'sepia', 'bubblegum', 'emerald', 'solarized', 'ice']
         .map(key => ({ key, name: PRESETS[key].name, accent: PRESETS[key].accent, bg: PRESETS[key].bg, text: PRESETS[key].text }));
 
       function normalizeBlock(b) {
@@ -717,11 +814,17 @@
         toastKind: 'ok',
         uploadMsg: '',
         uploadKind: 'ok',
+        // Free-form specialty tag draft (committed to page.badges on Enter/comma/blur).
+        badgeDraft: '',
+        // Surface picker state (color + alpha) — composed into page.theme.surface rgba().
+        surfaceHex: '#f0eae4',
+        surfaceAlpha: 0.06,
         // Map of committed-path -> local blob URL for just-uploaded media, so the
         // preview shows instantly before the public site redeploys.
         localPreviews: {},
 
         init() {
+          this.syncSurface();
           if (window.Sortable) {
             window.Sortable.create(this.$refs.blockList, {
               handle: '.block-drag',
@@ -768,11 +871,50 @@
           const i = e.indexOf(k);
           if (i >= 0) e.splice(i, 1); else e.push(k);
         },
-        hasBadge(k) { return this.page.badges.includes(k); },
-        toggleBadge(k) {
-          const b = this.page.badges;
-          const i = b.indexOf(k);
-          if (i >= 0) b.splice(i, 1); else b.push(k);
+        // ── Free-form specialty tags ──────────────────────────────────────────
+        addBadge() {
+          const t = (this.badgeDraft || '').trim().slice(0, 40);
+          this.badgeDraft = '';
+          if (!t) return;
+          if (this.page.badges.length >= 10) return;               // model cap
+          if (this.page.badges.some(b => b.toLowerCase() === t.toLowerCase())) return; // dedupe
+          this.page.badges.push(t);
+        },
+
+        // ── Effects legend: short label per effect key (feedback for ALL effects) ──
+        fxShort(k) {
+          const M = {
+            glass: 'Glass', glow: 'Glow', hover: 'Hover', gradient: 'Gradient',
+            typewriter: 'Typewriter', tilt: 'Tilt 3D', particles: 'Partículas',
+            presence: 'Discord', audio: 'Audio',
+          };
+          return M[k] || k;
+        },
+
+        // ── Surface (glass tint) picker: parse rgba()/hex ⇄ {hex, alpha} ──────────
+        syncSurface() {
+          const s = String(this.page.theme.surface || '');
+          const m = s.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+))?\s*\)/i);
+          if (m) {
+            const hex = '#' + [m[1], m[2], m[3]]
+              .map(n => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0')).join('');
+            this.surfaceHex = hex;
+            this.surfaceAlpha = m[4] === undefined ? 1 : Math.max(0, Math.min(1, parseFloat(m[4])));
+          } else if (/^#[0-9a-f]{6}$/i.test(s)) {
+            this.surfaceHex = s; this.surfaceAlpha = 1;
+          } else {
+            this.surfaceHex = '#f0eae4'; this.surfaceAlpha = 0.06;
+          }
+        },
+        setSurface(hex, alpha) {
+          this.surfaceHex = hex;
+          this.surfaceAlpha = Math.max(0, Math.min(1, Number(alpha)));
+          const h = hex.replace('#', '');
+          const r = parseInt(h.slice(0, 2), 16) || 0;
+          const g = parseInt(h.slice(2, 4), 16) || 0;
+          const b = parseInt(h.slice(4, 6), 16) || 0;
+          // Round alpha to 2 decimals; matches the model's numeric-only rgba() guard.
+          this.page.theme.surface = `rgba(${r},${g},${b},${Math.round(this.surfaceAlpha * 100) / 100})`;
         },
 
         // ── Presets (D-24) — one click applies a full combo, then every knob stays
@@ -791,11 +933,12 @@
           t.btnShape = p.btnShape;
           t.effects = p.effects.slice();
           t.preset = p.name;
+          this.syncSurface();
           // bgMedia / audio / overlay / blur / tint are NOT part of a palette preset —
           // an editor's uploaded media survives a preset switch (apply-then-tweak).
         },
         // Reset to Midnight-Nocturna defaults — LOCAL only, commits nothing until Save.
-        resetTheme() { this.page.theme = asTheme(null); },
+        resetTheme() { this.page.theme = asTheme(null); this.syncSurface(); },
 
         // Background audio upload → plan-11's /editor/audio endpoint (site-relative path).
         async uploadAudio(ev, onDone) {

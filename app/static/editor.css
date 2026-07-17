@@ -278,8 +278,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   color: var(--theme-text, var(--fg));
   font-family: var(--theme-font, var(--font-body));
 }
-/* Lift real content above the bg/scrim layers. */
-.preview-col > *:not(.preview-bg):not(.preview-scrim) { position: relative; z-index: 2; }
+/* Lift real content above the bg/scrim/particles layers (legend keeps its own z-index). */
+.preview-col > *:not(.preview-bg):not(.preview-scrim):not(.preview-particles):not(.preview-fx-legend) {
+  position: relative; z-index: 2;
+}
 .preview-bg {
   position: absolute; inset: 0; z-index: 0;
   background-size: cover; background-position: center;
@@ -308,11 +310,14 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-size: clamp(28px, 6vw, 44px);
   margin: 0 0 var(--sp-2xs);
 }
-/* gradient effect → animated-gradient username */
+/* gradient effect → animated-gradient username (slides so it reads as "animated") */
 .preview-col[data-fx~="gradient"] .preview-name {
   background: linear-gradient(90deg, var(--theme-accent), var(--theme-text), var(--theme-accent));
+  background-size: 200% auto;
   -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: fx-gradient 4s linear infinite;
 }
+@keyframes fx-gradient { to { background-position: 200% center; } }
 .preview-tagline {
   font-family: var(--theme-font, var(--font-body));
   color: var(--theme-text-muted, var(--dim)); margin: 0 0 var(--sp-sm);
@@ -396,9 +401,48 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 36px; padding: 0 var(--sp-sm);
   border: 1px solid var(--line); border-radius: 999px;
-  font-family: var(--font-mono); font-size: 12px; text-align: center;
+  /* Body font (not mono) so the effect/tag labels read clearly — user asked for a
+     "more normal", clearer font here. */
+  font-family: var(--font-body); font-size: 13.5px; letter-spacing: 0; text-align: center;
   color: var(--dim); cursor: pointer; user-select: none;
 }
+
+/* Helper text under a control — plain, legible sentence-case guidance. */
+.field-hint {
+  margin: 2px 0 var(--sp-2xs);
+  font-family: var(--font-body); font-size: 12.5px; line-height: 1.45;
+  color: var(--dim);
+}
+
+/* ── Free-form specialty tag input (replaces the old fixed checkbox set) ─────── */
+.tag-input {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2xs);
+  padding: var(--sp-2xs);
+  border: 1px solid var(--line); border-radius: 6px; background: var(--ink);
+}
+.tag-input input {
+  flex: 1 1 120px; min-width: 120px; width: auto;
+  min-height: 32px; padding: var(--sp-3xs) var(--sp-2xs);
+  border: 0; background: transparent;
+}
+.tag-input input:focus-visible { outline: none; border: 0; }
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 6px 5px 12px; border-radius: 999px;
+  font-family: var(--font-body); font-size: 13px;
+  color: var(--fg); background: rgba(192, 25, 44, 0.14);
+  border: 1px solid var(--red);
+}
+.tag-chip__x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(240, 234, 228, 0.1); color: var(--fg);
+  font-size: 11px; line-height: 1; cursor: pointer;
+}
+.tag-chip__x:hover { background: var(--red); color: #fff; }
+
+/* Inline theme group placed among the block controls (button style/shape). */
+.theme-group--inline { margin-bottom: var(--sp-md); }
 .chip:hover { border-color: var(--fg); }
 .chip--on { border-color: var(--red); color: var(--fg); background: rgba(192, 25, 44, 0.14); }
 
@@ -483,6 +527,109 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   -webkit-mask-position: center; mask-position: center;
   -webkit-mask-size: contain; mask-size: contain;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   EFFECTS PREVIEW — every effect gives visible feedback in the live preview.
+   CSS effects (glass/glow/gradient/hover) render faithfully; the JS-only ones
+   (typewriter/tilt/particles/presence/audio) get a representative approximation
+   PLUS the always-on legend below, so you always see what's active.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Active-effects legend — a small chip row pinned top-right of the preview. */
+.preview-fx-legend {
+  position: absolute; top: 10px; right: 10px; z-index: 3;
+  display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end;
+  max-width: 70%;
+}
+.preview-fx-chip {
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--theme-accent, var(--red)) 22%, black 40%);
+  color: var(--theme-text, var(--fg));
+  border: 1px solid color-mix(in srgb, var(--theme-accent, var(--red)) 55%, transparent);
+}
+
+/* glass → header/quote/portfolio blocks become frosted glass cards. */
+.preview-col[data-fx~="glass"] .preview-header,
+.preview-col[data-fx~="glass"] .preview-quote,
+.preview-col[data-fx~="glass"] .preview-grid {
+  background: var(--theme-surface, rgba(240, 234, 228, 0.06));
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in srgb, var(--theme-text, #fff) 16%, transparent);
+  border-radius: 14px;
+  padding: var(--sp-md);
+}
+
+/* hover → link buttons carry a slow moving sheen so the "animated button" reads
+   even without hovering (real page animates on hover). */
+.preview-col[data-fx~="hover"] .preview-link {
+  position: relative; overflow: hidden;
+}
+.preview-col[data-fx~="hover"] .preview-link::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 30%,
+              color-mix(in srgb, var(--theme-text, #fff) 28%, transparent) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: fx-sheen 2.6s ease-in-out infinite;
+}
+@keyframes fx-sheen { 0% { transform: translateX(-120%); } 60%, 100% { transform: translateX(120%); } }
+
+/* typewriter → blinking caret after the tagline. */
+.preview-tagline.is-typewriter::after {
+  content: "▌"; margin-left: 2px; color: var(--theme-accent, var(--red));
+  animation: fx-caret 1s step-end infinite;
+}
+@keyframes fx-caret { 50% { opacity: 0; } }
+
+/* tilt → a gentle persistent 3D lean on blocks (real page tilts to the pointer). */
+.preview-col[data-fx~="tilt"] .preview-block {
+  transform: perspective(800px) rotate3d(1, -0.4, 0, 4deg);
+  transition: transform 0.3s ease;
+}
+.preview-col[data-fx~="tilt"] .preview-block:hover { transform: none; }
+
+/* particles → faint drifting dots (real page uses a capped canvas). */
+.preview-particles {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background-image:
+    radial-gradient(circle, color-mix(in srgb, var(--theme-accent, #fff) 90%, transparent) 1px, transparent 1.5px),
+    radial-gradient(circle, color-mix(in srgb, var(--theme-accent, #fff) 70%, transparent) 1px, transparent 1.5px);
+  background-size: 90px 90px, 140px 140px;
+  background-position: 0 0, 40px 60px;
+  opacity: 0.5;
+  animation: fx-particles 6s linear infinite;
+}
+@keyframes fx-particles {
+  from { background-position: 0 0, 40px 60px; }
+  to   { background-position: 0 90px, 40px 200px; }
+}
+
+/* presence → live Discord status chip under the avatar. */
+.preview-presence {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 0 auto var(--sp-2xs); padding: 4px 12px; border-radius: 999px;
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em;
+  color: var(--theme-text, var(--fg));
+  background: color-mix(in srgb, var(--theme-text, #fff) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-text, #fff) 18%, transparent);
+}
+.preview-presence__dot {
+  width: 9px; height: 9px; border-radius: 50%; background: #3ba55d;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #3ba55d 30%, transparent);
+  animation: fx-pulse 2s ease-in-out infinite;
+}
+@keyframes fx-pulse { 50% { opacity: 0.55; } }
+
+/* audio → background-audio indicator chip. */
+.preview-audio {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin: var(--sp-2xs) auto 0; padding: 4px 12px; border-radius: 999px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--theme-text-muted, var(--dim));
+  background: color-mix(in srgb, var(--theme-text, #fff) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--theme-text, #fff) 14%, transparent);
+}
+.preview-audio__ico { color: var(--theme-accent, var(--red)); font-size: 13px; }
 
 /* ── Live preview consumes --theme-* tokens (mirrors plans 02/06 render) ──────── */
 .preview-col {
