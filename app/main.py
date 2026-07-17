@@ -28,8 +28,10 @@ own legitimacy checkpoint, mirroring 10-02's). Caddy's `rate_limit` directive in
 dependency, and the plan itself names this as an accepted alternative.
 """
 
+import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -252,8 +254,9 @@ async def lifespan(app: FastAPI):
     # normally creates it) hasn't started yet. CREATE TABLE IF NOT EXISTS is idempotent.
     try:
         db.init_presence()
+        db.init_view_counts()  # view_counts/view_dedup — the counter API is served here too
     except Exception:
-        log.exception("no pude inicializar la tabla de presencia")
+        log.exception("no pude inicializar las tablas de presencia/vistas")
     log.info("editor admin app started")
     yield
 
@@ -327,6 +330,35 @@ async def api_presence(discord_id: str):
         return JSONResponse({"status": None})
     row = await run_in_threadpool(db.get_presence, discord_id)
     return JSONResponse({"status": row["status"] if row else None})
+
+
+# ── Public: per-slug view counter (no auth) ────────────────────────────────────
+# Lives HERE (not only counter_app.py) because the Cloudflare tunnel fronts THIS app
+# at editors.nocturna-avatars.site — the public site polls /api/views/<slug>?hit=1.
+_VIEWS_SLUG_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def _client_ip_hash(request: Request) -> str:
+    """SHA-256 of the client IP (never the raw IP) for the dedup window, or "" if none."""
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "")
+    return hashlib.sha256(ip.encode("utf-8")).hexdigest() if ip else ""
+
+
+@app.get("/api/views/{slug}")
+async def api_views(slug: str, request: Request, hit: str | None = None):
+    """Return (and with ``hit=1`` increment) the per-slug view count. Public, CORS-allowed.
+
+    ``hit=1`` increments once per slug+ip_hash dedup window; without it, a read-only fetch.
+    An unknown/malformed slug returns ``{"count": 0}`` — the client always gets an int.
+    """
+    if not _VIEWS_SLUG_RE.match(slug) or len(slug) > 64:
+        return JSONResponse({"count": 0})
+    if hit == "1":
+        count = await run_in_threadpool(db.increment_view, slug, _client_ip_hash(request))
+    else:
+        count = await run_in_threadpool(db.get_view_count, slug)
+    return JSONResponse({"count": count})
 
 
 # ── 10-10: the block editor surface ────────────────────────────────────────────────
