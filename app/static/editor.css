@@ -403,6 +403,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border: 1px solid var(--line); border-radius: 4px;
   background: var(--ink); cursor: pointer;
 }
+/* Each color = its own labeled block with a hairline divider, so they read as
+   separate, explained controls (not a cramped stack of unlabeled swatches). */
+.color-field { padding-bottom: var(--sp-2xs); }
+.color-field + .color-field { border-top: 1px solid var(--line); padding-top: var(--sp-2xs); }
+.color-field .field-hint { margin: 4px 0 0; }
 .color-row input[type="text"] { max-width: 60%; }
 .range-row input[type="range"] { flex: 1 1 auto; accent-color: var(--red); min-height: auto; }
 .seg-row select { max-width: 60%; }

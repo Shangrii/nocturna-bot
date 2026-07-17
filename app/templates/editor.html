@@ -196,17 +196,46 @@
             </label>
           </fieldset>
 
-          <!-- 2 · Colors -->
+          <!-- 2 · Colors — each with a hint on WHAT it controls (some drive several
+               things, so we spell it out) and a divider so they read separately. -->
           <fieldset class="theme-group">
             <legend class="label">Colors · Colores</legend>
-            <label class="color-row"><span class="label">Accent · Acento</span>
-              <input type="color" x-model="page.theme.accent" /></label>
-            <label class="color-row"><span class="label">Text · Texto</span>
-              <input type="color" x-model="page.theme.text" /></label>
-            <label class="color-row"><span class="label">Text muted · Atenuado</span>
-              <input type="color" x-model="page.theme.textMuted" /></label>
-            <label class="color-row"><span class="label">Background · Fondo</span>
-              <input type="color" x-model="page.theme.bg" /></label>
+
+            <div class="color-field">
+              <label class="color-row"><span class="label">Accent · Acento</span>
+                <input type="color" x-model="page.theme.accent" /></label>
+              <p class="field-hint">
+                Botones, anillo del avatar, enlaces y líneas.<br />
+                Buttons, avatar ring, links &amp; dividers.
+              </p>
+            </div>
+
+            <div class="color-field">
+              <label class="color-row"><span class="label">Text · Texto</span>
+                <input type="color" x-model="page.theme.text" /></label>
+              <p class="field-hint">
+                Nombre, títulos y texto principal.<br />
+                Name, headings &amp; main text.
+              </p>
+            </div>
+
+            <div class="color-field">
+              <label class="color-row"><span class="label">Text muted · Atenuado</span>
+                <input type="color" x-model="page.theme.textMuted" /></label>
+              <p class="field-hint">
+                Tagline y textos secundarios.<br />
+                Tagline &amp; secondary text.
+              </p>
+            </div>
+
+            <div class="color-field">
+              <label class="color-row"><span class="label">Background · Fondo</span>
+                <input type="color" x-model="page.theme.bg" /></label>
+              <p class="field-hint">
+                Color de fondo (detrás de la imagen, si hay).<br />
+                Background color (behind the image, if any).
+              </p>
+            </div>
           </fieldset>
 
           <!-- Surface (glass tint) — made intuitive: a color + opacity, composed into
