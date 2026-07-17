@@ -377,7 +377,10 @@ async def upload_image(request: Request, file: UploadFile,
         return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
 
     image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
-    path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
+    # Astro serves the public/ dir at the site ROOT, so the public URL must drop a
+    # leading "public/" — the committed repo path keeps it, the URL does not.
+    url_dir = image_dir[len("public/"):] if image_dir.startswith("public/") else image_dir
+    path = f"/{url_dir.lstrip('/')}/{slug}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
 
 
@@ -448,7 +451,10 @@ async def upload_media(request: Request, file: UploadFile,
         return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
 
     image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
-    path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
+    # Astro serves the public/ dir at the site ROOT, so the public URL must drop a
+    # leading "public/" — the committed repo path keeps it, the URL does not.
+    url_dir = image_dir[len("public/"):] if image_dir.startswith("public/") else image_dir
+    path = f"/{url_dir.lstrip('/')}/{slug}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
 
 
@@ -500,7 +506,10 @@ async def upload_audio(request: Request, file: UploadFile,
         return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
 
     image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
-    path = f"/{image_dir.lstrip('/')}/{slug}/{out_name}"
+    # Astro serves the public/ dir at the site ROOT, so the public URL must drop a
+    # leading "public/" — the committed repo path keeps it, the URL does not.
+    url_dir = image_dir[len("public/"):] if image_dir.startswith("public/") else image_dir
+    path = f"/{url_dir.lstrip('/')}/{slug}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
 
 
