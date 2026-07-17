@@ -89,10 +89,7 @@
 
         <div class="field">
           <span class="label">Especialidades · Skills &amp; tags</span>
-          <p class="field-hint">
-            Escribe lo que haces y pulsa Enter. Libre — ej. «Outfits», «Manager», «Rigging».<br />
-            Type what you do and press Enter. Free-form — e.g. “Outfits”, “Manager”, “Rigging”.
-          </p>
+          <p class="field-hint">Escribe y pulsa Enter · Type &amp; press Enter</p>
           <div class="tag-input">
             <template x-for="(b, bi) in page.badges" :key="bi">
               <span class="tag-chip">
@@ -174,10 +171,7 @@
               <span class="label">Blur <span x-text="page.theme.blur + 'px'"></span></span>
               <input type="range" min="0" max="20" x-model.number="page.theme.blur" />
             </label>
-            <p class="field-hint">
-              Colorea la imagen. Gris = escala de grises. Fuerza 0 (o None) lo quita.<br />
-              Tints the image. Gray = grayscale. Strength 0 (or None) removes it.
-            </p>
+            <p class="field-hint">Colorea la imagen · Fuerza 0 = sin tinte</p>
             <div class="color-row">
               <span class="label">Tint · Tinte</span>
               <span style="display:flex; gap: var(--sp-2xs); align-items:center;">
@@ -196,45 +190,27 @@
             </label>
           </fieldset>
 
-          <!-- 2 · Colors — each with a hint on WHAT it controls (some drive several
-               things, so we spell it out) and a divider so they read separately. -->
+          <!-- 2 · Colors — compact swatch grid; the "what it controls" detail lives in
+               each swatch's tooltip (hover) so nothing clutters the panel. -->
           <fieldset class="theme-group">
             <legend class="label">Colors · Colores</legend>
-
-            <div class="color-field">
-              <label class="color-row"><span class="label">Accent · Acento</span>
-                <input type="color" x-model="page.theme.accent" /></label>
-              <p class="field-hint">
-                Botones, anillo del avatar, enlaces y líneas.<br />
-                Buttons, avatar ring, links &amp; dividers.
-              </p>
-            </div>
-
-            <div class="color-field">
-              <label class="color-row"><span class="label">Text · Texto</span>
-                <input type="color" x-model="page.theme.text" /></label>
-              <p class="field-hint">
-                Nombre, títulos y texto principal.<br />
-                Name, headings &amp; main text.
-              </p>
-            </div>
-
-            <div class="color-field">
-              <label class="color-row"><span class="label">Text muted · Atenuado</span>
-                <input type="color" x-model="page.theme.textMuted" /></label>
-              <p class="field-hint">
-                Tagline y textos secundarios.<br />
-                Tagline &amp; secondary text.
-              </p>
-            </div>
-
-            <div class="color-field">
-              <label class="color-row"><span class="label">Background · Fondo</span>
-                <input type="color" x-model="page.theme.bg" /></label>
-              <p class="field-hint">
-                Color de fondo (detrás de la imagen, si hay).<br />
-                Background color (behind the image, if any).
-              </p>
+            <div class="color-grid">
+              <label class="swatch-field" title="Botones, anillo del avatar, enlaces y líneas · Buttons, avatar ring, links, dividers">
+                <input type="color" x-model="page.theme.accent" />
+                <span class="label">Acento · Accent</span>
+              </label>
+              <label class="swatch-field" title="Nombre, títulos y texto principal · Name, headings, main text">
+                <input type="color" x-model="page.theme.text" />
+                <span class="label">Texto · Text</span>
+              </label>
+              <label class="swatch-field" title="Tagline y textos secundarios · Tagline & secondary text">
+                <input type="color" x-model="page.theme.textMuted" />
+                <span class="label">Atenuado · Muted</span>
+              </label>
+              <label class="swatch-field" title="Color estático de toda la página, detrás de la imagen · Static page color, behind the image">
+                <input type="color" x-model="page.theme.bg" />
+                <span class="label">Fondo · Background</span>
+              </label>
             </div>
           </fieldset>
 
@@ -242,10 +218,7 @@
                the rgba() the model expects. Only visible/relevant with glass effects. -->
           <fieldset class="theme-group">
             <legend class="label">Surface · Tarjetas cristal</legend>
-            <p class="field-hint">
-              Color y transparencia de las tarjetas de cristal (efecto Glass).<br />
-              Color &amp; transparency of the glass cards (Glass effect).
-            </p>
+            <p class="field-hint">Tarjetas de cristal (efecto Glass) · Glass cards</p>
             <label class="color-row"><span class="label">Color</span>
               <input type="color" :value="surfaceHex"
                      @input="setSurface($event.target.value, surfaceAlpha)" /></label>
@@ -333,10 +306,7 @@
              buttons that the Links blocks below produce, so it belongs with them. -->
         <fieldset class="theme-group theme-group--inline">
           <legend class="label">Botones de enlace · Link buttons</legend>
-          <p class="field-hint">
-            Apariencia de los botones de tus enlaces (bloques «Enlaces»).<br />
-            Look of your link buttons (the “Links” blocks).
-          </p>
+          <p class="field-hint">Estilo de los botones de enlace · Link button style</p>
           <div class="seg-row">
             <span class="label">Estilo · Style</span>
             <select x-model="page.theme.btnStyle" aria-label="Button style">

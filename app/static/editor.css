@@ -403,11 +403,20 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border: 1px solid var(--line); border-radius: 4px;
   background: var(--ink); cursor: pointer;
 }
-/* Each color = its own labeled block with a hairline divider, so they read as
-   separate, explained controls (not a cramped stack of unlabeled swatches). */
-.color-field { padding-bottom: var(--sp-2xs); }
-.color-field + .color-field { border-top: 1px solid var(--line); padding-top: var(--sp-2xs); }
-.color-field .field-hint { margin: 4px 0 0; }
+/* Compact 2×2 color swatch grid — short label + swatch; the "what it controls"
+   detail lives in each cell's title tooltip (hover), so no visible text clutter. */
+.color-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2xs); }
+.swatch-field {
+  display: flex; align-items: center; gap: var(--sp-2xs);
+  padding: var(--sp-3xs) var(--sp-2xs); min-height: 40px;
+  border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+}
+.swatch-field:hover { border-color: var(--fg); }
+.swatch-field input[type="color"] {
+  width: 32px; min-height: 28px; flex: 0 0 auto; padding: 0;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--ink); cursor: pointer;
+}
+.swatch-field .label { cursor: pointer; }
 .color-row input[type="text"] { max-width: 60%; }
 .range-row input[type="range"] { flex: 1 1 auto; accent-color: var(--red); min-height: auto; }
 .seg-row select { max-width: 60%; }
