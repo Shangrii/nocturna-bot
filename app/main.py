@@ -315,7 +315,10 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
             "published": False, "name": "", "avatar": "",
             "tagline": {"es": "", "en": ""}, "links": [], "blocks": [],
         }
-    return templates.TemplateResponse(request, "editor.html", {"entry": entry})
+    return templates.TemplateResponse(
+        request, "editor.html",
+        {"entry": entry, "website_base": config.WEBSITE_BASE_URL},
+    )
 
 
 @app.post("/editor/image")

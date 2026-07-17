@@ -33,7 +33,17 @@
   --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
   --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Space Mono", ui-monospace, "Cascadia Code", monospace;
-  --font-graffiti: "Permanent Marker", var(--font-display);
+  --font-graffiti: "A Another Tag", "Permanent Marker", var(--font-display);
+}
+
+/* Self-host the REAL Nocturna graffiti wordmark font (same asset as the public site).
+   font-display: block so it never flashes the Permanent Marker fallback. */
+@font-face {
+  font-family: "A Another Tag";
+  src: url("/static/a-another-tag.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
 }
 
 * { box-sizing: border-box; }
@@ -126,6 +136,14 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.
 }
 @media (min-width: 1024px) {
   .panes { grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr); }
+  /* Keep the live preview in view while the edit column scrolls (sticky follows). */
+  .pane--preview {
+    position: sticky;
+    top: 64px;
+    align-self: start;
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+  }
 }
 
 .pane {
@@ -328,15 +346,37 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   gap: var(--sp-2xs);
 }
 .preset-swatch {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: var(--sp-3xs);
   padding: var(--sp-2xs);
   border: 1px solid var(--line); border-radius: 6px;
   background: var(--sw-b, var(--ink-raised));
   color: var(--sw-c, var(--fg));
   cursor: pointer; min-height: var(--touch-min);
+  /* Inactive presets are dimmed so the active one is unmistakable regardless of
+     each swatch's own (sometimes near-white) background color. */
+  opacity: 0.6;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
-.preset-swatch:hover { border-color: var(--fg); }
-.preset-swatch--on { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); }
+.preset-swatch:hover { border-color: var(--fg); opacity: 0.9; }
+/* Active: full opacity, a thick red ring, and a ✓ badge that reads on any bg. */
+.preset-swatch--on {
+  opacity: 1;
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red);
+  transform: translateY(-1px);
+}
+.preset-swatch--on::after {
+  content: "\2713"; /* ✓ */
+  position: absolute; top: -9px; right: -9px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--red); color: #fff;
+  font-family: var(--font-body); font-size: 12px; font-weight: 700;
+  line-height: 20px; text-align: center;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.preset-swatch--on .preset-swatch__name { color: var(--red); font-weight: 700; }
 .preset-swatch__dots {
   width: 100%; height: 14px; border-radius: 3px;
   border: 1px solid var(--line);
