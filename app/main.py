@@ -248,6 +248,12 @@ def validate_config() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_config()  # fail-fast on startup — never serve with empty secrets/OAuth config
+    # Ensure the presence table exists so /api/presence never 500s if the bot (which
+    # normally creates it) hasn't started yet. CREATE TABLE IF NOT EXISTS is idempotent.
+    try:
+        db.init_presence()
+    except Exception:
+        log.exception("no pude inicializar la tabla de presencia")
     log.info("editor admin app started")
     yield
 
