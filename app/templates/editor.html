@@ -273,10 +273,19 @@
               <img class="spotify-admin__art" :src="spotifyMeta.image" alt="" />
               <span class="spotify-admin__title" x-text="spotifyMeta.title"></span>
               <button class="btn btn--sm btn--danger" type="button"
-                      @click="page.theme.spotify = null; spotifyMeta = { image: '', title: '' }">
+                      @click="page.theme.spotify = null; page.theme.spotifyStart = 0; spotifyMeta = { image: '', title: '' }">
                 Quitar · Remove
               </button>
             </div>
+            <label class="range-row" x-show="spotifyMeta.image" x-cloak>
+              <span class="label">Empieza en · Starts at
+                <span x-text="fmtTime(page.theme.spotifyStart || 0)"></span>
+              </span>
+              <input type="number" min="0" max="3600" step="1" style="max-width: 96px;"
+                     :value="page.theme.spotifyStart || 0"
+                     @input="page.theme.spotifyStart = Math.max(0, parseInt($event.target.value) || 0)" />
+            </label>
+            <p class="field-hint" x-show="spotifyMeta.image" x-cloak>Segundos · Seconds (0 = inicio)</p>
           </fieldset>
         </div>
 
@@ -609,7 +618,7 @@
         surface: 'rgba(240,234,228,0.06)', accent: '#c0192c', text: '#f0eae4',
         textMuted: '#9a9198', font: 'Inter', btnStyle: 'glass', btnShape: 'rounded',
         btnColor: null, fontScale: 1,
-        effects: [], audio: null, spotify: null, preset: null,
+        effects: [], audio: null, spotify: null, spotifyStart: 0, preset: null,
       };
       // Merge a possibly-partial server theme onto the defaults; effects is always a
       // fresh array (never a shared reference) so per-page toggles stay isolated.
@@ -930,6 +939,11 @@
             this.spotifyMeta = { image: d.thumbnail_url || '', title: d.title || '' };
           } catch (e) { /* leave empty */ }
         },
+        fmtTime(s) {
+          s = Math.max(0, parseInt(s) || 0);
+          const m = Math.floor(s / 60), sec = s % 60;
+          return m + ':' + String(sec).padStart(2, '0');
+        },
 
         // ── Effects legend: short label per effect key (feedback for ALL effects) ──
         fxShort(k) {
@@ -1111,7 +1125,9 @@
               textMuted: t.textMuted, font: t.font, btnStyle: t.btnStyle,
               btnShape: t.btnShape, btnColor: t.btnColor || null,
               fontScale: Number(t.fontScale) || 1, effects: t.effects.slice(),
-              audio: t.audio || null, spotify: t.spotify || null, preset: t.preset || null,
+              audio: t.audio || null, spotify: t.spotify || null,
+              spotifyStart: Math.max(0, parseInt(t.spotifyStart) || 0),
+              preset: t.preset || null,
             },
           };
         },

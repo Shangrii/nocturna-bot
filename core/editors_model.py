@@ -325,6 +325,8 @@ class ThemeModel(BaseModel):
     # A picked Spotify TRACK url (static — the page resolves art/title via oEmbed and
     # plays via Spotify's IFrame API). Only the open.spotify.com/track/<id> form.
     spotify: str | None = Field(default=None, max_length=_PATH_MAX)
+    # Where the track starts on autoplay, in seconds (editor-chosen). 0 = beginning.
+    spotifyStart: int = Field(default=0, ge=0, le=3600)
     preset: str | None = Field(default=None, max_length=_FONT_MAX)
 
     @field_validator("bg", "accent", "text", "textMuted")
