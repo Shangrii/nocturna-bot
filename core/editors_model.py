@@ -331,6 +331,9 @@ class ThemeModel(BaseModel):
     spotify: str | None = Field(default=None, max_length=_PATH_MAX)
     # Where the track starts on autoplay, in seconds (editor-chosen). 0 = beginning.
     spotifyStart: int = Field(default=0, ge=0, le=3600)
+    # Default music volume 0–100 (some tracks are loud). Applied on play; the page also
+    # exposes a live volume slider (MP3).
+    musicVolume: int = Field(default=70, ge=0, le=100)
     preset: str | None = Field(default=None, max_length=_FONT_MAX)
 
     @field_validator("bg", "accent", "text", "textMuted")

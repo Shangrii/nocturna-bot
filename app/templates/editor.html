@@ -318,6 +318,16 @@
                      @input="page.theme.spotifyStart = Math.max(0, parseInt($event.target.value) || 0)" />
             </label>
             <p class="field-hint" x-show="page.theme.spotify || page.theme.audio" x-cloak>Segundos · Seconds (0 = inicio)</p>
+
+            <label class="range-row" x-show="page.theme.spotify || page.theme.audio" x-cloak>
+              <span class="label">Volumen · Volume <span x-text="(page.theme.musicVolume) + '%'"></span></span>
+              <input type="range" min="0" max="100" step="1"
+                     :value="page.theme.musicVolume"
+                     @input="page.theme.musicVolume = Math.max(0, Math.min(100, parseInt($event.target.value) || 0))" />
+            </label>
+            <p class="field-hint" x-show="page.theme.audio" x-cloak>
+              Volumen por defecto (algunas canciones están muy altas) · Default volume
+            </p>
           </fieldset>
         </div>
 
@@ -654,7 +664,7 @@
         textMuted: '#9a9198', font: 'Inter', btnStyle: 'glass', btnShape: 'rounded',
         btnColor: null, fontScale: 1,
         effects: [], audio: null, audioCover: null, audioTitle: null,
-        spotify: null, spotifyStart: 0, preset: null,
+        spotify: null, spotifyStart: 0, musicVolume: 70, preset: null,
       };
       // Merge a possibly-partial server theme onto the defaults; effects is always a
       // fresh array (never a shared reference) so per-page toggles stay isolated.
@@ -1182,6 +1192,7 @@
               audioTitle: t.audioTitle || null,
               spotify: t.spotify || null,
               spotifyStart: Math.max(0, parseInt(t.spotifyStart) || 0),
+              musicVolume: t.musicVolume == null ? 70 : Math.max(0, Math.min(100, parseInt(t.musicVolume) || 0)),
               preset: t.preset || null,
             },
           };
