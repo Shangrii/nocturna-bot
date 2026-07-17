@@ -656,6 +656,9 @@
         toastKind: 'ok',
         uploadMsg: '',
         uploadKind: 'ok',
+        // Map of committed-path -> local blob URL for just-uploaded media, so the
+        // preview shows instantly before the public site redeploys.
+        localPreviews: {},
 
         init() {
           if (window.Sortable) {
@@ -676,7 +679,10 @@
         blockLabel(t) { return LABELS[t] || t; },
         loc(o) { return (o && o[this.lang]) || ''; },
         // Resolve a committed media path to a loadable URL (see MEDIA_BASE above).
-        mediaUrl(p) { return (p && p.charAt(0) === '/') ? MEDIA_BASE + p : (p || ''); },
+        mediaUrl(p) {
+          if (p && this.localPreviews[p]) return this.localPreviews[p];
+          return (p && p.charAt(0) === '/') ? MEDIA_BASE + p : (p || '');
+        },
 
         // ── Theme toggles (local state only — nothing commits until Save, D-13) ──────
         hasEffect(k) { return this.page.theme.effects.includes(k); },
@@ -763,6 +769,9 @@
           const file = ev.target.files && ev.target.files[0];
           ev.target.value = '';
           if (!file) return;
+          // Instant local preview: the committed path 404s until the site redeploys
+          // (~1 min), so show the just-picked file from the browser meanwhile.
+          const localUrl = URL.createObjectURL(file);
           this.uploadKind = 'ok';
           this.uploadMsg = 'Optimizando… · Optimizing…';
           const fd = new FormData();
@@ -772,6 +781,7 @@
             const data = await r.json().catch(() => ({}));
             if (r.ok && data.path) {
               onDone(data.path);
+              this.localPreviews[data.path] = localUrl;
               this.uploadMsg = '';
             } else {
               this.uploadKind = 'error';
