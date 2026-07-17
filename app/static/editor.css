@@ -279,18 +279,26 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   font-family: var(--theme-font, var(--font-body));
 }
 /* Lift real content above the bg/scrim/particles layers (legend keeps its own z-index). */
-.preview-col > *:not(.preview-bg):not(.preview-scrim):not(.preview-particles):not(.preview-fx-legend) {
+.preview-col > *:not(.preview-bg):not(.preview-tint):not(.preview-scrim):not(.preview-particles):not(.preview-fx-legend) {
   position: relative; z-index: 2;
 }
 .preview-bg {
   position: absolute; inset: 0; z-index: 0;
   background-size: cover; background-position: center;
   filter: blur(var(--theme-blur, 0px));
+  transform: scale(1.06); /* absorb the blur edge bleed (matches real page) */
 }
+/* Tint colorizes the image (hue+sat of the tint, keeping image luminance) — a gray
+   tint therefore desaturates. Matches .editor-bg__tint on the real page exactly. */
+.preview-tint {
+  position: absolute; inset: 0; z-index: 1;
+  background: var(--theme-tint, transparent);
+  mix-blend-mode: color;
+}
+/* Darken scrim from overlay% — pure black, matches .editor-bg__scrim. */
 .preview-scrim {
   position: absolute; inset: 0; z-index: 1;
-  background: var(--theme-tint, #000);
-  opacity: calc(var(--theme-overlay, 0) / 100);
+  background: rgba(0, 0, 0, calc(var(--theme-overlay, 0) / 100));
 }
 .preview-header { text-align: center; margin-bottom: var(--sp-lg); }
 /* Wrapper centers the avatar and anchors the corner status dot. */

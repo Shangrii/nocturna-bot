@@ -174,16 +174,26 @@
               <span class="label">Blur <span x-text="page.theme.blur + 'px'"></span></span>
               <input type="range" min="0" max="20" x-model.number="page.theme.blur" />
             </label>
-            <div class="range-row">
+            <p class="field-hint">
+              Colorea la imagen. Gris = escala de grises. Fuerza 0 (o None) lo quita.<br />
+              Tints the image. Gray = grayscale. Strength 0 (or None) removes it.
+            </p>
+            <div class="color-row">
               <span class="label">Tint · Tinte</span>
               <span style="display:flex; gap: var(--sp-2xs); align-items:center;">
-                <input type="color" :value="page.theme.tint || '#000000'"
-                       @input="page.theme.tint = $event.target.value"
+                <input type="color" :value="tintHex"
+                       @input="setTint($event.target.value, tintAlpha || 0.5)"
                        aria-label="Media tint" />
-                <button class="btn btn--sm" type="button" @click="page.theme.tint = null"
+                <button class="btn btn--sm" type="button"
+                        @click="page.theme.tint = null; tintAlpha = 0"
                         :disabled="!page.theme.tint">None</button>
               </span>
             </div>
+            <label class="range-row">
+              <span class="label">Fuerza · Strength <span x-text="Math.round(tintAlpha*100) + '%'"></span></span>
+              <input type="range" min="0" max="100" :value="Math.round(tintAlpha*100)"
+                     @input="setTint(tintHex, $event.target.value/100)" />
+            </label>
           </fieldset>
 
           <!-- 2 · Colors -->
@@ -467,9 +477,12 @@
              :data-btn-shape="page.theme.btnShape"
              :data-fx="(page.theme.effects || []).join(' ')"
              :style="`--theme-bg:${page.theme.bg}; --theme-surface:${page.theme.surface}; --theme-accent:${page.theme.accent}; --theme-text:${page.theme.text}; --theme-text-muted:${page.theme.textMuted}; --theme-font:'${page.theme.font}'; --theme-overlay:${page.theme.overlay}; --theme-blur:${page.theme.blur}px; --theme-btn-shape:${page.theme.btnShape};` + (page.theme.tint ? ` --theme-tint:${page.theme.tint};` : '')">
-          <!-- Background layer (mirrors the real page): bg color always; media + overlay/tint/blur when set. -->
+          <!-- Background layers mirror the real page EXACTLY (D-21): media (cover+blur),
+               a tint via mix-blend-mode:color, and a black darken scrim from overlay.
+               Tint + scrim only apply WITH media (they only muddy a solid bg otherwise). -->
           <div class="preview-bg" x-show="page.theme.bgMedia"
                :style="`background-image:url('${mediaUrl(page.theme.bgMedia)}')`"></div>
+          <div class="preview-tint" x-show="page.theme.bgMedia && page.theme.tint"></div>
           <div class="preview-scrim" x-show="page.theme.bgMedia"></div>
           <!-- Faux particle drift so the `particles` effect is visible in the preview. -->
           <div class="preview-particles" x-show="hasEffect('particles')" aria-hidden="true"></div>
@@ -821,12 +834,17 @@
         // Surface picker state (color + alpha) — composed into page.theme.surface rgba().
         surfaceHex: '#f0eae4',
         surfaceAlpha: 0.06,
+        // Tint picker state (color + strength) — composed into page.theme.tint rgba();
+        // strength 0 means "no tint" (page.theme.tint = null).
+        tintHex: '#000000',
+        tintAlpha: 0,
         // Map of committed-path -> local blob URL for just-uploaded media, so the
         // preview shows instantly before the public site redeploys.
         localPreviews: {},
 
         init() {
           this.syncSurface();
+          this.syncTint();
           if (window.Sortable) {
             window.Sortable.create(this.$refs.blockList, {
               handle: '.block-drag',
@@ -919,6 +937,31 @@
           this.page.theme.surface = `rgba(${r},${g},${b},${Math.round(this.surfaceAlpha * 100) / 100})`;
         },
 
+        // ── Tint (image colorize) picker: parse rgba()/hex ⇄ {hex, strength} ─────
+        syncTint() {
+          const s = String(this.page.theme.tint || '');
+          const m = s.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*([\d.]+))?\s*\)/i);
+          if (m) {
+            this.tintHex = '#' + [m[1], m[2], m[3]]
+              .map(n => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, '0')).join('');
+            this.tintAlpha = m[4] === undefined ? 1 : Math.max(0, Math.min(1, parseFloat(m[4])));
+          } else if (/^#[0-9a-f]{6}$/i.test(s)) {
+            this.tintHex = s; this.tintAlpha = 1;         // legacy full-strength hex tint
+          } else {
+            this.tintHex = '#000000'; this.tintAlpha = 0; // no tint
+          }
+        },
+        setTint(hex, alpha) {
+          this.tintHex = hex;
+          this.tintAlpha = Math.max(0, Math.min(1, Number(alpha)));
+          if (this.tintAlpha <= 0) { this.page.theme.tint = null; return; } // 0 = off
+          const h = hex.replace('#', '');
+          const r = parseInt(h.slice(0, 2), 16) || 0;
+          const g = parseInt(h.slice(2, 4), 16) || 0;
+          const b = parseInt(h.slice(4, 6), 16) || 0;
+          this.page.theme.tint = `rgba(${r},${g},${b},${Math.round(this.tintAlpha * 100) / 100})`;
+        },
+
         // ── Presets (D-24) — one click applies a full combo, then every knob stays
         // editable. Mutates LOCAL state only; nothing commits until the existing Save.
         applyPreset(key) {
@@ -940,7 +983,7 @@
           // an editor's uploaded media survives a preset switch (apply-then-tweak).
         },
         // Reset to Midnight-Nocturna defaults — LOCAL only, commits nothing until Save.
-        resetTheme() { this.page.theme = asTheme(null); this.syncSurface(); },
+        resetTheme() { this.page.theme = asTheme(null); this.syncSurface(); this.syncTint(); },
 
         // Background audio upload → plan-11's /editor/audio endpoint (site-relative path).
         async uploadAudio(ev, onDone) {
