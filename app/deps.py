@@ -19,12 +19,12 @@ Two invariants this module guarantees (and that the tests pin):
   even before the 10-09 ``on_member_update`` unpublish fires (T-10-08-03).
 """
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from app.auth import _FORBIDDEN_COPY, has_editor_role
 
 
-async def require_editor(request) -> dict:
+async def require_editor(request: Request) -> dict:
     """Return the session-scoped editor identity, or raise 401/403.
 
     * No session (or no ``discord_id`` in it) → **401** (not authenticated).
