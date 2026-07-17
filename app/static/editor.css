@@ -368,9 +368,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   border-color: var(--theme-btn-color, var(--theme-accent));
 }
 .preview-col[data-btn-style="glass"] .preview-link {
-  background: color-mix(in srgb, var(--theme-text) 8%, transparent);
+  background: color-mix(in srgb, var(--theme-btn-color, var(--theme-accent)) 12%, color-mix(in srgb, var(--theme-text) 6%, transparent));
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-  border-color: color-mix(in srgb, var(--theme-text) 22%, transparent);
+  border-color: color-mix(in srgb, var(--theme-btn-color, var(--theme-accent)) 38%, transparent);
   color: var(--theme-text);
 }
 .preview-link:hover { filter: brightness(1.12); transform: translateY(-1px); }
@@ -642,13 +642,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   to   { background-position: 0 90px, 40px 200px; }
 }
 
-/* presence → Discord-style status dot punched into the avatar's corner. */
+/* presence → Discord-style status dot (preview shows "online" as a sample). Neutral
+   cut ring (NOT --theme-bg) so a bright background never bleeds into it. */
 .preview-presence-dot {
   position: absolute; right: 7%; bottom: 7%; z-index: 3;
   width: 22px; height: 22px; border-radius: 50%; background: #3ba55d;
-  border: 4px solid var(--theme-bg, var(--ink)); /* cut-out ring like Discord */
-  box-shadow: 0 0 10px 1px color-mix(in srgb, #3ba55d 60%, transparent);
-  animation: fx-pulse 2s ease-in-out infinite;
+  border: 3px solid #0b0d13;
+  box-shadow: 0 0 8px 1px color-mix(in srgb, #3ba55d 55%, transparent);
 }
 @keyframes fx-pulse { 50% { opacity: 0.55; } }
 
