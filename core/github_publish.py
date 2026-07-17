@@ -923,6 +923,61 @@ async def set_store_editor(checkout_url, editor):
 
 
 # ── editors transport (Fase 10): editors.json array + optional image blobs ───────────
+# Uploaded editor media is always uuid4-hex named (<32 hex>.<ext>). The orphan-prune
+# step ONLY ever deletes files matching this shape — so even if the reference collector
+# ever missed a field, it could never remove a hand-committed or unexpected file.
+_UPLOAD_NAME_RE = re.compile(r"^[0-9a-f]{32}\.[a-z0-9]+$")
+
+
+def _list_editor_dir(repo, branch, dir_path):
+    """Filenames under ``dir_path`` in the website repo (``[]`` on 404 or ANY error).
+
+    Fail-safe by design: a transport hiccup returns ``[]`` so orphan pruning is simply
+    skipped — a publish is never blocked or corrupted by the cleanup step.
+    """
+    try:
+        url = f"{_API}/repos/{repo}/contents/{dir_path}"
+        resp = _http("get", url, "GET contents dir", params={"ref": branch})
+        if resp.status_code == 404 or not _ok(resp):
+            return []
+        data = resp.json()
+        if not isinstance(data, list):
+            return []
+        return [item["name"] for item in data
+                if isinstance(item, dict) and item.get("type") == "file"]
+    except Exception:
+        return []
+
+
+def _referenced_media_names(entry):
+    """Basenames of every editor-dir media file THIS entry still references.
+
+    Covers avatar, the three theme media fields (bgMedia/audio/audioCover), image-block
+    ``src`` and portfolio-block ``extra[].image``. Anything in the editor's own dir NOT in
+    this set is an orphan left by an earlier upload that was later replaced/removed.
+    """
+    names = set()
+
+    def add(v):
+        if isinstance(v, str) and v:
+            names.add(v.rstrip("/").split("/")[-1])
+
+    add(entry.get("avatar"))
+    theme = entry.get("theme") or {}
+    for k in ("bgMedia", "audio", "audioCover"):
+        add(theme.get(k))
+    for block in (entry.get("blocks") or []):
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "image":
+            add(block.get("src"))
+        elif block.get("type") == "portfolio":
+            for ex in (block.get("extra") or []):
+                if isinstance(ex, dict):
+                    add(ex.get("image"))
+    return names
+
+
 def _sync_editors_sync(entry, images=(), message=None):
     """Commit ONE editor entry (upserted by ``discordId``) + its image blobs in ONE commit.
 
@@ -979,6 +1034,20 @@ def _sync_editors_sync(entry, images=(), message=None):
     # Fixed template — never interpolate raw editor text into the commit message (T-10-05-02).
     msg = message or f"editors: publish {slug}"
 
+    # Prune ORPHANED media: files left in THIS editor's own dir by earlier uploads that the
+    # current entry no longer references (avatar/bg/audio/cover swaps, removed blocks). Only
+    # uuid-named upload files are eligible, files uploaded in THIS commit are excluded, and
+    # any listing error yields no deletes — so the cleanup can never block or corrupt a
+    # publish. (git history still retains the blobs; this keeps the live tree / Pages lean.)
+    slug_dir = f"{image_dir}/{slug}"
+    referenced = _referenced_media_names(entry)
+    uploaded = set(files)
+    delete_tree = [
+        {"path": f"{slug_dir}/{name}", "mode": _MODE, "type": "blob", "sha": None}
+        for name in _list_editor_dir(repo, branch, slug_dir)
+        if _UPLOAD_NAME_RE.match(name) and name not in referenced and name not in uploaded
+    ]
+
     def build_tree(current):
         # Upsert THIS editor by discordId into the FRESHLY fetched array (Pitfall 6): a
         # concurrent save's entry is merged, never clobbered. Append order is irrelevant.
@@ -990,7 +1059,7 @@ def _sync_editors_sync(entry, images=(), message=None):
             "type": "blob",
             "content": _serialize_json(updated),
         }
-        return blob_tree + [editors_entry]
+        return blob_tree + delete_tree + [editors_entry]
 
     commit_sha = _commit_with_retry(
         repo, branch, msg, build_tree,
