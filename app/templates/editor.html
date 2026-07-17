@@ -11,7 +11,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&family=Sora:wght@400;700&family=Playfair+Display:wght@400;700&family=Fraunces:wght@400;700&family=Bebas+Neue&family=UnifrakturMaguntia&family=Pirata+One&family=Caveat:wght@400;700&family=Permanent+Marker&family=Press+Start+2P&family=VT323&family=Orbitron:wght@400;700&family=Rajdhani:wght@400;700&display=swap"
     rel="stylesheet" />
-  <link rel="stylesheet" href="/static/editor.css" />
+  <link rel="stylesheet" href="/static/editor.css?v={{ asset_v | default(0) }}" />
 </head>
 <body>
   {#- x-data MUST be single-quoted: `entry | tojson` emits double-quoted JSON, and

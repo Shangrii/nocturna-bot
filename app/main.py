@@ -315,9 +315,17 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
             "published": False, "name": "", "avatar": "",
             "tagline": {"es": "", "en": ""}, "links": [], "blocks": [],
         }
+    # Cache-buster for /static/editor.css: the file's mtime. Cloudflare caches
+    # /static with a long max-age, so a bare href serves stale CSS after a deploy;
+    # a ?v=<mtime> query changes the URL on every edit → guaranteed fresh, no manual
+    # dashboard purge. The HTML itself carries auth cookies so it is never edge-cached.
+    try:
+        asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
+    except OSError:
+        asset_v = 0
     return templates.TemplateResponse(
         request, "editor.html",
-        {"entry": entry, "website_base": config.WEBSITE_BASE_URL},
+        {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v},
     )
 
 
