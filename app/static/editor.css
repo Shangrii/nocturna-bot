@@ -290,38 +290,75 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   background: var(--theme-tint, #000);
   opacity: calc(var(--theme-overlay, 0) / 100);
 }
-.preview-header { text-align: center; margin-bottom: var(--sp-xl); }
+.preview-header { text-align: center; margin-bottom: var(--sp-lg); }
 .preview-avatar {
-  width: 140px; height: 140px; border-radius: 50%;
-  object-fit: cover; border: 2px solid var(--line); margin: 0 auto var(--sp-sm);
+  width: 128px; height: 128px; border-radius: 50%;
+  object-fit: cover; margin: 0 auto var(--sp-sm);
+  border: 3px solid var(--theme-accent, var(--red));
+}
+/* glow effect → halo behind the avatar */
+.preview-col[data-fx~="glow"] .preview-avatar {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--theme-accent) 35%, transparent),
+              0 0 30px -2px var(--theme-accent);
 }
 .preview-name {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--red-wordmark);
+  font-family: var(--theme-font, var(--font-display));
+  font-weight: 700; line-height: 1.1;
+  color: var(--theme-text, var(--fg));
   font-size: clamp(28px, 6vw, 44px);
   margin: 0 0 var(--sp-2xs);
 }
-.preview-tagline { color: var(--dim); }
-.preview-block { margin-bottom: var(--sp-md); }
+/* gradient effect → animated-gradient username */
+.preview-col[data-fx~="gradient"] .preview-name {
+  background: linear-gradient(90deg, var(--theme-accent), var(--theme-text), var(--theme-accent));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.preview-tagline {
+  font-family: var(--theme-font, var(--font-body));
+  color: var(--theme-text-muted, var(--dim)); margin: 0 0 var(--sp-sm);
+}
+.preview-block { margin-bottom: var(--sp-md); color: var(--theme-text, var(--fg)); }
+.preview-block h3 { font-family: var(--theme-font, var(--font-display)); color: var(--theme-text); }
+
+/* Link buttons reflect the theme's btnStyle × btnShape + accent (data-attrs on .preview-col). */
 .preview-link {
   display: block; text-align: center;
-  min-height: var(--touch-min);
-  line-height: var(--touch-min);
-  border: 1px solid var(--line); border-radius: 6px;
-  color: var(--fg); text-decoration: none; margin-bottom: var(--sp-2xs);
+  min-height: var(--touch-min); line-height: var(--touch-min);
+  padding: 0 var(--sp-md);
+  font-family: var(--theme-font, inherit);
+  text-decoration: none; margin-bottom: var(--sp-2xs);
+  border: 1px solid var(--theme-accent, var(--line));
+  color: var(--theme-text, var(--fg));
+  border-radius: 10px;
+  transition: filter 0.15s ease, transform 0.15s ease;
 }
-.preview-link:hover { border-color: var(--red); }
+.preview-col[data-btn-shape="sharp"] .preview-link { border-radius: 0; }
+.preview-col[data-btn-shape="pill"] .preview-link { border-radius: 999px; }
+.preview-col[data-btn-style="filled"] .preview-link {
+  background: var(--theme-accent); color: var(--theme-bg); border-color: var(--theme-accent);
+}
+.preview-col[data-btn-style="outline"] .preview-link {
+  background: transparent; color: var(--theme-text); border-color: var(--theme-accent);
+}
+.preview-col[data-btn-style="glass"] .preview-link {
+  background: color-mix(in srgb, var(--theme-text) 8%, transparent);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  border-color: color-mix(in srgb, var(--theme-text) 22%, transparent);
+  color: var(--theme-text);
+}
+.preview-link:hover { filter: brightness(1.12); transform: translateY(-1px); }
+
 .preview-quote {
-  font-family: var(--font-display); font-weight: 700;
+  font-family: var(--theme-font, var(--font-display)); font-weight: 700;
   font-size: clamp(20px, 3vw, 28px);
-  border-left: 3px solid var(--red); padding-left: var(--sp-sm);
+  border-left: 3px solid var(--theme-accent); padding-left: var(--sp-sm);
+  color: var(--theme-text);
 }
-.preview-quote cite { display: block; font-size: 13px; color: var(--dim); font-style: normal; margin-top: var(--sp-2xs); }
-.preview-divider { border: 0; border-top: 1px solid var(--red); margin: var(--sp-lg) 0; }
-.preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--sp-sm); }
-.preview-grid img, .preview-img { width: 100%; border-radius: 6px; border: 1px solid var(--line); }
-.preview-note { font-family: var(--font-mono); font-size: 11px; color: var(--dim); text-align: center; }
+.preview-quote cite { display: block; font-size: 13px; color: var(--theme-text-muted); font-style: normal; margin-top: var(--sp-2xs); }
+.preview-divider { border: 0; border-top: 1px solid var(--theme-accent); margin: var(--sp-lg) 0; opacity: 0.5; }
+.preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-sm); }
+.preview-grid img, .preview-img { width: 100%; border-radius: 8px; aspect-ratio: 1; object-fit: cover; border: 1px solid color-mix(in srgb, var(--theme-text) 15%, transparent); }
+.preview-note { font-family: var(--font-mono); font-size: 11px; color: var(--theme-text-muted, var(--dim)); text-align: center; opacity: 0.7; }
 
 .empty-hint { text-align: center; color: var(--dim); padding: var(--sp-xl) 0; }
 
@@ -421,14 +458,31 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .confirm-actions { display: flex; gap: var(--sp-2xs); flex-wrap: wrap; }
 
 /* Preview badges + socials (mirror the public header card) */
-.preview-badges { display: flex; flex-wrap: wrap; gap: var(--sp-2xs); justify-content: center; margin-bottom: var(--sp-2xs); }
+.preview-badges { display: flex; flex-wrap: wrap; gap: var(--sp-2xs); justify-content: center; margin: var(--sp-2xs) 0; }
 .preview-badge {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-  padding: 2px var(--sp-2xs); border-radius: 999px;
-  border: 1px solid var(--theme-accent, var(--red)); color: var(--theme-text, var(--fg));
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--theme-accent, var(--red)) 60%, transparent);
+  color: var(--theme-text, var(--fg));
+  background: color-mix(in srgb, var(--theme-accent, var(--red)) 12%, transparent);
 }
-.preview-socials { display: flex; flex-wrap: wrap; gap: var(--sp-sm); justify-content: center; margin-top: var(--sp-2xs); }
-.preview-social { font-family: var(--font-mono); font-size: 12px; color: var(--theme-accent, var(--red-on-ink)); }
+.preview-socials { display: flex; flex-wrap: wrap; gap: var(--sp-sm); justify-content: center; margin: var(--sp-sm) 0; }
+/* Icon chips: theme-colored via CSS mask, so any monochrome brand SVG matches the theme. */
+.preview-social {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  color: var(--theme-text, var(--fg)); text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--theme-text, var(--fg)) 22%, transparent);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.preview-social:hover { color: var(--theme-accent); border-color: var(--theme-accent); }
+.preview-social__icon {
+  display: block; width: 20px; height: 20px;
+  background: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
 
 /* ── Live preview consumes --theme-* tokens (mirrors plans 02/06 render) ──────── */
 .preview-col {

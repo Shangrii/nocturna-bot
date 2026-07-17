@@ -7,8 +7,9 @@
   <title>Nocturna · Editor de perfil</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Admin UI fonts + ALL 14 curated theme fonts, so the preview's typography is accurate. -->
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&family=Permanent+Marker&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&family=Sora:wght@400;700&family=Playfair+Display:wght@400;700&family=Fraunces:wght@400;700&family=Bebas+Neue&family=UnifrakturMaguntia&family=Pirata+One&family=Caveat:wght@400;700&family=Permanent+Marker&family=Press+Start+2P&family=VT323&family=Orbitron:wght@400;700&family=Rajdhani:wght@400;700&display=swap"
     rel="stylesheet" />
   <link rel="stylesheet" href="/static/editor.css" />
 </head>
@@ -419,6 +420,9 @@
         </div>
 
         <div class="preview-col"
+             :data-btn-style="page.theme.btnStyle"
+             :data-btn-shape="page.theme.btnShape"
+             :data-fx="(page.theme.effects || []).join(' ')"
              :style="`--theme-bg:${page.theme.bg}; --theme-surface:${page.theme.surface}; --theme-accent:${page.theme.accent}; --theme-text:${page.theme.text}; --theme-text-muted:${page.theme.textMuted}; --theme-font:'${page.theme.font}'; --theme-overlay:${page.theme.overlay}; --theme-blur:${page.theme.blur}px; --theme-btn-shape:${page.theme.btnShape};` + (page.theme.tint ? ` --theme-tint:${page.theme.tint};` : '')">
           <!-- Background layer (mirrors the real page): bg color always; media + overlay/tint/blur when set. -->
           <div class="preview-bg" x-show="page.theme.bgMedia"
@@ -435,7 +439,11 @@
             <p class="preview-tagline" x-text="page.tagline"></p>
             <div class="preview-socials" x-show="page.socials.length">
               <template x-for="(s, i) in page.socials" :key="i">
-                <a class="preview-social" :href="s.url || '#'" x-text="s.label || s.url"></a>
+                <a class="preview-social" :href="s.url || '#'" :title="s.label || s.url"
+                   target="_blank" rel="noopener noreferrer nofollow">
+                  <span class="preview-social__icon"
+                        :style="`-webkit-mask-image:url('/static/icons/social/${socialKey(s.url)}.svg'); mask-image:url('/static/icons/social/${socialKey(s.url)}.svg')`"></span>
+                </a>
               </template>
             </div>
             <div style="margin-top: var(--sp-sm);">
@@ -602,9 +610,58 @@
           font: 'Caveat', btnStyle: 'filled', btnShape: 'pill',
           effects: ['particles', 'glow'],
         },
+        cyberpunk: {
+          name: 'Cyberpunk', bg: '#0d0221', surface: 'rgba(255,0,140,0.10)',
+          accent: '#ff008c', text: '#f5e6ff', textMuted: '#a48bbf',
+          font: 'Orbitron', btnStyle: 'outline', btnShape: 'sharp',
+          effects: ['gradient', 'glow', 'particles'],
+        },
+        forest: {
+          name: 'Forest', bg: '#0b140e', surface: 'rgba(120,200,140,0.08)',
+          accent: '#4caf6d', text: '#eef5ef', textMuted: '#93a897',
+          font: 'Fraunces', btnStyle: 'glass', btnShape: 'rounded',
+          effects: ['glass', 'glow'],
+        },
+        sunset: {
+          name: 'Sunset', bg: '#1a0f14', surface: 'rgba(255,150,100,0.10)',
+          accent: '#ff7a59', text: '#fff0e8', textMuted: '#c7a89c',
+          font: 'Sora', btnStyle: 'filled', btnShape: 'pill',
+          effects: ['gradient', 'tilt'],
+        },
+        ocean: {
+          name: 'Ocean', bg: '#04121c', surface: 'rgba(60,180,220,0.09)',
+          accent: '#34c5e0', text: '#e8f7fb', textMuted: '#8fb2bd',
+          font: 'Space Grotesk', btnStyle: 'glass', btnShape: 'rounded',
+          effects: ['glass', 'glow'],
+        },
+        royal: {
+          name: 'Royal Gold', bg: '#0c0a16', surface: 'rgba(212,175,55,0.10)',
+          accent: '#d4af37', text: '#f5f0e6', textMuted: '#b0a890',
+          font: 'Playfair Display', btnStyle: 'outline', btnShape: 'sharp',
+          effects: ['glow'],
+        },
+        lavender: {
+          name: 'Lavender', bg: '#14101f', surface: 'rgba(180,150,240,0.10)',
+          accent: '#b28dff', text: '#f3eeff', textMuted: '#a99cc4',
+          font: 'Caveat', btnStyle: 'filled', btnShape: 'pill',
+          effects: ['tilt', 'glow'],
+        },
+        matcha: {
+          name: 'Matcha', bg: '#f4f7ee', surface: 'rgba(120,160,90,0.14)',
+          accent: '#7a9a4e', text: '#33402a', textMuted: '#8a9578',
+          font: 'Rajdhani', btnStyle: 'filled', btnShape: 'rounded',
+          effects: ['glass'],
+        },
+        terminal: {
+          name: 'Terminal', bg: '#050805', surface: 'rgba(0,255,80,0.08)',
+          accent: '#33ff77', text: '#d6ffe0', textMuted: '#6f9a7c',
+          font: 'VT323', btnStyle: 'outline', btnShape: 'sharp',
+          effects: ['typewriter', 'particles'],
+        },
       };
       // Compact list for the swatch row (order = UI-SPEC Theme Presets table order).
-      const PRESET_LIST = ['midnight', 'neon', 'pastel', 'gothic', 'y2k', 'vaporwave', 'mono', 'sakura']
+      const PRESET_LIST = ['midnight', 'neon', 'pastel', 'gothic', 'y2k', 'vaporwave', 'mono', 'sakura',
+                           'cyberpunk', 'forest', 'sunset', 'ocean', 'royal', 'lavender', 'matcha', 'terminal']
         .map(key => ({ key, name: PRESETS[key].name, accent: PRESETS[key].accent, bg: PRESETS[key].bg, text: PRESETS[key].text }));
 
       function normalizeBlock(b) {
@@ -686,6 +743,22 @@
         mediaUrl(p) {
           if (p && this.localPreviews[p]) return this.localPreviews[p];
           return (p && p.charAt(0) === '/') ? MEDIA_BASE + p : (p || '');
+        },
+        // URL hostname -> social platform icon slug (mirrors the site's SocialIconRow).
+        socialKey(url) {
+          let host = '';
+          try { host = new URL(url).hostname.toLowerCase().replace(/^www\./, ''); }
+          catch { return 'globe'; }
+          const MAP = {
+            'tiktok.com': 'tiktok', 'youtube.com': 'youtube', 'youtu.be': 'youtube',
+            'twitch.tv': 'twitch', 'x.com': 'x', 'twitter.com': 'x',
+            'instagram.com': 'instagram', 'discord.com': 'discord', 'discord.gg': 'discord',
+            'discordapp.com': 'discord', 'github.com': 'github', 'ko-fi.com': 'kofi',
+            'patreon.com': 'patreon', 'bsky.app': 'bluesky',
+            'threads.net': 'threads', 'threads.com': 'threads',
+          };
+          for (const d in MAP) { if (host === d || host.endsWith('.' + d)) return MAP[d]; }
+          return 'globe';
         },
 
         // ── Theme toggles (local state only — nothing commits until Save, D-13) ──────
