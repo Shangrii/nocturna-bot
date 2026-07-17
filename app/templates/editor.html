@@ -420,6 +420,10 @@
 
         <div class="preview-col"
              :style="`--theme-bg:${page.theme.bg}; --theme-surface:${page.theme.surface}; --theme-accent:${page.theme.accent}; --theme-text:${page.theme.text}; --theme-text-muted:${page.theme.textMuted}; --theme-font:'${page.theme.font}'; --theme-overlay:${page.theme.overlay}; --theme-blur:${page.theme.blur}px; --theme-btn-shape:${page.theme.btnShape};` + (page.theme.tint ? ` --theme-tint:${page.theme.tint};` : '')">
+          <!-- Background layer (mirrors the real page): bg color always; media + overlay/tint/blur when set. -->
+          <div class="preview-bg" x-show="page.theme.bgMedia"
+               :style="`background-image:url('${mediaUrl(page.theme.bgMedia)}')`"></div>
+          <div class="preview-scrim" x-show="page.theme.bgMedia"></div>
           <header class="preview-header">
             <template x-if="page.avatar"><img class="preview-avatar" :src="mediaUrl(page.avatar)" alt="" /></template>
             <h2 class="preview-name" x-text="page.name || 'Tu nombre'"></h2>

@@ -264,7 +264,32 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .toast[data-kind="error"] { border-color: var(--red-on-ink); color: var(--red-on-ink); }
 
 /* ── Preview (approximates the public profile look) ────────────────────────── */
-.preview-col { max-width: 640px; margin: 0 auto; }
+/* The preview column paints the ACTUAL theme background (color + optional media +
+   overlay/tint/blur), so the preview reflects the real /e/<slug> page — not just text. */
+.preview-col {
+  position: relative;
+  overflow: hidden;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--sp-lg) var(--sp-md);
+  min-height: 70vh;
+  border-radius: 12px;
+  background: var(--theme-bg, var(--ink));
+  color: var(--theme-text, var(--fg));
+  font-family: var(--theme-font, var(--font-body));
+}
+/* Lift real content above the bg/scrim layers. */
+.preview-col > *:not(.preview-bg):not(.preview-scrim) { position: relative; z-index: 2; }
+.preview-bg {
+  position: absolute; inset: 0; z-index: 0;
+  background-size: cover; background-position: center;
+  filter: blur(var(--theme-blur, 0px));
+}
+.preview-scrim {
+  position: absolute; inset: 0; z-index: 1;
+  background: var(--theme-tint, #000);
+  opacity: calc(var(--theme-overlay, 0) / 100);
+}
 .preview-header { text-align: center; margin-bottom: var(--sp-xl); }
 .preview-avatar {
   width: 140px; height: 140px; border-radius: 50%;
