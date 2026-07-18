@@ -416,7 +416,7 @@ _VALID_BODY = {
     "lang": "es",
     "tagline": "Editora",
     "links": [{"label": "Discord", "url": "https://discord.gg/example"}],
-    "blocks": [{"type": "bio", "text": {"es": "Hola", "en": "Hi"}}],
+    "blocks": [{"type": "bio", "text": "Hola"}],
 }
 
 
@@ -450,7 +450,7 @@ def test_save_invalid_block_returns_4xx_and_does_not_commit(monkeypatch, client)
     monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
 
     bad_body = dict(_VALID_BODY)
-    bad_body["blocks"] = [{"type": "not-a-real-block-type", "text": {"es": "x", "en": "y"}}]
+    bad_body["blocks"] = [{"type": "not-a-real-block-type", "text": "x"}]
 
     resp = client.post("/editor/save", json=bad_body)
 

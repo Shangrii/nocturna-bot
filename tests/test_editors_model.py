@@ -9,22 +9,24 @@ filesystem dependency, matching the repo's ``core/store_sync.py`` precedent.
 import pytest
 from pydantic import ValidationError
 
-from core.editors_model import EditorPage, Locale, ThemeModel, normalize_slug
+from core.editors_model import EditorPage, ThemeModel, normalize_slug
 
 
 def _all_block_types_payload():
-    """One instance of each of the 8 locked block types (UI-SPEC Block Inventory)."""
+    """One instance of each of the 8 locked block types (UI-SPEC Block Inventory).
+
+    Block copy is single-language now (D-13): each block carries one plain string."""
     return [
-        {"type": "bio", "text": {"es": "Bio es", "en": "Bio en"}},
-        {"type": "heading", "text": {"es": "Titulo", "en": "Heading"}},
-        {"type": "text", "text": {"es": "Parrafo", "en": "Paragraph"}},
+        {"type": "bio", "text": "Bio"},
+        {"type": "heading", "text": "Heading"},
+        {"type": "text", "text": "Paragraph"},
         {"type": "links", "items": [{"label": "Twitter", "url": "https://x.com/aria"}]},
         {
             "type": "portfolio",
             "auto": True,
-            "extra": [{"image": "/editors/aria/w1.webp", "caption": {"es": "", "en": ""}}],
+            "extra": [{"image": "/editors/aria/w1.webp", "caption": ""}],
         },
-        {"type": "quote", "text": {"es": "Cita", "en": "Quote"}, "attribution": "Cliente"},
+        {"type": "quote", "text": "Quote", "attribution": "Cliente"},
         {"type": "image", "src": "/editors/aria/shot.webp", "alt": "shot"},
         {"type": "divider"},
     ]
@@ -102,7 +104,7 @@ def test_links_block_item_url_rejects_non_https(bad_url):
 
 @pytest.mark.parametrize("bad_url", ["javascript:alert(1)", "http://x.com", "data:text/html,x"])
 def test_portfolio_extra_image_rejects_dangerous_scheme(bad_url):
-    blocks = [{"type": "portfolio", "auto": False, "extra": [{"image": bad_url, "caption": {}}]}]
+    blocks = [{"type": "portfolio", "auto": False, "extra": [{"image": bad_url, "caption": ""}]}]
     payload = _base_page(blocks=blocks)
     with pytest.raises(ValidationError):
         EditorPage.model_validate(payload)
@@ -165,18 +167,38 @@ def test_normalize_slug_empty_string_raises():
         normalize_slug("")
 
 
-# ── block text field is a {es,en} dict; missing locale defaults to "" not None ────
-def test_locale_missing_key_defaults_to_empty_string_not_none():
-    loc = Locale.model_validate({"es": "hola"})
-    assert loc.es == "hola"
-    assert loc.en == ""
-    assert loc.en is not None
+# ── block copy is a single string (D-13); a legacy {es,en} dict is collapsed ───────
+def test_block_text_plain_string_passes_through():
+    page = EditorPage.model_validate(_base_page(blocks=[{"type": "bio", "text": "Hola"}]))
+    assert page.blocks[0].text == "Hola"
 
 
-def test_locale_both_keys_present():
-    loc = Locale.model_validate({"es": "hola", "en": "hello"})
-    assert loc.es == "hola"
-    assert loc.en == "hello"
+def test_block_text_legacy_dict_collapses_prefers_es():
+    """A save from a pre-migration admin app may still send {es,en}; it is collapsed
+    (prefer es, then en) rather than rejected with a 422 during the deploy window."""
+    page = EditorPage.model_validate(
+        _base_page(blocks=[{"type": "bio", "text": {"es": "Hola", "en": "Hello"}}])
+    )
+    assert page.blocks[0].text == "Hola"
+
+
+def test_block_text_legacy_dict_falls_back_to_en_when_es_empty():
+    page = EditorPage.model_validate(
+        _base_page(blocks=[{"type": "quote", "text": {"es": "", "en": "Hello"}}])
+    )
+    assert page.blocks[0].text == "Hello"
+
+
+def test_portfolio_extra_caption_legacy_dict_collapses():
+    blocks = [
+        {
+            "type": "portfolio",
+            "auto": False,
+            "extra": [{"image": "/editors/aria/w1.webp", "caption": {"es": "Pie", "en": "Cap"}}],
+        }
+    ]
+    page = EditorPage.model_validate(_base_page(blocks=blocks))
+    assert page.blocks[0].extra[0].caption == "Pie"
 
 
 # ── string length caps enforced (V5) ──────────────────────────────────────────────
@@ -199,16 +221,17 @@ def test_string_length_cap_enforced_on_link_label():
 
 
 def test_string_length_cap_enforced_on_block_text():
-    blocks = [{"type": "bio", "text": {"es": "x" * 10000, "en": ""}}]
+    blocks = [{"type": "bio", "text": "x" * 10000}]
     payload = _base_page(blocks=blocks)
     with pytest.raises(ValidationError):
         EditorPage.model_validate(payload)
 
 
-# ── no raw HTML anywhere — every text field is a plain str ───────────────────────
-def test_no_raw_html_field_all_locale_fields_are_plain_str():
-    assert Locale.model_fields["es"].annotation is str
-    assert Locale.model_fields["en"].annotation is str
+# ── no raw HTML anywhere — every block text field is a plain str ──────────────────
+def test_no_raw_html_field_block_text_is_plain_str():
+    page = EditorPage.model_validate(_base_page())
+    assert isinstance(page.blocks[0].text, str)  # bio
+    assert isinstance(page.blocks[5].text, str)  # quote
 
 
 def test_editor_page_rejects_unknown_top_level_field():

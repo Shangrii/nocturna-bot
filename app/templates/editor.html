@@ -432,17 +432,11 @@
                         aria-label="Eliminar · Delete">✕</button>
               </div>
 
-              <!-- text-like blocks (bio / heading / text / quote) -->
+              <!-- text-like blocks (bio / heading / text / quote) — single-language (D-13):
+                   the whole page renders in the editor's chosen language, so one field. -->
               <template x-if="['bio','heading','text','quote'].includes(block.type)">
-                <div class="locale-pair">
-                  <div>
-                    <span class="label">ES</span>
-                    <textarea x-model="block.text.es" maxlength="4000"></textarea>
-                  </div>
-                  <div>
-                    <span class="label">EN</span>
-                    <textarea x-model="block.text.en" maxlength="4000"></textarea>
-                  </div>
+                <div class="field">
+                  <textarea x-model="block.text" maxlength="4000"></textarea>
                 </div>
               </template>
               <template x-if="block.type==='quote'">
@@ -486,14 +480,13 @@
                         <input type="file" accept="image/png,image/jpeg,image/webp" hidden
                                @change="uploadImage($event, v => ex.image = v)" />
                       </label>
-                      <input type="text" x-model="ex.caption.es" placeholder="Caption ES" maxlength="4000" />
-                      <input type="text" x-model="ex.caption.en" placeholder="Caption EN" maxlength="4000" />
+                      <input type="text" x-model="ex.caption" placeholder="Caption" maxlength="4000" />
                       <button class="btn btn--sm btn--danger" type="button"
                               @click="block.extra.splice(k,1)" aria-label="Quitar · Remove">✕</button>
                     </div>
                   </template>
                   <button class="btn btn--sm" type="button" style="margin-top: var(--sp-2xs);"
-                          @click="block.extra.push({image:'',caption:{es:'',en:''}})">
+                          @click="block.extra.push({image:'',caption:''})">
                     + Ítem · Item
                   </button>
                 </div>
@@ -523,13 +516,6 @@
 
       <!-- ── RIGHT: live preview ─────────────────────────────────────────── -->
       <section class="pane pane--preview" :data-hidden="mobileView==='edit'">
-        <div class="pane-tabs" style="justify-content:center;">
-          <button class="btn btn--sm" type="button" @click="lang='es'"
-                  :class="lang==='es' ? 'btn--accent' : ''">ES</button>
-          <button class="btn btn--sm" type="button" @click="lang='en'"
-                  :class="lang==='en' ? 'btn--accent' : ''">EN</button>
-        </div>
-
         <!-- Active-effects legend — admin chrome ABOVE the themed card (not overlapping
              it), so you always see what's on without it clashing with the design. -->
         <div class="fx-legend-bar" x-show="page.theme.effects.length" x-cloak>
@@ -605,14 +591,14 @@
           <template x-for="(block, i) in page.blocks" :key="block._id">
             <div class="preview-block">
               <template x-if="block.type==='bio' || block.type==='text'">
-                <p x-text="loc(block.text)"></p>
+                <p x-text="block.text"></p>
               </template>
               <template x-if="block.type==='heading'">
-                <h3 x-text="loc(block.text)"></h3>
+                <h3 x-text="block.text"></h3>
               </template>
               <template x-if="block.type==='quote'">
                 <blockquote class="preview-quote">
-                  <span x-text="loc(block.text)"></span>
+                  <span x-text="block.text"></span>
                   <cite x-show="block.attribution" x-text="block.attribution"></cite>
                 </blockquote>
               </template>
@@ -633,7 +619,7 @@
                   </p>
                   <div class="preview-grid">
                     <template x-for="(ex, k) in block.extra" :key="k">
-                      <img x-show="ex.image" :src="mediaUrl(ex.image)" :alt="loc(ex.caption)" />
+                      <img x-show="ex.image" :src="mediaUrl(ex.image)" :alt="ex.caption" />
                     </template>
                   </div>
                 </div>
@@ -662,7 +648,10 @@
     function editorApp(initial) {
       let _seq = 0;
       const uid = () => 'b' + (++_seq);
-      const asLoc = (o) => ({ es: (o && o.es) || '', en: (o && o.en) || '' });
+      // Block copy is single-language now (D-13). Accept a plain string (the normal
+      // path) OR collapse a legacy {es,en} pair (prefer es, then en) so an entry saved
+      // before the migration still loads into the single field without data loss.
+      const asText = (v) => typeof v === 'string' ? v : ((v && (v.es || v.en)) || '');
       // Uploaded images/media are committed to the PUBLIC site repo, not served by this
       // admin app — so a site-relative path (/editors/<slug>/x.webp) 404s here. Prefix it
       // with the public site origin so the preview + thumbnails actually render.
@@ -859,12 +848,12 @@
 
       function normalizeBlock(b) {
         const nb = { _id: uid(), type: b.type };
-        if (['bio', 'heading', 'text', 'quote'].includes(b.type)) nb.text = asLoc(b.text);
+        if (['bio', 'heading', 'text', 'quote'].includes(b.type)) nb.text = asText(b.text);
         if (b.type === 'quote') nb.attribution = b.attribution || '';
         if (b.type === 'links') nb.items = (b.items || []).map(i => ({ label: i.label || '', url: i.url || '' }));
         if (b.type === 'portfolio') {
           nb.auto = b.auto !== false;
-          nb.extra = (b.extra || []).map(e => ({ image: e.image || '', caption: asLoc(e.caption) }));
+          nb.extra = (b.extra || []).map(e => ({ image: e.image || '', caption: asText(e.caption) }));
         }
         if (b.type === 'image') { nb.src = b.src || ''; nb.alt = b.alt || ''; }
         return nb;
@@ -902,7 +891,6 @@
         effectKeys: EFFECT_KEYS,
         specialtyBadges: SPECIALTY_BADGES,
         presetList: PRESET_LIST,
-        lang: page.lang,
         mobileView: 'edit',
         showPicker: false,
         saving: false,
@@ -945,7 +933,6 @@
         },
 
         blockLabel(t) { return LABELS[t] || t; },
-        loc(o) { return (o && o[this.lang]) || ''; },
         // Resolve a committed media path to a loadable URL (see MEDIA_BASE above).
         mediaUrl(p) {
           if (p && this.localPreviews[p]) return this.localPreviews[p];

@@ -383,7 +383,7 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
         entry = {
             "slug": ident.get("slug", ""), "discordId": ident["discord_id"],
             "published": False, "name": "", "avatar": "",
-            "tagline": {"es": "", "en": ""}, "links": [], "blocks": [],
+            "tagline": "", "links": [], "blocks": [],
         }
     # Cache-buster for /static/editor.css: the file's mtime. Cloudflare caches
     # /static with a long max-age, so a bare href serves stale CSS after a deploy;

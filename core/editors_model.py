@@ -18,7 +18,7 @@ import re
 from typing import Annotated, Literal, Union
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 # ── length caps (V5 — reject an oversized payload before it can reach a commit) ────
 _SLUG_MAX = 64
@@ -167,15 +167,27 @@ def normalize_slug(raw: str) -> str:
     return slug
 
 
-class Locale(BaseModel):
-    """A bilingual ``{es, en}`` string pair. A missing locale defaults to ``""`` (not
-    ``None``) — matches the site's render-as-written convention (gallery captions /
-    reviews are shown verbatim, empty locale renders as nothing rather than crashing)."""
+def _coerce_block_text(v: object) -> object:
+    """Collapse a LEGACY ``{es, en}`` locale pair to a single string (D-13 migration).
 
-    model_config = ConfigDict(extra="forbid")
+    Block copy is single-language now — the whole page renders in ``editor.lang`` — so
+    each block carries one plain string. A save posted by an admin app that predates the
+    de-bilingualization migration may still send an ``{es, en}`` object; rather than
+    reject it with a 422 during the deploy window, collapse it (prefer ``es``, then
+    ``en``). A plain string (the normal path) passes straight through; anything else is
+    left for the ``str`` field to reject."""
+    if isinstance(v, dict):
+        return v.get("es") or v.get("en") or ""
+    return v
 
-    es: str = Field(default="", max_length=_TEXT_MAX)
-    en: str = Field(default="", max_length=_TEXT_MAX)
+
+# A single-language block copy field: a plain string, capped, defaulting to "", but
+# tolerant on input of a legacy ``{es, en}`` pair (collapsed before validation).
+BlockText = Annotated[
+    str,
+    BeforeValidator(_coerce_block_text),
+    Field(default="", max_length=_TEXT_MAX),
+]
 
 
 class LinkItem(BaseModel):
@@ -201,7 +213,7 @@ class PortfolioExtraItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     image: str = Field(max_length=_PATH_MAX)
-    caption: Locale = Field(default_factory=Locale)
+    caption: BlockText
 
     @field_validator("image")
     @classmethod
@@ -215,19 +227,19 @@ class PortfolioExtraItem(BaseModel):
 class BioBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["bio"]
-    text: Locale
+    text: BlockText
 
 
 class HeadingBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["heading"]
-    text: Locale
+    text: BlockText
 
 
 class TextBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["text"]
-    text: Locale
+    text: BlockText
 
 
 class LinksBlock(BaseModel):
@@ -246,7 +258,7 @@ class PortfolioBlock(BaseModel):
 class QuoteBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["quote"]
-    text: Locale
+    text: BlockText
     attribution: str | None = Field(default=None, max_length=_ATTRIBUTION_MAX)
 
 
