@@ -978,7 +978,7 @@ def _referenced_media_names(entry):
     return names
 
 
-def _sync_editors_sync(entry, images=(), message=None):
+def _sync_editors_sync(entry, images=(), message=None, prune=False):
     """Commit ONE editor entry (upserted by ``discordId``) + its image blobs in ONE commit.
 
     ``editors.json`` is a top-level ARRAY (like ``gallery.json``/``reviews.json`` — D-18), so
@@ -1034,19 +1034,24 @@ def _sync_editors_sync(entry, images=(), message=None):
     # Fixed template — never interpolate raw editor text into the commit message (T-10-05-02).
     msg = message or f"editors: publish {slug}"
 
-    # Prune ORPHANED media: files left in THIS editor's own dir by earlier uploads that the
-    # current entry no longer references (avatar/bg/audio/cover swaps, removed blocks). Only
-    # uuid-named upload files are eligible, files uploaded in THIS commit are excluded, and
-    # any listing error yields no deletes — so the cleanup can never block or corrupt a
-    # publish. (git history still retains the blobs; this keeps the live tree / Pages lean.)
-    slug_dir = f"{image_dir}/{slug}"
-    referenced = _referenced_media_names(entry)
-    uploaded = set(files)
-    delete_tree = [
-        {"path": f"{slug_dir}/{name}", "mode": _MODE, "type": "blob", "sha": None}
-        for name in _list_editor_dir(repo, branch, slug_dir)
-        if _UPLOAD_NAME_RE.match(name) and name not in referenced and name not in uploaded
-    ]
+    # Prune ORPHANED media — ONLY on the explicit Save/publish (``prune=True``), never on
+    # the intermediate blob-upload commits. At Save the entry is the COMPLETE source of
+    # truth, so files in this editor's dir it no longer references are true orphans. Doing
+    # this on an upload would wrongly delete media the editor JUST uploaded but hasn't Saved
+    # a reference to yet (e.g. a bg video uploaded, then an avatar uploaded before Save).
+    # Only uuid-named files are eligible; files committed in THIS commit are excluded; any
+    # listing error yields no deletes (cleanup never blocks/corrupts a publish). git history
+    # retains the blobs — this only keeps the live tree / Pages deploy lean.
+    delete_tree = []
+    if prune:
+        slug_dir = f"{image_dir}/{slug}"
+        referenced = _referenced_media_names(entry)
+        uploaded = set(files)
+        delete_tree = [
+            {"path": f"{slug_dir}/{name}", "mode": _MODE, "type": "blob", "sha": None}
+            for name in _list_editor_dir(repo, branch, slug_dir)
+            if _UPLOAD_NAME_RE.match(name) and name not in referenced and name not in uploaded
+        ]
 
     def build_tree(current):
         # Upsert THIS editor by discordId into the FRESHLY fetched array (Pitfall 6): a
@@ -1120,7 +1125,7 @@ def _unpublish_editor_sync(discord_id, message=None):
     return {"committed": True, "commit_sha": commit_sha, "slug": slug}
 
 
-async def sync_editors(entry, images=(), *, message=None):
+async def sync_editors(entry, images=(), *, message=None, prune=False):
     """Publish/update one editor page as ONE atomic commit (D-06/D-13/D-17).
 
     Upserts ``entry`` into ``editors.json`` by ``discordId`` (concurrency-safe, Pitfall 6) and
@@ -1142,7 +1147,7 @@ async def sync_editors(entry, images=(), *, message=None):
         GitHubPublishError: transport failed after the retry budget.
     """
     async with _commit_lock:
-        return await asyncio.to_thread(_sync_editors_sync, entry, images, message)
+        return await asyncio.to_thread(_sync_editors_sync, entry, images, message, prune)
 
 
 async def unpublish_editor(discord_id, *, message=None):

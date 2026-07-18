@@ -144,16 +144,21 @@ def _too_large_copy(cap_human: str) -> str:
 def _classify_media(content_type: str, filename: str):
     """Return the media kind for an upload, or ``None`` if it is not accepted media.
 
-    Both content-type AND extension must agree with one allowlist — an SVG or any
-    non-media file (even with a spoofed content-type) falls through to ``None`` and is
-    rejected before any decode/transcode (T-10.1-11-03 type-confusion guard).
+    Accepts when EITHER the extension OR the content-type matches an allowlist — browsers
+    frequently send an empty/odd content-type for a perfectly valid file (and vice-versa),
+    so requiring BOTH to agree wrongly rejected real uploads. SVG is rejected on either
+    signal. This is safe because the endpoint RE-ENCODES every accepted file (Pillow for
+    images, ffmpeg for gif/video), which fails closed on anything that isn't real media —
+    the re-encode, not the header, is the type-confusion guard (T-10.1-11-03).
     """
-    if content_type in _MEDIA_IMAGE_CONTENT_TYPES and filename.endswith(_MEDIA_IMAGE_EXTS):
-        return "image"
-    if content_type in _MEDIA_GIF_CONTENT_TYPES and filename.endswith(_MEDIA_GIF_EXTS):
-        return "gif"
-    if content_type in _MEDIA_VIDEO_CONTENT_TYPES and filename.endswith(_MEDIA_VIDEO_EXTS):
+    if filename.endswith(_REJECTED_EXTS) or content_type in _REJECTED_CONTENT_TYPES:
+        return None
+    if filename.endswith(_MEDIA_VIDEO_EXTS) or content_type in _MEDIA_VIDEO_CONTENT_TYPES:
         return "video"
+    if filename.endswith(_MEDIA_GIF_EXTS) or content_type in _MEDIA_GIF_CONTENT_TYPES:
+        return "gif"
+    if filename.endswith(_MEDIA_IMAGE_EXTS) or content_type in _MEDIA_IMAGE_CONTENT_TYPES:
+        return "image"
     return None
 
 
@@ -477,6 +482,8 @@ async def upload_media(request: Request, file: UploadFile,
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     kind = _classify_media(content_type, filename)
     if kind is None:
+        log.warning("editor/media rejected (unknown kind): content_type=%r filename=%r",
+                    content_type, filename)
         return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
 
     if kind == "image":
@@ -508,6 +515,8 @@ async def upload_media(request: Request, file: UploadFile,
             out_ext = "mp4"
     except Exception:
         # Non-media / decompression-bomb / ffmpeg-missing/failure → nothing committed.
+        log.exception("editor/media processing failed (kind=%s, content_type=%r, filename=%r)",
+                      kind, content_type, filename)
         return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
 
     slug = ident["slug"]
@@ -625,7 +634,9 @@ async def save_editor(request: Request, ident: dict = Depends(require_editor)):
         return JSONResponse(status_code=422, content={"error": str(exc)})
 
     try:
-        await github_publish.sync_editors(entry)
+        # prune=True: at Save the entry is the complete source of truth, so orphaned
+        # media in this editor's dir is cleaned up (never on the upload commits).
+        await github_publish.sync_editors(entry, prune=True)
     except github_publish.GitHubPublishError:
         log.exception("editor save commit failed")
         return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
