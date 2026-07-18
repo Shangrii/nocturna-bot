@@ -415,16 +415,31 @@ _VALID_BODY = {
     "avatar": "",
     "lang": "es",
     "tagline": "Editora",
+    "slug": "aria",
     "links": [{"label": "Discord", "url": "https://discord.gg/example"}],
     "blocks": [{"type": "bio", "text": "Hola"}],
 }
 
 
+def _mock_fetch_json(monkeypatch):
+    """Task 4: save_editor now fetches editors.json once (uniqueness + current entry).
+
+    Pre-existing save tests predate that fetch and only mocked ``sync_editors`` — without
+    this, they'd hit the real network. The mocked array owns "aria" for discordId "555",
+    matching ``_IDENT``/the default ``_VALID_BODY["slug"]``.
+    """
+    import app.main as main
+    monkeypatch.setattr(
+        main.github_publish, "_fetch_json",
+        lambda *a, **k: [{"discordId": "555", "slug": "aria", "mediaId": "tok"}])
+
+
 def test_save_valid_body_validates_forces_session_identity_and_publishes(monkeypatch, client):
     import app.main as main
+    _mock_fetch_json(monkeypatch)
     calls = {}
 
-    async def fake_sync(entry, images=(), *, message=None):
+    async def fake_sync(entry, images=(), *, message=None, prune=False):
         calls["entry"] = entry
         return {"committed": True, "commit_sha": "abc", "slug": entry["slug"], "files": []}
 
@@ -441,6 +456,7 @@ def test_save_valid_body_validates_forces_session_identity_and_publishes(monkeyp
 
 def test_save_invalid_block_returns_4xx_and_does_not_commit(monkeypatch, client):
     import app.main as main
+    _mock_fetch_json(monkeypatch)
     sync_calls = []
 
     async def fake_sync(*a, **k):
@@ -460,6 +476,7 @@ def test_save_invalid_block_returns_4xx_and_does_not_commit(monkeypatch, client)
 
 def test_save_invalid_link_url_returns_4xx_and_does_not_commit(monkeypatch, client):
     import app.main as main
+    _mock_fetch_json(monkeypatch)
     sync_calls = []
 
     async def fake_sync(*a, **k):
@@ -477,11 +494,24 @@ def test_save_invalid_link_url_returns_4xx_and_does_not_commit(monkeypatch, clie
     assert sync_calls == []
 
 
-def test_save_ignores_body_supplied_discord_id_and_slug(monkeypatch, client):
+def test_save_ignores_body_supplied_discord_id(monkeypatch, client):
+    """discordId is always forced from the session (D-08 IDOR guard).
+
+    NOTE (Task 4): this test used to also assert the body's ``slug`` was discarded.
+    That guarantee no longer holds by design — the slug is now the editor's own
+    validated choice (``resolve_slug``), so a self-owned slug in the body is legitimately
+    honored, not an IDOR hijack. Slug-specific behavior (typed slug honored / taken slug
+    rejected / reserved slug rejected) is covered by
+    ``test_save_honors_typed_slug_and_forces_identity``,
+    ``test_save_rejects_slug_taken_by_another_editor`` and
+    ``test_save_rejects_reserved_slug`` below. This test now isolates the still-true
+    discordId-forcing guarantee only.
+    """
     import app.main as main
+    _mock_fetch_json(monkeypatch)
     calls = {}
 
-    async def fake_sync(entry, images=(), *, message=None):
+    async def fake_sync(entry, images=(), *, message=None, prune=False):
         calls["entry"] = entry
         return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
 
@@ -489,18 +519,19 @@ def test_save_ignores_body_supplied_discord_id_and_slug(monkeypatch, client):
 
     hostile_body = dict(_VALID_BODY)
     hostile_body["discordId"] = "999-someone-else"
-    hostile_body["slug"] = "someone-elses-slug"
+    hostile_body["slug"] = "aria"  # the caller's own already-owned slug — not a hijack
 
     resp = client.post("/editor/save", json=hostile_body)
 
     assert resp.status_code == 200
-    # Session identity wins — the hostile body values are discarded entirely.
+    # Session identity wins — the hostile body discordId is discarded entirely.
     assert calls["entry"]["discordId"] == "555"
     assert calls["entry"]["slug"] == "aria"
 
 
 def test_save_transient_commit_failure_returns_generic_copy_no_internals(monkeypatch, client):
     import app.main as main
+    _mock_fetch_json(monkeypatch)
 
     async def fake_sync(*a, **k):
         raise main.github_publish.GitHubPublishError("PAT abc123 rejected by GitHub")
@@ -569,3 +600,92 @@ def test_unpublish_transient_failure_returns_generic_copy(monkeypatch, client):
     assert resp.status_code >= 500
     assert "PAT" not in resp.text
     assert "abc123" not in resp.text
+
+
+# ── Task 4: editor-chosen slug wired through save + upload endpoints ──────────────
+def _valid_page_body(slug="mi-link", **overrides):
+    body = {"name": "Aria", "lang": "es", "slug": slug}
+    body.update(overrides)
+    return body
+
+
+def test_save_honors_typed_slug_and_forces_identity(monkeypatch, client):
+    import app.main as main
+    editors = [{"discordId": "555", "slug": "aria", "mediaId": "tok999"}]
+    monkeypatch.setattr(main.github_publish, "_fetch_json", lambda *a, **k: editors)
+
+    captured = {}
+
+    async def fake_sync(entry, images=(), *, message=None, prune=False):
+        captured["entry"] = entry
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/save", json=_valid_page_body(slug="Mi Nuevo Link!"))
+
+    assert resp.status_code == 200
+    assert captured["entry"]["slug"] == "mi-nuevo-link"   # typed slug, normalized
+    assert captured["entry"]["discordId"] == "555"        # identity forced from session
+    assert captured["entry"]["mediaId"] == "tok999"       # mediaId preserved from entry
+
+
+def test_save_rejects_slug_taken_by_another_editor(monkeypatch, client):
+    import app.main as main
+    editors = [
+        {"discordId": "555", "slug": "aria", "mediaId": "tokme"},
+        {"discordId": "999", "slug": "taken-name", "mediaId": "tokother"},
+    ]
+    monkeypatch.setattr(main.github_publish, "_fetch_json", lambda *a, **k: editors)
+
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/save", json=_valid_page_body(slug="taken-name"))
+
+    assert resp.status_code == 409
+    assert sync_calls == []  # nothing committed
+
+
+def test_save_rejects_reserved_slug(monkeypatch, client):
+    import app.main as main
+    editors = [{"discordId": "555", "slug": "aria", "mediaId": "tokme"}]
+    monkeypatch.setattr(main.github_publish, "_fetch_json", lambda *a, **k: editors)
+
+    sync_calls = []
+
+    async def fake_sync(*a, **k):
+        sync_calls.append(1)
+        return {}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/save", json=_valid_page_body(slug="api"))
+
+    assert resp.status_code == 422
+    assert sync_calls == []
+
+
+def test_upload_image_returns_path_under_media_id(monkeypatch, client):
+    import app.main as main
+    monkeypatch.setattr(main, "optimize_to_webp", lambda raw: (b"WEBP", 10, 10))
+
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "555", "mediaId": "tok777",
+                "published": True, "name": "Aria", "avatar": "", "links": [], "blocks": []}
+
+    async def fake_sync(entry, images=(), *, message=None, prune=False):
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", fake_current)
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/image", files={"file": ("a.png", b"x", "image/png")})
+
+    assert resp.status_code == 200
+    assert "/editors/tok777/" in resp.json()["path"]

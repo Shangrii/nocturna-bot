@@ -53,7 +53,7 @@ import config
 from app import auth
 from app.deps import require_editor
 from core import db, github_publish
-from core.editors_model import EditorPage
+from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
 
 log = logging.getLogger(__name__)
@@ -90,6 +90,15 @@ _UNPUBLISH_FAILED_COPY = (
     "No se pudo despublicar. Inténtalo de nuevo. — Couldn't unpublish. Try again."
 )
 _UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
+
+# Slug-rejection copy, keyed by SlugRejected.reason → (HTTP status, bilingual message).
+_SLUG_REJECT = {
+    "invalid": (422, "Elige un nombre de link válido (letras, números y guiones). · "
+                     "Choose a valid link name (letters, numbers, hyphens)."),
+    "reserved": (422, "Ese nombre de link está reservado, elige otro. · "
+                      "That link name is reserved — choose another."),
+    "taken": (409, "Ese nombre de link ya está en uso. · That link name is already taken."),
+}
 
 # ── background media + audio upload limits (D-18 / D-06 / D-19 / T-10.1-11-01) ───────
 # Per-kind byte caps enforced BEFORE the body is buffered in full (streamed chunk read,
@@ -441,11 +450,11 @@ async def upload_image(request: Request, file: UploadFile,
         # Never leak the exception internals; nothing has been committed.
         return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
 
-    slug = ident["slug"]
     out_name = f"{uuid.uuid4().hex}.webp"
     current = await _fetch_current_entry(ident["discord_id"])
     if current is None:
         return JSONResponse(status_code=400, content={"error": _IMAGE_ERROR_COPY})
+    media_key = current.get("mediaId") or current["slug"]
 
     try:
         result = await github_publish.sync_editors(
@@ -458,7 +467,7 @@ async def upload_image(request: Request, file: UploadFile,
     # Astro serves the public/ dir at the site ROOT, so the public URL must drop a
     # leading "public/" — the committed repo path keeps it, the URL does not.
     url_dir = image_dir[len("public/"):] if image_dir.startswith("public/") else image_dir
-    path = f"/{url_dir.lstrip('/')}/{slug}/{out_name}"
+    path = f"/{url_dir.lstrip('/')}/{media_key}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
 
 
@@ -519,11 +528,11 @@ async def upload_media(request: Request, file: UploadFile,
                       kind, content_type, filename)
         return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
 
-    slug = ident["slug"]
     out_name = f"{uuid.uuid4().hex}.{out_ext}"
     current = await _fetch_current_entry(ident["discord_id"])
     if current is None:
         return JSONResponse(status_code=400, content={"error": _MEDIA_ERROR_COPY})
+    media_key = current.get("mediaId") or current["slug"]
 
     try:
         result = await github_publish.sync_editors(
@@ -536,7 +545,7 @@ async def upload_media(request: Request, file: UploadFile,
     # Astro serves the public/ dir at the site ROOT, so the public URL must drop a
     # leading "public/" — the committed repo path keeps it, the URL does not.
     url_dir = image_dir[len("public/"):] if image_dir.startswith("public/") else image_dir
-    path = f"/{url_dir.lstrip('/')}/{slug}/{out_name}"
+    path = f"/{url_dir.lstrip('/')}/{media_key}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
 
 
@@ -573,12 +582,12 @@ async def upload_audio(request: Request, file: UploadFile,
     if not raw:
         return JSONResponse(status_code=400, content={"error": _AUDIO_ERROR_COPY})
 
-    slug = ident["slug"]
     out_ext = next((e for e in _AUDIO_EXTS if filename.endswith(e)), ".mp3").lstrip(".")
     out_name = f"{uuid.uuid4().hex}.{out_ext}"
     current = await _fetch_current_entry(ident["discord_id"])
     if current is None:
         return JSONResponse(status_code=400, content={"error": _AUDIO_ERROR_COPY})
+    media_key = current.get("mediaId") or current["slug"]
 
     try:
         result = await github_publish.sync_editors(
@@ -591,20 +600,23 @@ async def upload_audio(request: Request, file: UploadFile,
     # Astro serves the public/ dir at the site ROOT, so the public URL must drop a
     # leading "public/" — the committed repo path keeps it, the URL does not.
     url_dir = image_dir[len("public/"):] if image_dir.startswith("public/") else image_dir
-    path = f"/{url_dir.lstrip('/')}/{slug}/{out_name}"
+    path = f"/{url_dir.lstrip('/')}/{media_key}/{out_name}"
     return {"path": path, "committed": result.get("committed", True)}
 
 
-def _apply_session_identity(payload: dict, ident: dict, *, published: bool) -> dict:
-    """Merge a client save payload with the SESSION identity (never the body's, D-08).
+def _apply_session_identity(payload: dict, ident: dict, *, slug: str,
+                            media_id: str, published: bool) -> dict:
+    """Merge a client save payload with SERVER-controlled identity fields (never the body's).
 
-    ``discordId``/``slug``/``published`` are always forced from the trusted server
-    values — a body attempting to smuggle a different identity is silently ignored
-    (Pitfall 1 IDOR guard), not merely rejected.
+    ``discordId`` is forced from the trusted session (D-08 IDOR guard). ``slug`` is the
+    ALREADY-VALIDATED editor-chosen value from ``resolve_slug`` (not the session's stale
+    copy). ``mediaId`` is the server-side stable media key. A body attempting to smuggle any
+    of these is silently overridden, not merely rejected (Pitfall 1).
     """
     merged = dict(payload)
     merged["discordId"] = str(ident["discord_id"])
-    merged["slug"] = ident["slug"]
+    merged["slug"] = slug
+    merged["mediaId"] = media_id
     merged["published"] = published
     return merged
 
@@ -613,10 +625,11 @@ def _apply_session_identity(payload: dict, ident: dict, *, published: bool) -> d
 async def save_editor(request: Request, ident: dict = Depends(require_editor)):
     """Validate the submitted page via ``EditorPage``, then publish immediately (D-13).
 
-    Identity (``discordId``/``slug``) is ALWAYS overridden from the session — any body
-    value is discarded before validation, never merely rejected (Pitfall 1 / D-08).
-    ``published`` is forced ``True`` — this project has no separate draft/publish state
-    (D-13: save publishes immediately).
+    ``discordId`` is ALWAYS overridden from the session — any body value is discarded
+    before validation, never merely rejected (Pitfall 1 / D-08). ``slug`` is now the
+    editor's own choice, validated server-side via ``resolve_slug`` (normalized, not
+    reserved, not owned by another editor). ``published`` is forced ``True`` — this
+    project has no separate draft/publish state (D-13: save publishes immediately).
     """
     try:
         body = await request.json()
@@ -625,7 +638,26 @@ async def save_editor(request: Request, ident: dict = Depends(require_editor)):
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    merged = _apply_session_identity(body, ident, published=True)
+    # Fetch the full array ONCE: it feeds both the uniqueness check and the current entry.
+    editors = await run_in_threadpool(
+        github_publish._fetch_json,
+        config.WEBSITE_REPO, config.WEBSITE_BRANCH, config.WEBSITE_EDITORS_JSON)
+    current = next(
+        (e for e in editors if str(e.get("discordId")) == str(ident["discord_id"])), None)
+
+    # The slug is now editor-chosen — validate it server-side (normalize + reserved + unique).
+    try:
+        slug = resolve_slug(
+            body.get("slug", ""), self_discord_id=ident["discord_id"], editors=editors)
+    except SlugRejected as exc:
+        status, copy = _SLUG_REJECT[exc.reason]
+        return JSONResponse(status_code=status, content={"error": copy})
+
+    # mediaId is stable: reuse the entry's; backfill a pre-feature entry to its CURRENT slug
+    # (where its media already lives); brand-new-with-no-draft falls back to the new slug.
+    media_id = (current or {}).get("mediaId") or (current or {}).get("slug") or slug
+
+    merged = _apply_session_identity(body, ident, slug=slug, media_id=media_id, published=True)
 
     try:
         entry = EditorPage(**merged).model_dump()
@@ -635,12 +667,14 @@ async def save_editor(request: Request, ident: dict = Depends(require_editor)):
 
     try:
         # prune=True: at Save the entry is the complete source of truth, so orphaned
-        # media in this editor's dir is cleaned up (never on the upload commits).
+        # media in this editor's mediaId dir is cleaned up (never on the upload commits).
         await github_publish.sync_editors(entry, prune=True)
     except github_publish.GitHubPublishError:
         log.exception("editor save commit failed")
         return JSONResponse(status_code=502, content={"error": _SAVE_FAILED_COPY})
 
+    # Keep the session slug consistent after a rename (used by the editor GET fallback).
+    request.session["slug"] = slug
     return {"message": _PUBLISH_SUCCESS_COPY, "published": True}
 
 
