@@ -167,6 +167,48 @@ def normalize_slug(raw: str) -> str:
     return slug
 
 
+RESERVED_SLUGS = frozenset(
+    {
+        "e", "api", "static", "assets", "admin", "editor", "editors",
+        "auth", "login", "logout", "me", "favicon",
+    }
+)
+
+
+class SlugRejected(ValueError):
+    """Raised by ``resolve_slug`` when a requested slug is invalid, reserved, or taken.
+
+    ``reason`` is one of ``"invalid"`` / ``"reserved"`` / ``"taken"`` so the HTTP layer
+    maps it to a status + localized copy without string-matching the message.
+    """
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def resolve_slug(requested: str, *, self_discord_id: str, editors: list) -> str:
+    """Return the normalized, non-reserved, unique slug for ``requested`` — or raise.
+
+    The slug is now editor-chosen (no longer session-derived), so this is the load-bearing
+    gate: (1) ``normalize_slug`` to ``[a-z0-9-]`` (empty result → ``SlugRejected("invalid")``,
+    e.g. ``"../.."`` or ``"!!!"``); (2) reject a reserved route word; (3) reject a slug already
+    owned by a DIFFERENT ``discordId`` (the caller's own current slug always passes). ``editors``
+    is the full ``editors.json`` array; ``self_discord_id`` is the caller's identity key.
+    """
+    try:
+        slug = normalize_slug(requested)
+    except (ValueError, TypeError):
+        raise SlugRejected("invalid")
+    if slug in RESERVED_SLUGS:
+        raise SlugRejected("reserved")
+    sid = str(self_discord_id)
+    for entry in editors:
+        if str(entry.get("discordId")) != sid and entry.get("slug") == slug:
+            raise SlugRejected("taken")
+    return slug
+
+
 def _coerce_block_text(v: object) -> object:
     """Collapse a LEGACY ``{es, en}`` locale pair to a single string (D-13 migration).
 
@@ -425,6 +467,10 @@ class EditorPage(BaseModel):
 
     slug: str = Field(max_length=_SLUG_MAX)
     discordId: str
+    # Stable, server-assigned per-editor media namespace (decoupled from the mutable slug so
+    # a rename never moves a committed file). Empty on pre-feature entries — the transport and
+    # save path fall back to the slug until the first save backfills it.
+    mediaId: str = Field(default="", max_length=_SLUG_MAX)
     published: bool = False
     name: str = Field(max_length=_NAME_MAX)
     avatar: str = Field(default="", max_length=_PATH_MAX)
@@ -476,3 +522,10 @@ class EditorPage(BaseModel):
         if len(cleaned) > 10:
             raise ValueError("too many specialty tags (max 10)")
         return cleaned
+
+    @field_validator("mediaId")
+    @classmethod
+    def _media_id_charset(cls, v: str) -> str:
+        if v != "" and not re.fullmatch(r"[a-z0-9-]+", v):
+            raise ValueError("mediaId must be empty or match [a-z0-9-]")
+        return v

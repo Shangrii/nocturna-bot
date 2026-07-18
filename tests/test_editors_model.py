@@ -9,7 +9,9 @@ filesystem dependency, matching the repo's ``core/store_sync.py`` precedent.
 import pytest
 from pydantic import ValidationError
 
-from core.editors_model import EditorPage, ThemeModel, normalize_slug
+from core.editors_model import (
+    EditorPage, ThemeModel, normalize_slug, resolve_slug, SlugRejected, RESERVED_SLUGS,
+)
 
 
 def _all_block_types_payload():
@@ -466,3 +468,42 @@ def test_editor_page_accepts_optional_views():
 def test_editor_page_defaults_views_to_none():
     page = EditorPage.model_validate(_base_page())
     assert page.views is None
+
+
+# ── resolve_slug gate: validation, reserved words, uniqueness ──────────────────────
+def test_resolve_slug_normalizes_free_input():
+    assert resolve_slug("My Cool Name!", self_discord_id="1", editors=[]) == "my-cool-name"
+
+
+def test_resolve_slug_rejects_empty_result_as_invalid():
+    with pytest.raises(SlugRejected) as ei:
+        resolve_slug("../..", self_discord_id="1", editors=[])
+    assert ei.value.reason == "invalid"
+
+
+def test_resolve_slug_rejects_reserved_word():
+    with pytest.raises(SlugRejected) as ei:
+        resolve_slug("api", self_discord_id="1", editors=[])
+    assert ei.value.reason == "reserved"
+
+
+def test_resolve_slug_rejects_slug_taken_by_another_editor():
+    editors = [{"discordId": "2", "slug": "aria"}]
+    with pytest.raises(SlugRejected) as ei:
+        resolve_slug("Aria", self_discord_id="1", editors=editors)
+    assert ei.value.reason == "taken"
+
+
+def test_resolve_slug_allows_callers_own_current_slug():
+    editors = [{"discordId": "1", "slug": "aria"}]
+    assert resolve_slug("aria", self_discord_id="1", editors=editors) == "aria"
+
+
+def test_editorpage_accepts_and_defaults_media_id():
+    assert EditorPage(**_base_page()).mediaId == ""
+    assert EditorPage(**_base_page(mediaId="a1b2c3d4e5f6a7b8")).mediaId == "a1b2c3d4e5f6a7b8"
+
+
+def test_editorpage_rejects_traversal_media_id():
+    with pytest.raises(ValidationError):
+        EditorPage(**_base_page(mediaId="../evil"))
