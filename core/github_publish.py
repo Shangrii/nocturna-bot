@@ -996,8 +996,10 @@ def _sync_editors_sync(entry, images=(), message=None, prune=False):
     string on both sides so a str/int mismatch can never spawn a duplicate entry.
 
     Image blobs (D-17): ``images`` is a list of ``(filename, webp_bytes)``; each becomes a blob
-    under ``{WEBSITE_EDITORS_IMAGE_DIR}/{slug}/{filename}`` (default ``public/editors/<slug>/``).
-    The slug is already normalized upstream (10-02, Pitfall 5) so the path is traversal-safe.
+    under ``{WEBSITE_EDITORS_IMAGE_DIR}/{mediaId or slug}/{filename}`` (default
+    ``public/editors/<mediaId or slug>/``) — the STABLE ``mediaId`` key if the entry has one,
+    else the slug (pre-feature entries). The slug is already normalized upstream (10-02,
+    Pitfall 5) so the path is traversal-safe.
     Blobs are content-addressed (independent of the ref) so they survive retries; they are
     created ONCE and referenced by sha from the rebuildable tree. Image blobs AND the
     ``editors.json`` edit ride ONE tree -> ONE commit so a page never renders against a
@@ -1140,7 +1142,9 @@ async def sync_editors(entry, images=(), *, message=None, prune=False):
             The transport writes it verbatim; the caller (FastAPI app) validates it first via
             ``core.editors_model``.
         images: iterable of ``(filename, webp_bytes)`` — each is committed as a blob under
-            ``WEBSITE_EDITORS_IMAGE_DIR/<slug>/<filename>``. Empty writes only the JSON blob.
+            ``WEBSITE_EDITORS_IMAGE_DIR/<mediaId or slug>/<filename>`` (the entry's stable
+            ``mediaId``, falling back to its ``slug`` for pre-feature entries). Empty writes
+            only the JSON blob.
         message: optional commit message override (defaults to ``editors: publish <slug>``).
 
     Returns:

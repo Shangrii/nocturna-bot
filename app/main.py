@@ -411,7 +411,7 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
 @app.post("/editor/image")
 async def upload_image(request: Request, file: UploadFile,
                         ident: dict = Depends(require_editor)):
-    """Validate + re-encode an uploaded image, commit it under the SESSION slug's dir.
+    """Validate + re-encode an uploaded image, commit it under the entry's media dir.
 
     Order (Pitfall 3 / T-10-10-01): (1) reject SVG outright by content-type/extension —
     never trusted enough to even attempt a Pillow decode; (2) enforce the byte-size cap
@@ -419,7 +419,8 @@ async def upload_image(request: Request, file: UploadFile,
     re-encode via ``optimize_to_webp`` (Pillow's own bomb guard + metadata strip); only
     the RE-ENCODED bytes are ever committed — the raw upload is never persisted.
 
-    The commit path is built from ``ident["slug"]`` (the SESSION slug) ONLY — never a
+    The commit path is built from the entry's ``mediaId`` (falling back to its ``slug``
+    if unset), fetched fresh SERVER-SIDE from the published entry — ONLY — never a
     client-supplied path segment (T-10-10-06 path traversal / D-08 IDOR).
     """
     filename = (file.filename or "").lower()
@@ -475,7 +476,7 @@ async def upload_image(request: Request, file: UploadFile,
 async def upload_media(request: Request, file: UploadFile,
                        ident: dict = Depends(require_editor)):
     """Validate + optimize an uploaded BACKGROUND media file (image/GIF/video), then
-    commit only the optimized bytes under the SESSION slug's dir (D-18/D-19).
+    commit only the optimized bytes under the entry's media dir (D-18/D-19).
 
     Order (Pitfall 3 / T-10.1-11-01/03): (1) classify by content-type AND extension —
     SVG + any non-media type is rejected before any decode; (2) stream-read with an early
@@ -483,9 +484,10 @@ async def upload_media(request: Request, file: UploadFile,
     past the cap; (3) optimize server-side: raster → ``optimize_to_webp`` (Pillow bomb
     guard + metadata strip); GIF/video → ffmpeg transcode to a muted web MP4 (D-20), which
     FAILS CLOSED when ffmpeg is missing/errors (never commit an un-optimized file); (4)
-    commit ONLY the re-encoded bytes under ``ident['slug']`` (SESSION slug only, never a
-    client path — T-10.1-11-02 / 10-D-08). Returns the site-relative path the theme panel
-    writes into ``page.theme.bgMedia``.
+    commit ONLY the re-encoded bytes under the entry's ``mediaId`` (falling back to its
+    ``slug`` if unset), fetched fresh SERVER-SIDE — never a client path (T-10.1-11-02 /
+    10-D-08). Returns the site-relative path the theme panel writes into
+    ``page.theme.bgMedia``.
     """
     filename = (file.filename or "").lower()
     content_type = (file.content_type or "").split(";")[0].strip().lower()
@@ -552,14 +554,15 @@ async def upload_media(request: Request, file: UploadFile,
 @app.post("/editor/audio")
 async def upload_audio(request: Request, file: UploadFile,
                        ident: dict = Depends(require_editor)):
-    """Validate + commit an uploaded BACKGROUND audio track under the SESSION slug (D-06).
+    """Validate + commit an uploaded BACKGROUND audio track under the entry's media dir (D-06).
 
     (1) Accept only audio by content-type AND extension (MP3/OGG/M4A/WEBM/WAV) — any other
     type is rejected before commit; (2) stream-read with an early abort at the 5 MB cap
-    (D-19) — never buffer past the cap; (3) commit the bytes under ``ident['slug']``
-    (SESSION slug only — never a client path, T-10.1-11-02 / 10-D-08). Audio is committed
-    as-is within the cap (no transcode required); the theme panel (plan 10) writes the
-    returned path into ``page.theme.audio``.
+    (D-19) — never buffer past the cap; (3) commit the bytes under the entry's ``mediaId``
+    (falling back to its ``slug`` if unset), fetched fresh SERVER-SIDE — never a client
+    path (T-10.1-11-02 / 10-D-08). Audio is committed as-is within the cap (no transcode
+    required); the theme panel (plan 10) writes the returned path into
+    ``page.theme.audio``.
     """
     filename = (file.filename or "").lower()
     content_type = (file.content_type or "").split(";")[0].strip().lower()

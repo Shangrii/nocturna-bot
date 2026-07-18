@@ -705,3 +705,81 @@ def test_editor_page_renders_slug_field(monkeypatch, client):
     resp = client.get("/editor")
     assert resp.status_code == 200
     assert 'id="f-slug"' in resp.text
+
+
+# ── Final-review fixes: server-forced mediaId + session-slug refresh on rename ────
+def test_save_forces_server_mediaid_over_hostile_body_mediaid(monkeypatch, client):
+    """A save body carrying a hostile ``mediaId`` must never reach the commit path.
+
+    ``_apply_session_identity`` (app/main.py ~line 610-624) always overwrites
+    ``merged["mediaId"]`` with the server-derived value, mirroring the existing
+    ``discordId``/``slug`` identity-forcing guarantees (D-08 Pitfall 1). A client
+    trying to smuggle its own path segment via ``mediaId`` (path-hijack surface for
+    the image/media/audio commit dirs) must be silently overridden, not merely
+    rejected.
+    """
+    import app.main as main
+    editors = [{"discordId": "555", "slug": "aria", "mediaId": "realtok"}]
+    monkeypatch.setattr(main.github_publish, "_fetch_json", lambda *a, **k: editors)
+
+    captured = {}
+
+    async def fake_sync(entry, images=(), *, message=None, prune=False):
+        captured["entry"] = entry
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    hostile_body = _valid_page_body(slug="aria")
+    hostile_body["mediaId"] = "evilpath"  # valid charset, but not this editor's real key
+
+    resp = client.post("/editor/save", json=hostile_body)
+
+    assert resp.status_code == 200
+    # Server-derived mediaId wins — the hostile body value never reaches the commit.
+    assert captured["entry"]["mediaId"] == "realtok"
+
+
+def test_save_rename_refreshes_session_slug(monkeypatch, client):
+    """After a slug rename, ``save_editor`` writes the new slug into the session
+    (app/main.py ~line 680, ``request.session["slug"] = slug``) so the session's
+    cached slug never goes stale post-rename. Decoded directly with the same
+    itsdangerous ``TimestampSigner`` Starlette's ``SessionMiddleware`` uses — this
+    reads the real Set-Cookie the middleware emits, not a hand-rolled stand-in.
+
+    NOTE: the signer key must be the ``secret_key`` the middleware was actually
+    constructed with (captured once, at ``app.add_middleware`` time during module
+    import) — NOT ``config.SESSION_SECRET`` read now, which the ``client`` fixture
+    monkeypatches to a dummy value only so the lifespan config check doesn't 500.
+    Those two diverge, so the real key is pulled straight off the live middleware
+    stack (``app.user_middleware``) instead of assumed.
+    """
+    import base64
+    import json as _json
+
+    import itsdangerous
+    from starlette.middleware.sessions import SessionMiddleware
+
+    import app.main as main
+    editors = [{"discordId": "555", "slug": "aria", "mediaId": "tok"}]
+    monkeypatch.setattr(main.github_publish, "_fetch_json", lambda *a, **k: editors)
+
+    async def fake_sync(entry, images=(), *, message=None, prune=False):
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(main.github_publish, "sync_editors", fake_sync)
+
+    resp = client.post("/editor/save", json=_valid_page_body(slug="nuevo-nombre"))
+    assert resp.status_code == 200
+
+    cookie_value = client.cookies.get("session")
+    assert cookie_value is not None, "SessionMiddleware did not set a session cookie"
+
+    session_mw = next(
+        m for m in main.app.user_middleware if m.cls is SessionMiddleware)
+    real_secret = session_mw.kwargs["secret_key"]
+
+    signer = itsdangerous.TimestampSigner(str(real_secret))
+    unsigned = signer.unsign(cookie_value.encode("utf-8"), max_age=None)
+    session_data = _json.loads(base64.b64decode(unsigned))
+    assert session_data["slug"] == "nuevo-nombre"
