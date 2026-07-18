@@ -50,6 +50,18 @@
         <div class="field">
           <label class="label" for="f-name">Nombre · Name</label>
           <input id="f-name" type="text" x-model="page.name" maxlength="100" />
+
+          <label class="label" for="f-slug">Tu link · Your link</label>
+          <input id="f-slug" type="text" x-model="page.slug"
+                 @input="page.slug = normalizeSlugLive(page.slug)"
+                 @blur="page.slug = normalizeSlug(page.slug)"
+                 maxlength="64" spellcheck="false" autocapitalize="off" autocomplete="off" />
+          <p class="field-hint">
+            <span x-text="linkBase + (page.slug || '…')"></span><br />
+            Cambiar el nombre cambia tu link público: el link anterior deja de funcionar y
+            el contador de vistas se reinicia. · Renaming changes your public link — the old
+            link stops working and the view count resets.
+          </p>
         </div>
 
         <div class="field">
@@ -886,6 +898,7 @@
 
       return {
         page,
+        linkBase: (MEDIA_BASE || '') + '/e/',
         blockTypes: ['bio', 'heading', 'text', 'links', 'portfolio', 'quote', 'image', 'divider'],
         curatedFonts: CURATED_FONTS,
         effectKeys: EFFECT_KEYS,
@@ -940,6 +953,16 @@
         },
         // Background media can be an image OR a transcoded video (.mp4/.webm).
         isVideo(p) { return /\.(mp4|webm)$/i.test(p || ''); },
+        // Live-normalize as the user types: lowercase + collapse invalid runs to '-', but
+        // KEEP a trailing '-' so typing "my-name" isn't fought mid-word. Full normalize (with
+        // leading/trailing '-' stripped) runs on blur; the server re-normalizes as source of truth.
+        normalizeSlugLive(raw) {
+          return String(raw || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+        },
+        normalizeSlug(raw) {
+          return String(raw || '').toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        },
         // URL hostname -> social platform icon slug (mirrors the site's SocialIconRow).
         socialKey(url) {
           let host = '';
@@ -1211,6 +1234,7 @@
           const clean = (b) => { const { _id, ...rest } = b; return rest; };
           const t = this.page.theme;
           return {
+            slug: this.page.slug,
             name: this.page.name,
             avatar: this.page.avatar,
             lang: this.page.lang,

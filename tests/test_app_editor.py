@@ -689,3 +689,19 @@ def test_upload_image_returns_path_under_media_id(monkeypatch, client):
 
     assert resp.status_code == 200
     assert "/editors/tok777/" in resp.json()["path"]
+
+
+# ── Task 5: editable "Tu link · Your link" slug field in the admin editor form ────
+def test_editor_page_renders_slug_field(monkeypatch, client):
+    import app.main as main
+
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "555", "mediaId": "tok",
+                "published": True, "name": "Aria", "avatar": "", "tagline": "",
+                "links": [], "blocks": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", fake_current)
+
+    resp = client.get("/editor")
+    assert resp.status_code == 200
+    assert 'id="f-slug"' in resp.text
