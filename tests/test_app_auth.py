@@ -30,6 +30,7 @@ No real bot token, client secret, or OAuth code is ever used or asserted-present
 """
 
 import asyncio
+import re
 
 import pytest
 from authlib.integrations.starlette_client import OAuthError
@@ -193,6 +194,28 @@ def test_ensure_draft_falls_back_when_username_has_no_slug_chars(monkeypatch):
     entry = asyncio.run(auth.ensure_draft("555", "!!!"))
     assert entry["slug"]  # non-empty, charset-valid
     assert "555" in entry["slug"]
+
+
+def test_ensure_draft_seeds_random_media_id(monkeypatch):
+    import asyncio
+    from app import auth
+
+    captured = {}
+
+    async def fake_fetch_editors():
+        return []
+
+    async def fake_sync(entry, *a, **k):
+        captured["entry"] = entry
+        return {"committed": True, "commit_sha": "x", "slug": entry["slug"], "files": []}
+
+    monkeypatch.setattr(auth, "_fetch_editors", fake_fetch_editors)
+    monkeypatch.setattr(auth.github_publish, "sync_editors", fake_sync)
+
+    result = asyncio.run(auth.ensure_draft("999888777", "NewEditor"))
+
+    assert re.fullmatch(r"[0-9a-f]{16}", result["mediaId"])
+    assert captured["entry"]["mediaId"] == result["mediaId"]
 
 
 # ── Task 1: callback — the OAuth trust boundary (D-07/D-08/D-09, Pitfall 4) ─────────

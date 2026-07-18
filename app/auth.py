@@ -23,6 +23,7 @@ ever logged or returned in an error body (T-10-08-05).
 
 import asyncio
 import logging
+import secrets
 
 import httpx
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -155,6 +156,7 @@ async def ensure_draft(discord_id, username) -> dict:
     entry = EditorPage(
         slug=slug,
         discordId=target,
+        mediaId=secrets.token_hex(8),
         published=False,
         name=(username or slug)[:100],
         lang="es",
