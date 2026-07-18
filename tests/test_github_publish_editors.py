@@ -442,3 +442,24 @@ def test_unpublish_editor_stale_ref_422_refetches_and_retries(wire):
     assert fake.ref_get_count >= 2                          # re-fetched the ref
     assert result["committed"] is True
     assert len(fake.ref_patches()) == 2
+
+
+# ── sync_editors: media keyed by mediaId (Task 2) ─────────────────────────────────────
+def test_sync_editors_images_land_under_media_id_not_slug(wire):
+    # With a mediaId, blobs commit under public/editors/<mediaId>/ — NOT the slug dir —
+    # so a later slug rename never orphans the media.
+    fake = wire(FakeGitHub(base_editors=[]))
+    entry = _editor(slug="aria-nueva", discord_id="AAA", mediaId="tok123abc")
+    asyncio.run(github_publish.sync_editors(entry, images=[("pic.webp", b"BYTES")]))
+    blob_paths = [t["path"] for t in fake.blob_tree_entries()]
+    assert "public/editors/tok123abc/pic.webp" in blob_paths
+    assert not any("/aria-nueva/" in p for p in blob_paths)
+
+
+def test_sync_editors_falls_back_to_slug_when_no_media_id(wire):
+    # Backward-compat: a pre-feature entry with no mediaId still commits under the slug dir.
+    fake = wire(FakeGitHub(base_editors=[]))
+    entry = _editor(slug="aria", discord_id="AAA")  # no mediaId
+    asyncio.run(github_publish.sync_editors(entry, images=[("pic.webp", b"BYTES")]))
+    blob_paths = [t["path"] for t in fake.blob_tree_entries()]
+    assert "public/editors/aria/pic.webp" in blob_paths

@@ -1014,6 +1014,9 @@ def _sync_editors_sync(entry, images=(), message=None, prune=False):
     editors_path = config.WEBSITE_EDITORS_JSON
     image_dir = config.WEBSITE_EDITORS_IMAGE_DIR.rstrip("/")
     slug = entry["slug"]
+    # Media lives under a STABLE key so a slug rename never moves a committed file. Fall
+    # back to the slug for pre-feature entries that have no mediaId yet.
+    media_key = entry.get("mediaId") or slug
     target = str(entry["discordId"])
     images = list(images)
 
@@ -1024,7 +1027,7 @@ def _sync_editors_sync(entry, images=(), message=None, prune=False):
     for filename, raw in images:
         blob_sha = _create_blob(repo, raw)
         blob_tree.append({
-            "path": f"{image_dir}/{slug}/{filename}",
+            "path": f"{image_dir}/{media_key}/{filename}",
             "mode": _MODE,
             "type": "blob",
             "sha": blob_sha,
@@ -1044,7 +1047,7 @@ def _sync_editors_sync(entry, images=(), message=None, prune=False):
     # retains the blobs — this only keeps the live tree / Pages deploy lean.
     delete_tree = []
     if prune:
-        slug_dir = f"{image_dir}/{slug}"
+        slug_dir = f"{image_dir}/{media_key}"
         referenced = _referenced_media_names(entry)
         uploaded = set(files)
         delete_tree = [
