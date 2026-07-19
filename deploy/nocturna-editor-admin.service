@@ -11,7 +11,8 @@
 ; forwards to this loopback port. NEVER change --host to 0.0.0.0.
 ;
 ; NO SECRETS live in this file. All secrets (SESSION_SECRET, the OAuth client
-; secret, GITHUB_PAT, BOT_TOKEN) come from the cinema .env via EnvironmentFile.
+; secret, GITHUB_PAT, BOT_TOKEN) come from the cinema .env, which the app loads
+; itself via config.py's load_dotenv — NOT a systemd EnvironmentFile (see below).
 ;
 ; Install:  see deploy/EDITOR_DEPLOY.md §7. Adjust User= and the two paths below
 ;           (WorkingDirectory + the venv in ExecStart) to match the cinema checkout,
@@ -33,11 +34,12 @@ User=YOUR_USER
 ; The nocturna-bot repo checkout on cinema (holds app/, core/, venv/, .env).
 WorkingDirectory=/home/YOUR_USER/nocturna-bot
 
-; Shares the bot's .env — same file the bot loads. Holds SESSION_SECRET, the
-; Discord OAuth client id/secret, EDITOR_APP_BASE_URL, the redirect URI, plus the
-; already-live GITHUB_PAT / WEBSITE_REPO / WEBSITE_BRANCH / BOT_TOKEN. The app
-; fail-fasts at startup if any required OAuth/session key is empty (validate_config).
-EnvironmentFile=/home/YOUR_USER/nocturna-bot/.env
+; NO EnvironmentFile: the app loads the bot's .env ITSELF at import (config.py ->
+; load_dotenv), exactly like the bot process. systemd's EnvironmentFile does NOT strip an
+; inline "# comment" after a value (e.g. FOO=123 # note), so it would inject a polluted
+; value and, for an int() field, crash startup — python-dotenv strips it. WorkingDirectory
+; (set above) is the repo root, so load_dotenv finds .env. The app still fail-fasts at
+; startup if any required OAuth/session key is empty (validate_config).
 
 ; uvicorn from the SHARED bot venv, loopback bind, fixed port 8770 (matches
 ; app/main.py __main__ + the Caddyfile reverse_proxy target).
