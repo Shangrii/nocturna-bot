@@ -148,3 +148,17 @@ SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 EDITOR_APP_BASE_URL = os.getenv("EDITOR_APP_BASE_URL", "https://editors.nocturna-avatars.site")
 # El rol de editor reutiliza el rol de moderador existente (D-15) — no se crea un
 # ROLE_EDITOR_ID nuevo; ROLE_MODERATOR_ID (arriba) ya cubre esta frontera de confianza.
+
+# ── Pagos (comando /pago — métodos de pago) ───────────────────────────────────────
+# El staff dispara /pago y el bot postea un embed PÚBLICO bilingüe con los métodos de
+# pago cuyos datos estén configurados. Los datos son SENSIBLES → SOLO en el .env, nunca
+# en el repo; cada método es opcional (vacío → se omite del mensaje).
+# Roles cuyo /pago puede postear (frontera de confianza). Cadena separada por comas →
+# lista de ints; si queda vacía, cae en los mismos roles de staff de la galería.
+PAGO_STAFF_ROLE_IDS = [
+    int(x) for x in os.getenv("PAGO_STAFF_ROLE_IDS", "").split(",") if x.strip()
+] or GALLERY_STAFF_ROLE_IDS
+# Datos de cada método (texto libre; neutro de idioma: CLABE, tag, link/email).
+PAGO_DEPOSITO_MX_INFO = os.getenv("PAGO_DEPOSITO_MX_INFO", "")     # depósito/CLABE México
+PAGO_INTERNACIONAL_INFO = os.getenv("PAGO_INTERNACIONAL_INFO", "")  # Revolut internacional (EE.UU.) — futuro
+PAGO_PAYPAL_INFO = os.getenv("PAGO_PAYPAL_INFO", "")               # paypal.me / email

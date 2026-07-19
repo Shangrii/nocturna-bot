@@ -55,6 +55,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.editors")
         await self.load_extension("cogs.presence")
         await self.load_extension("cogs.help")
+        await self.load_extension("cogs.payments")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
         # instaladas, el resto del bot debe seguir funcionando igualmente.
