@@ -669,7 +669,7 @@ per STATE.md); nothing here is legacy.
 surfaced and accepted in CONTEXT.md's own decision record (D-05 discretion, D-11 confirmed
 assumption) rather than newly discovered here.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact template/CSS approach: dedicated `settings.css` vs. reusing `editor.css` classes**
    - What we know: `editor.css` already defines `.field`, `.label`, `.btn`, `.btn--accent`,
@@ -683,6 +683,10 @@ assumption) rather than newly discovered here.
      `.btn`); add a handful of new classes (e.g. `.settings-group`) only if the existing set
      proves insufficient during template implementation — this is a planner/implementer
      judgment call, not a research gap.
+   - RESOLVED: Followed — plan 02-03 reuses `editor.css` classes verbatim (`.field`,
+     `.label`, `.btn`, `.theme-group`) and appends only the two NEW inline-error classes
+     (`.field-error`, `.field--invalid`) to `editor.css`; no separate `settings.css` was
+     forked. See 02-03-PLAN.md Task 2 and 02-UI-SPEC.md § New Elements.
 
 2. **Where does the `validate_only` (or equivalent) dry-run function live, and is it public API?**
    - What we know: D-09 explicitly says the internal shape of the metadata extension is
@@ -695,6 +699,10 @@ assumption) rather than newly discovered here.
      `app/main.py` from reaching into another module's underscore-prefixed internals, and
      it directly serves the D-04/D-05 atomicity contract this phase's success criteria
      require.
+   - RESOLVED: Followed — plan 02-01 adds an explicitly-public `validate_only(key, value)`
+     to `core/settings.py` alongside `get`/`set`/`all_for_ui`; the 02-04 POST handler calls
+     it in the first (dry-run) pass and never reaches into `settings._SCHEMA`. See
+     02-01-PLAN.md Task 2 and 02-04-PLAN.md Task 3.
 
 ## Environment Availability
 
