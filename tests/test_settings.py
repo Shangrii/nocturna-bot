@@ -171,6 +171,98 @@ def test_all_for_ui_grouped(monkeypatch, tmp_path):
     assert reminders_tz["options"] == sorted(reminders_tz["options"])
 
 
+# ── CR-01/CR-02 (02-05 gap closure): all_for_ui() emits raw, string-serialized values ──
+def test_all_for_ui_snowflake_is_string(monkeypatch, tmp_path):
+    """Test A: PHOTO_CHANNEL_ID's editable value is the str, not the bare int (CR-01)."""
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.seed_defaults()
+    by_key = {
+        entry["key"]: entry
+        for bucket in settings.all_for_ui()
+        for entry in bucket["settings"]
+    }
+    entry = by_key["PHOTO_CHANNEL_ID"]
+    assert entry["value"] == "1416329356426481717"
+    assert isinstance(entry["value"], str)
+
+
+def test_all_for_ui_role_list_is_comma_joined_string(monkeypatch, tmp_path):
+    """Test B: role_list values are comma-joined strings; empty list serializes to ""."""
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.set("GALLERY_STAFF_ROLE_IDS", [111, 222])
+    by_key = {
+        entry["key"]: entry
+        for bucket in settings.all_for_ui()
+        for entry in bucket["settings"]
+    }
+    gallery = by_key["GALLERY_STAFF_ROLE_IDS"]
+    assert gallery["value"] == "111, 222"
+    assert isinstance(gallery["value"], str)
+
+    reviews = by_key["REVIEWS_STAFF_ROLE_IDS"]  # unset in DB → raw empty list → ""
+    assert reviews["value"] == ""
+    assert isinstance(reviews["value"], str)
+
+
+def test_all_for_ui_no_precision_losing_literal(monkeypatch, tmp_path):
+    """Test C: json.dumps(all_for_ui()) never contains a bare int/float > 2**53."""
+    import json as _json
+
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.seed_defaults()
+    grouped = settings.all_for_ui()
+
+    dumped = _json.dumps(grouped)
+    assert '"1416329356426481717"' in dumped  # present, and only in its quoted form
+    for bucket in grouped:
+        for entry in bucket["settings"]:
+            if entry["type"] in ("snowflake", "role_list"):
+                assert isinstance(entry["value"], str), (
+                    f"{entry['key']} ({entry['type']}) must be a str, got {type(entry['value'])}"
+                )
+
+    limit = 2**53
+    for bucket in grouped:
+        for entry in bucket["settings"]:
+            value = entry["value"]
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                assert abs(value) <= limit, f"{entry['key']} has a precision-losing literal: {value!r}"
+
+
+def test_all_for_ui_raw_value_bypasses_fallback(monkeypatch, tmp_path):
+    """Test D: the editable payload shows the RAW empty list, not the resolved fallback,
+    while settings.get() still cascades (CONF-03 preserved at read time, CR-02)."""
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.set("GALLERY_STAFF_ROLE_IDS", [111])
+    # REVIEWS_STAFF_ROLE_IDS is left unset in the DB
+    by_key = {
+        entry["key"]: entry
+        for bucket in settings.all_for_ui()
+        for entry in bucket["settings"]
+    }
+    assert by_key["REVIEWS_STAFF_ROLE_IDS"]["value"] == ""
+    assert settings.get("REVIEWS_STAFF_ROLE_IDS") == [111]
+
+
+def test_all_for_ui_other_types_unchanged(monkeypatch, tmp_path):
+    """Test E: int_range/timezone/free_string/url/lang values stay their native type."""
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.seed_defaults()
+    by_key = {
+        entry["key"]: entry
+        for bucket in settings.all_for_ui()
+        for entry in bucket["settings"]
+    }
+    jinxxy_poll = by_key["JINXXY_POLL_HOURS"]
+    assert jinxxy_poll["value"] == 6
+    assert isinstance(jinxxy_poll["value"], int)
+
+
 # ── CONC-01: WAL journal mode is active after _get_conn() ─────────────────────────
 def test_wal_mode_active(monkeypatch, tmp_path):
     _use_tmp_db(monkeypatch, tmp_path)
