@@ -72,7 +72,7 @@ Plans:
 
 **Gap closure** *(verification found gaps: SC2/CR-01 snowflake precision, SC3/CR-02 fallback baking)*
 
-- [ ] 02-05-PLAN.md — Data-integrity serialization in all_for_ui(): raw-value (_get_raw, no fallback) + string-typed snowflake/role_list + unit & integration regressions [Wave 1]
+- [x] 02-05-PLAN.md — Data-integrity serialization in all_for_ui(): raw-value (_get_raw, no fallback) + string-typed snowflake/role_list + unit & integration regressions [Wave 1]
 
 ## Progress
 
@@ -82,4 +82,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Config Store + Consolidation | 3/3 | Complete   | 2026-07-21 |
-| 2. Owner Settings Panel | 4/5 | Gap closure in progress | 2026-07-21 |
+| 2. Owner Settings Panel | 5/5 | Complete   | 2026-07-21 |
