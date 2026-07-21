@@ -329,15 +329,27 @@ def set(key: str, value) -> None:
     ``_REMINDER_UPDATABLE`` discipline (T-01-02-01). The validator runs before the upsert, so a
     rejected value never reaches the database (T-01-02-02).
     """
-    if key not in _SCHEMA:
-        raise SettingRejected(f"unknown setting key: {key!r}")
-    validated = _SCHEMA[key].validate(value)  # raises SettingRejected on failure, before any SQL
+    validated = validate_only(key, value)  # raises SettingRejected on failure, before any SQL
     with db._get_conn() as conn:
         conn.execute(
             "INSERT INTO settings (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, json.dumps(validated)),
         )
+
+
+def validate_only(key: str, value):
+    """Dry-run validation half of ``set()`` — coerces/validates ``value`` for ``key`` but never
+    opens a DB connection or writes anything (D-05/PANEL-03).
+
+    Lets the (Phase 2) panel's atomic multi-field POST validate every submitted key first,
+    collecting all failures, before calling ``set`` on any key. Raises ``SettingRejected`` for
+    an unknown key (the ``_SCHEMA`` allowlist is preserved exactly like ``set``) or for a value
+    that fails its type's validator.
+    """
+    if key not in _SCHEMA:
+        raise SettingRejected(f"unknown setting key: {key!r}")
+    return _SCHEMA[key].validate(value)
 
 
 def all_for_ui() -> list[dict]:
