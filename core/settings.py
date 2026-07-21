@@ -40,14 +40,19 @@ class SettingRejected(ValueError):
 
 
 # ── validators — each returns the coerced value or raises SettingRejected (STORE-03) ──
-_SNOWFLAKE_RE = re.compile(r"\d{17,20}")
-
-
 def _validate_channel_id(value) -> int:
-    """A single Discord snowflake (channel/forum ID): 17–20 digits → int."""
+    """A single Discord channel/forum ID → positive int.
+
+    Kept intentionally lenient on ID length (same reasoning as ``_validate_role_id_list``):
+    Discord snowflakes are 17-20 digits, but the validator's job is to guarantee a positive
+    ``int``, not to police ID width — the Wave-0 contract (test_jinxxy_announce_channel_reads_at_use)
+    sets ``4242`` and a channel Discord invents outside the 17-20 band must still round-trip.
+    ``0``/negative are rejected here (these channels must be set — the ``_or_zero`` variant is
+    the one that allows the unset ``0`` sentinel).
+    """
     s = str(value).strip()
-    if not _SNOWFLAKE_RE.fullmatch(s):
-        raise SettingRejected("must be a Discord snowflake ID (17-20 digits)")
+    if not s.isdigit() or int(s) <= 0:
+        raise SettingRejected("must be a positive channel/forum ID")
     return int(s)
 
 
