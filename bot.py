@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 import config
+import core.settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,6 +87,13 @@ class NocturnaBot(commands.Bot):
 
 
 def main():
+    # Sembrar la tabla settings una sola vez antes de cualquier lectura de tunable segura
+    # (STORE-05). Idempotente: en reinicios es un no-op y NUNCA pisa la edición de un owner
+    # (Pitfall 3). Va ANTES del fail-fast para que esos checks — FORUM_CHANNEL_ID,
+    # ENCODING_CHANNEL_ID, GALLERY_STAFF_ROLE_IDS, REVIEWS_CHANNEL_ID, REMINDERS_TZ, que ahora
+    # se leen vía settings.get — vean filas ya sembradas. Sin try/except defensivo: un fallo
+    # real de siembra debe aflorar, igual que el resto del arranque fail-fast.
+    core.settings.seed_defaults()
     if not config.BOT_TOKEN:
         log.error("BOT_TOKEN no configurado en el .env")
         sys.exit(1)
