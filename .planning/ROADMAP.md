@@ -59,8 +59,8 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Store metadata extension (all_for_ui label/min/max/tz-options) + validate_only dry-run [Wave 1]
-- [ ] 02-02-PLAN.md — require_owner gate in app/deps.py, fail-closed on the 0 default [Wave 1]
+- [x] 02-01-PLAN.md — Store metadata extension (all_for_ui label/min/max/tz-options) + validate_only dry-run [Wave 1]
+- [x] 02-02-PLAN.md — require_owner gate in app/deps.py, fail-closed on the 0 default [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -78,4 +78,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Config Store + Consolidation | 3/3 | Complete   | 2026-07-21 |
-| 2. Owner Settings Panel | 0/4 | Not started | - |
+| 2. Owner Settings Panel | 2/4 | In Progress|  |
