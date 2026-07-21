@@ -54,7 +54,7 @@ Plans:
   3. A valid `POST` persists to the store and re-renders with a success banner; an invalid `POST` returns an inline field error and writes nothing.
   4. After a save, the bot picks up the new value on its next relevant use (loop-interval changes on the next cycle).
 
-**Plans**: 4 plans (3 waves)
+**Plans**: 5 plans (4 waves)
 
 Plans:
 **Wave 1**
@@ -70,6 +70,10 @@ Plans:
 
 - [x] 02-04-PLAN.md — GET/POST /admin/settings routes (atomic validate-then-write) + is_owner context + integration tests [Wave 3]
 
+**Gap closure** *(verification found gaps: SC2/CR-01 snowflake precision, SC3/CR-02 fallback baking)*
+
+- [ ] 02-05-PLAN.md — Data-integrity serialization in all_for_ui(): raw-value (_get_raw, no fallback) + string-typed snowflake/role_list + unit & integration regressions [Wave 1]
+
 ## Progress
 
 **Execution Order:**
@@ -78,4 +82,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Config Store + Consolidation | 3/3 | Complete   | 2026-07-21 |
-| 2. Owner Settings Panel | 4/4 | Complete   | 2026-07-21 |
+| 2. Owner Settings Panel | 4/5 | Gap closure in progress | 2026-07-21 |
