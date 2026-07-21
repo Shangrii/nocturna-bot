@@ -123,6 +123,60 @@ def test_post_settings_round_trip_visible_to_settings_get(client):
     assert settings.get("REMINDERS_CATCHUP_GRACE_HOURS") == 42
 
 
+def _flatten(groups: list[dict]) -> dict:
+    """Mirror settingsApp's flatten (settings.html lines 104-114): key -> current value,
+    for every setting in every group. Reproduces the EXACT payload the browser posts on an
+    unmodified "Save" click — all keys, current (already string-serialized) values."""
+    return {
+        setting["key"]: setting["value"]
+        for group in groups
+        for setting in group["settings"]
+    }
+
+
+# ── CR-01/CR-02 (02-05 gap closure): GET-payload → POST-unchanged round trip ───────
+def test_post_settings_unchanged_save_preserves_snowflake_precision(client):
+    """Test F: flattening all_for_ui() and POSTing it back unedited must not corrupt a
+    17-20 digit Discord snowflake (CR-01 — a bare int would round in the browser's JS,
+    but here we drive the same payload shape server-side through the real route)."""
+    payload = _flatten(settings.all_for_ui())
+
+    resp = client.post("/admin/settings", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert settings.get("PHOTO_CHANNEL_ID") == 1416329356426481717
+
+
+def test_post_settings_unchanged_save_preserves_staff_role_cascade(client):
+    """Test G: an unmodified full-form save must not bake the CONF-03 gallery fallback into
+    REVIEWS/REMINDERS/JINXXY_STAFF_ROLE_IDS (CR-02) — the cascade must still respond to a
+    later gallery-only edit."""
+    settings.set("GALLERY_STAFF_ROLE_IDS", [111])
+
+    payload = _flatten(settings.all_for_ui())
+    # the raw (unresolved) dependent lists are empty strings in the payload (Task 1 fix)
+    assert payload["REVIEWS_STAFF_ROLE_IDS"] == ""
+    assert payload["REMINDERS_STAFF_ROLE_IDS"] == ""
+    assert payload["JINXXY_STAFF_ROLE_IDS"] == ""
+
+    resp = client.post("/admin/settings", json=payload)
+    assert resp.status_code == 200
+
+    # unchanged save: nothing baked in, still cascading from the gallery list
+    assert settings.get("REVIEWS_STAFF_ROLE_IDS") == [111]
+    assert settings.get("REMINDERS_STAFF_ROLE_IDS") == [111]
+    assert settings.get("JINXXY_STAFF_ROLE_IDS") == [111]
+
+    resp2 = client.post("/admin/settings", json={"GALLERY_STAFF_ROLE_IDS": "222"})
+    assert resp2.status_code == 200
+
+    # editing only the gallery list still cascades to every dependent key
+    assert settings.get("REVIEWS_STAFF_ROLE_IDS") == [222]
+    assert settings.get("REMINDERS_STAFF_ROLE_IDS") == [222]
+    assert settings.get("JINXXY_STAFF_ROLE_IDS") == [222]
+
+
 # ── bad JSON body → 400 ─────────────────────────────────────────────────────────────
 def test_post_settings_non_dict_body_returns_400(client):
     resp = client.post("/admin/settings", json=["not", "a", "dict"])
