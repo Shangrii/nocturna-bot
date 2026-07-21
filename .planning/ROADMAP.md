@@ -102,7 +102,29 @@ day-to-day operations, editors their own presentation page.
   4. An editor can only access their presentation section.
   5. The owner can edit the role→tier mapping from Settings; a Manager cannot self-elevate and the owner can never be locked out.
 
-**Plans**: TBD
+**Plans**: 8 plans (4 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — RED-first test scaffolding: tests/test_app_dashboard.py (SHELL/ACCESS) + tests/test_settings.py mapping cases [Wave 1]
+- [ ] 03-02-PLAN.md — Role→tier mapping storage: manager_roles/editor_roles settings keys + Access group field [Wave 1]
+- [ ] 03-03-PLAN.md — Overview data plumbing: bot_heartbeat/jinxxy_sync_status/activity_log tables + heartbeat cog [Wave 1]
+- [ ] 03-06-PLAN.md — Variant-A shell templates + dashboard.css (base, sidebar, overview, module stub, forbidden) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 03-04-PLAN.md — Cog event instrumentation: jinxxy sync status + gallery/reviews/meeting activity_log hooks [Wave 2]
+- [ ] 03-05-PLAN.md — 3-tier resolution: _fetch_member_roles, has_editor_role, _resolve_roles/require_manager/TierForbidden [Wave 2]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 03-07-PLAN.md — Dashboard routes + wiring: 6 section routes, /api/overview/status, lifespan init, TierForbidden handler [Wave 3]
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 03-08-PLAN.md — Human-verify checkpoint: variant-A fidelity + owner/Manager/editor tier matrix [Wave 4]
+
 **UI hint**: yes
 
 ### Phase 4: Settings Migration + Name Resolution
@@ -209,7 +231,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|-----------|-----------------|--------|-----------|
 | 1. Config Store + Consolidation | v1.0 | 3/3 | Complete | 2026-07-21 |
 | 2. Owner Settings Panel | v1.0 | 5/5 | Complete | 2026-07-21 |
-| 3. Dashboard Shell + Tiered Access | v2.0 | 0/TBD | Not started | - |
+| 3. Dashboard Shell + Tiered Access | v2.0 | 0/8 | Not started | - |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/TBD | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
@@ -217,4 +239,3 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 8. Jinxxy Manual Sync | v2.0 | 0/TBD | Not started | - |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/TBD | Not started | - |
 | 10. Editors Section Integration | v2.0 | 0/TBD | Not started | - |
-</content>
