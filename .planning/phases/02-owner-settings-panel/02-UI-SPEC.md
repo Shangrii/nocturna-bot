@@ -1,10 +1,11 @@
 ---
 phase: 2
 slug: owner-settings-panel
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-07-21
+reviewed_at: 2026-07-21
 ---
 
 # Phase 2 — UI Design Contract
@@ -205,11 +206,11 @@ authored in the same file as the rest of the app's hand-rolled CSS.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: FLAG (non-blocking — primary visual anchor inferable but not explicitly declared)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: FLAG (non-blocking — 12px/12.5px pair is an intentional label/hint pairing, not a hierarchy step; pre-existing editor.css convention)
+- [x] Dimension 5 Spacing: FLAG (non-blocking — `--sp-xs` 12px and `--touch-min` 44px are accepted pre-existing extensions to the 4/8/16/24/32/48/64 scale)
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** APPROVED (2026-07-21, gsd-ui-checker — 0 BLOCK, 3 FLAG)
