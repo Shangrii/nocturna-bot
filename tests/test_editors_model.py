@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from core.editors_model import (
-    EditorPage, ThemeModel, normalize_slug, resolve_slug, SlugRejected, RESERVED_SLUGS,
+    EditorPage, ThemeModel, normalize_slug, resolve_slug, SlugRejected,
 )
 
 
@@ -434,15 +434,34 @@ def test_editor_page_rejects_dict_tagline():
         EditorPage.model_validate(_base_page(tagline={"es": "x", "en": "y"}))
 
 
-# ── badges from the curated team-defined set (D-07) ───────────────────────────────
-def test_editor_page_accepts_known_badges():
-    page = EditorPage.model_validate(_base_page(badges=["Outfits", "Textures", "Blender"]))
-    assert "Outfits" in page.badges
+# ── badges are free-form specialty tags, injection-safe + bounded ─────────────────
+# (loosened from the D-07 curated set on user request — modelers/managers aren't
+# "editors", so the fixed set no longer fits; core/editors_model.py _badges_free_text)
+def test_editor_page_accepts_free_form_badges():
+    # Any word is allowed now, including tags outside the old curated set.
+    page = EditorPage.model_validate(_base_page(badges=["Outfits", "Rigging", "Community Manager"]))
+    assert page.badges == ["Outfits", "Rigging", "Community Manager"]
 
 
-def test_editor_page_rejects_unknown_badge():
+def test_editor_page_trims_and_drops_empty_badges():
+    page = EditorPage.model_validate(_base_page(badges=["  Outfits  ", "", "   "]))
+    assert page.badges == ["Outfits"]
+
+
+@pytest.mark.parametrize("bad_tag", ["<script>", 'a"b', "a'b", "a`b", "a\\b", "a\x00b"])
+def test_editor_page_rejects_injection_chars_in_badge(bad_tag):
     with pytest.raises(ValidationError):
-        EditorPage.model_validate(_base_page(badges=["Outfits", "Hacking"]))
+        EditorPage.model_validate(_base_page(badges=[bad_tag]))
+
+
+def test_editor_page_rejects_overlong_badge():
+    with pytest.raises(ValidationError):
+        EditorPage.model_validate(_base_page(badges=["x" * 41]))
+
+
+def test_editor_page_rejects_too_many_badges():
+    with pytest.raises(ValidationError):
+        EditorPage.model_validate(_base_page(badges=[f"tag{i}" for i in range(11)]))
 
 
 # ── socials are https-only LinkItems (D-09/D-16) ──────────────────────────────────
