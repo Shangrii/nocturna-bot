@@ -164,7 +164,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.
 .field { margin-bottom: var(--sp-sm); }
 .field > label { display: block; margin-bottom: var(--sp-3xs); }
 
-input[type="text"], input[type="url"], textarea, select {
+input[type="text"], input[type="url"], input[type="number"], textarea, select {
   width: 100%;
   min-height: var(--touch-min);
   padding: var(--sp-xs);
@@ -747,4 +747,16 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ── Settings panel: inline per-field errors (NEW, Phase 2) ──────────────────── */
+.field--invalid input, .field--invalid select {
+  border-color: var(--red-on-ink);
+}
+.field-error {
+  margin: 2px 0 0;
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--red-on-ink);
 }

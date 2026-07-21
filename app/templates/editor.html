@@ -31,6 +31,9 @@
               x-show="page.published">
         Despublicar · Unpublish
       </button>
+      {% if is_owner %}
+      <a class="btn btn--ghost" href="/admin/settings">⚙ Ajustes · Settings</a>
+      {% endif %}
       <a class="btn btn--ghost" href="/logout">Salir · Sign out</a>
     </header>
 
