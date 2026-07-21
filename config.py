@@ -4,15 +4,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Config store (Fase 01) ───────────────────────────────────────────────────────
+# Las 19 "tunables seguras" (canales, roles de staff, TZ, cadencias, modelos) ya NO
+# se congelan como asignaciones a nivel de módulo: se leen EN EL PUNTO DE USO a través
+# de core.settings.get, vía el shim __getattr__ del final de este archivo (CONF-01).
+# Así una edición guardada por el owner surte efecto en la siguiente lectura, sin tocar
+# ningún call-site (todos hacen `config.X`, acceso por atributo → dispara __getattr__).
+# Los SECRETOS y valores ESTRUCTURALES de abajo SIGUEN congelados aquí (CONF-02): nunca
+# pasan por el store ni por el panel.
+
 # ── Bot ────────────────────────────────────────────────────────────────────────
 BOT_TOKEN       = os.getenv("BOT_TOKEN")
 DISCORD_USER_ID = int(os.getenv("DISCORD_USER_ID", "0"))
 
 # ── Servidor Discord ────────────────────────────────────────────────────────────
 GUILD_ID            = int(os.getenv("GUILD_ID", "1411899319468167190"))
-FORUM_CHANNEL_ID    = int(os.getenv("FORUM_CHANNEL_ID", "0"))
-ENCODING_CHANNEL_ID = int(os.getenv("ENCODING_CHANNEL_ID", "0"))
 ROLE_MODERATOR_ID   = int(os.getenv("ROLE_MODERATOR_ID", "1418724526308593834"))
+# FORUM_CHANNEL_ID / ENCODING_CHANNEL_ID → tunables seguras (settings.get, ver __getattr__).
 
 # ── HTTP local ──────────────────────────────────────────────────────────────────
 # encoder → bot (notificaciones)
@@ -27,23 +35,19 @@ ENCODER_CONTROL_PORT = int(os.getenv("ENCODER_CONTROL_PORT", "8766"))
 DB_PATH = Path(os.getenv("DB_PATH", "bot.db"))
 
 # ── Reuniones: transcripción (faster-whisper) ─────────────────────────────────────
-WHISPER_MODEL   = os.getenv("WHISPER_MODEL", "large-v3-turbo")  # cabe en la 1050 (~1.5 GB)
+# WHISPER_MODEL / WHISPER_PROMPT / MEETING_LANG → tunables seguras (settings.get).
 WHISPER_DEVICE  = os.getenv("WHISPER_DEVICE", "cpu")     # "cuda" en el servidor con GPU NVIDIA
 WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE", "int8")   # int8 (CPU/GPU modesta) | float16 (GPU)
 WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "4")) # hilos CPU (deja margen al encoder)
-MEETING_LANG    = os.getenv("MEETING_LANG", "es")
-# Pista de contexto/nombres propios para Whisper (ayuda con nombres como CachoraBot)
-WHISPER_PROMPT  = os.getenv("WHISPER_PROMPT", "Reunión en español del equipo Nocturna. Bot: CachoraBot.")
 
 # ── Reuniones: resumen (Ollama, LLM local) ───────────────────────────────────────
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi4")         # corre en CPU (la GPU es para Whisper)
+# OLLAMA_MODEL → tunable segura (settings.get).
 
 # Carpeta temporal donde se guardan las grabaciones de voz antes de transcribir
 RECORDINGS_DIR = Path(os.getenv("RECORDINGS_DIR", "recordings"))
 
-# Foro donde se publican las actas de reuniones (un post por reunión)
-MEETINGS_FORUM_ID = int(os.getenv("MEETINGS_FORUM_ID", "1517386124044013588"))
+# Foro donde se publican las actas de reuniones → MEETINGS_FORUM_ID es tunable segura (settings.get).
 
 # Archivo donde se guardan las notas pedidas fuera de una reunión activa
 NOTES_FILE = Path(os.getenv("NOTES_FILE", "notas.md"))
@@ -51,13 +55,8 @@ NOTES_FILE = Path(os.getenv("NOTES_FILE", "notas.md"))
 # ── Galería (Fase 5: cog de publicación de fotos) ─────────────────────────────────
 # El cog vigila un canal público de fotos, publica los adjuntos aprobados por staff
 # (reacción ✅) hacia el repo del sitio web vía la API de GitHub, y los quita con 🌙.
-# Canal público donde el staff sube las fotos de avatares (D-03).
-PHOTO_CHANNEL_ID = int(os.getenv("PHOTO_CHANNEL_ID", "1416329356426481717"))
-# Roles cuyas reacciones ✅/🌙 sí publican/quitan (frontera de confianza, D-01/D-08).
-# Cadena separada por comas en el .env → lista de ints; se ignoran valores en blanco.
-GALLERY_STAFF_ROLE_IDS = [
-    int(x) for x in os.getenv("GALLERY_STAFF_ROLE_IDS", "").split(",") if x.strip()
-]
+# PHOTO_CHANNEL_ID (canal público de fotos, D-03) y GALLERY_STAFF_ROLE_IDS (roles cuyas
+# reacciones ✅/🌙 publican/quitan, D-01/D-08) → tunables seguras (settings.get).
 # Token de acceso personal de GitHub (fine-grained, Contents: read/write) para el push
 # cross-repo. SOLO se lee del entorno; nunca se registra en logs ni commits (D-17).
 GITHUB_PAT = os.getenv("GITHUB_PAT", "")
@@ -73,29 +72,18 @@ WEBSITE_IMAGE_DIR = os.getenv("WEBSITE_IMAGE_DIR", "public/gallery")
 # El cog vigila el canal de reseñas, publica las reseñas aprobadas por staff (✅) hacia
 # src/data/reviews.json en el repo del sitio, y las quita con 🌙 — mismo transporte y
 # mismo PAT/repo/rama que la galería (no hay imágenes: solo un blob JSON por commit).
-# Canal donde los clientes dejan sus reseñas.
-REVIEWS_CHANNEL_ID = int(os.getenv("REVIEWS_CHANNEL_ID", "1453534905706221600"))
-# Roles cuyas reacciones ✅/🌙 publican/quitan reseñas. Cadena separada por comas → lista
-# de ints; si queda vacía, cae en los mismos roles de staff de la galería (CONTEXT L29).
-REVIEWS_STAFF_ROLE_IDS = [
-    int(x) for x in os.getenv("REVIEWS_STAFF_ROLE_IDS", "").split(",") if x.strip()
-] or GALLERY_STAFF_ROLE_IDS
+# REVIEWS_CHANNEL_ID (canal de reseñas) y REVIEWS_STAFF_ROLE_IDS (roles ✅/🌙; si queda
+# vacío cae en GALLERY_STAFF_ROLE_IDS vía el fallback de settings.get, CONF-03) → tunables
+# seguras (settings.get).
 # Ruta del JSON de reseñas dentro del repo del sitio (mismo repo/rama que la galería).
 WEBSITE_REVIEWS_JSON = os.getenv("WEBSITE_REVIEWS_JSON", "src/data/reviews.json")
 
 # ── Recordatorios (Fase 8: cog de recordatorios programados) ──────────────────────
 # El cog programa recordatorios semanales/mensuales/únicos y los publica en un canal.
-# Zona horaria IANA con la que se interpretan las horas del staff; se resuelve con
-# zoneinfo.ZoneInfo (tzdata la respalda en Windows/CI). Default America/Mexico_City (D-07).
-REMINDERS_TZ = os.getenv("REMINDERS_TZ", "America/Mexico_City")
-# Roles cuyos comandos gestionan recordatorios. Cadena separada por comas → lista de
-# ints; si queda vacía, cae en los mismos roles de staff de la galería (D-02).
-REMINDERS_STAFF_ROLE_IDS = [
-    int(x) for x in os.getenv("REMINDERS_STAFF_ROLE_IDS", "").split(",") if x.strip()
-] or GALLERY_STAFF_ROLE_IDS
-# Ventana de gracia (horas) para disparar recordatorios atrasados tras una caída del bot,
-# antes de saltarlos; default 6h, dentro de la banda 6–12h (D-13).
-REMINDERS_CATCHUP_GRACE_HOURS = int(os.getenv("REMINDERS_CATCHUP_GRACE_HOURS", "6"))
+# REMINDERS_TZ (zona IANA, default America/Mexico_City, D-07), REMINDERS_STAFF_ROLE_IDS
+# (roles gestores; vacío → GALLERY_STAFF_ROLE_IDS vía settings.get, D-02) y
+# REMINDERS_CATCHUP_GRACE_HOURS (ventana de gracia, default 6h, banda 6–12h, D-13) →
+# tunables seguras (settings.get).
 
 # ── Jinxxy (Fase 9: sync de la tienda) ────────────────────────────────────────────
 # El cog consulta periódicamente la Creator API de Jinxxy y refleja los productos en
@@ -103,26 +91,16 @@ REMINDERS_CATCHUP_GRACE_HOURS = int(os.getenv("REMINDERS_CATCHUP_GRACE_HOURS", "
 # Clave de la Creator API de Jinxxy (secreto). SOLO se lee del entorno y se coloca en el
 # header x-api-key; nunca se registra en logs ni commits — misma disciplina que GITHUB_PAT.
 JINXXY_API_KEY = os.getenv("JINXXY_API_KEY", "")
-# Canal donde el cog anuncia altas/cambios/bajas de la tienda (D-18).
-JINXXY_ANNOUNCE_CHANNEL_ID = int(os.getenv("JINXXY_ANNOUNCE_CHANNEL_ID", "1525202600738295818"))
-# Cadencia del poll en horas; default 6h, dentro de la banda 6–12h (D-03).
-JINXXY_POLL_HOURS = int(os.getenv("JINXXY_POLL_HOURS", "6"))
+# JINXXY_ANNOUNCE_CHANNEL_ID (canal de anuncios, D-18), JINXXY_POLL_HOURS (cadencia del
+# poll, default 6h, banda 6–12h, D-03), JINXXY_STAFF_ROLE_IDS (roles gestores; vacío →
+# GALLERY_STAFF_ROLE_IDS vía settings.get), WEBSITE_BASE_URL (origen del sitio público,
+# sin barra final) y JINXXY_STORE_URL (página de tienda EN que enlaza el embed) → tunables
+# seguras (settings.get).
 # Ruta del JSON de la tienda dentro del repo del sitio (mismo repo/rama que la galería).
 WEBSITE_STORE_JSON = os.getenv("WEBSITE_STORE_JSON", "src/data/store.json")
 # Directorio de imágenes de la tienda en el repo del sitio; GitHub Pages lo sirve como
 # /store/<archivo> (flujo de attach del staff, D-15).
 WEBSITE_STORE_IMAGE_DIR = os.getenv("WEBSITE_STORE_IMAGE_DIR", "public/store")
-# Roles cuyos comandos gestionan el sync de la tienda. Cadena separada por comas → lista
-# de ints; si queda vacía, cae en los mismos roles de staff de la galería (mismo idiom).
-JINXXY_STAFF_ROLE_IDS = [
-    int(x) for x in os.getenv("JINXXY_STAFF_ROLE_IDS", "").split(",") if x.strip()
-] or GALLERY_STAFF_ROLE_IDS
-# Origen del sitio desplegado (sin barra final). Sirve para convertir una ruta de imagen
-# relativa del sitio (/store/<archivo>.webp) en una URL absoluta para la miniatura del embed.
-WEBSITE_BASE_URL = os.getenv("WEBSITE_BASE_URL", "https://nocturna-avatars.site")
-# Página de tienda (en inglés) a la que enlaza el embed público de anuncios. La audiencia es
-# ahora inglesa, así que apunta a /en/store (ruta EN de StorePage.astro), no a /es/tienda.
-JINXXY_STORE_URL = os.getenv("JINXXY_STORE_URL", "https://nocturna-avatars.site/en/store")
 
 # ── Editores (Fase 10: app admin web de perfiles de editores) ────────────────────
 # App FastAPI separada (systemd propio en "cinema") que autentica editores vía Discord
@@ -154,11 +132,61 @@ EDITOR_APP_BASE_URL = os.getenv("EDITOR_APP_BASE_URL", "https://editors.nocturna
 # pago cuyos datos estén configurados. Los datos son SENSIBLES → SOLO en el .env, nunca
 # en el repo; cada método es opcional (vacío → se omite del mensaje).
 # Roles cuyo /pago puede postear (frontera de confianza). Cadena separada por comas →
-# lista de ints; si queda vacía, cae en los mismos roles de staff de la galería.
+# lista de ints; si queda vacía, cae en los mismos roles de staff de la galería. Este
+# tunable NO está en el store (fuera de alcance de la Fase 01), así que sigue congelado
+# aquí; su fallback a la galería se resuelve del .env en el import (byte-idéntico a antes),
+# no vía settings.get — por eso se re-parsea GALLERY_STAFF_ROLE_IDS inline en lugar de
+# referenciar el nombre (que ya no existe a nivel de módulo → daría NameError).
 PAGO_STAFF_ROLE_IDS = [
     int(x) for x in os.getenv("PAGO_STAFF_ROLE_IDS", "").split(",") if x.strip()
-] or GALLERY_STAFF_ROLE_IDS
+] or [
+    int(x) for x in os.getenv("GALLERY_STAFF_ROLE_IDS", "").split(",") if x.strip()
+]
 # Datos de cada método (texto libre; neutro de idioma: CLABE, tag, link/email).
 PAGO_DEPOSITO_MX_INFO = os.getenv("PAGO_DEPOSITO_MX_INFO", "")     # depósito/CLABE México
 PAGO_INTERNACIONAL_INFO = os.getenv("PAGO_INTERNACIONAL_INFO", "")  # Revolut internacional (EE.UU.) — futuro
 PAGO_PAYPAL_INFO = os.getenv("PAGO_PAYPAL_INFO", "")               # paypal.me / email
+
+
+# ── Config store shim (Fase 01, plan 01-03) ───────────────────────────────────────
+# Las 19 tunables seguras se leen en el punto de uso a través del store. Se listan aquí
+# en un allowlist explícito; SOLO estas rutan a settings.get — cualquier otro atributo
+# ausente levanta AttributeError como siempre (los secretos/estructurales de arriba son
+# atributos normales del módulo y ni siquiera llegan a __getattr__).
+_SAFE_TUNABLE_KEYS = frozenset({
+    "PHOTO_CHANNEL_ID",
+    "GALLERY_STAFF_ROLE_IDS",
+    "REVIEWS_CHANNEL_ID",
+    "REVIEWS_STAFF_ROLE_IDS",
+    "REMINDERS_TZ",
+    "REMINDERS_STAFF_ROLE_IDS",
+    "REMINDERS_CATCHUP_GRACE_HOURS",
+    "JINXXY_ANNOUNCE_CHANNEL_ID",
+    "JINXXY_POLL_HOURS",
+    "JINXXY_STAFF_ROLE_IDS",
+    "JINXXY_STORE_URL",
+    "WEBSITE_BASE_URL",
+    "MEETINGS_FORUM_ID",
+    "MEETING_LANG",
+    "WHISPER_PROMPT",
+    "WHISPER_MODEL",
+    "OLLAMA_MODEL",
+    "FORUM_CHANNEL_ID",
+    "ENCODING_CHANNEL_ID",
+})
+
+
+def __getattr__(name):
+    """PEP 562 module hook: route the 19 safe tunables to the store, read-at-use (CONF-01).
+
+    Only fires for names NOT found as real module attributes, so every secret/structural
+    assignment above shadows this and never routes through the store (CONF-02). The
+    ``from core import settings`` import is DEFERRED inside the body on purpose: core/db.py
+    does ``import config`` at module top, so a module-level import here would form a circular
+    import at startup (01-RESEARCH.md Pitfall 1). No DB I/O happens at config import time —
+    this only runs on attribute access.
+    """
+    if name in _SAFE_TUNABLE_KEYS:
+        from core import settings
+        return settings.get(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
