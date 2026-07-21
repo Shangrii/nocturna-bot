@@ -2,7 +2,7 @@
 sketch: 001
 name: dashboard-shell
 question: "¿Cómo se organiza y se siente el dashboard de admin completo (estilo MEE6, SaaS oscuro)?"
-winner: null
+winner: "A"
 tags: [layout, dashboard, navigation, admin-panel]
 ---
 

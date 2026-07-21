@@ -20,4 +20,4 @@ Target de implementación: FastAPI + Jinja + Alpine.js (server-rendered, sin bui
 
 | # | Name | Design Question | Winner | Tags |
 |---|------|----------------|--------|------|
-| 001 | dashboard-shell | ¿Cómo se organiza y se siente el dashboard completo? | — | layout, dashboard, navigation, admin-panel |
+| 001 | dashboard-shell | ¿Cómo se organiza y se siente el dashboard completo? | A: MEE6 puro | layout, dashboard, navigation, admin-panel |
