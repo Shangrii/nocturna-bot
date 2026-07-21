@@ -103,35 +103,35 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SHELL-01 | — | Pending |
-| SHELL-02 | — | Pending |
-| ACCESS-01 | — | Pending |
-| ACCESS-02 | — | Pending |
-| ACCESS-03 | — | Pending |
-| ACCESS-04 | — | Pending |
-| GAL-01 | — | Pending |
-| GAL-02 | — | Pending |
-| GAL-03 | — | Pending |
-| REV-01 | — | Pending |
-| REV-02 | — | Pending |
-| REM-01 | — | Pending |
-| REM-02 | — | Pending |
-| REM-03 | — | Pending |
-| JINX-01 | — | Pending |
-| MEET-01 | — | Pending |
-| MEET-02 | — | Pending |
-| MEET-03 | — | Pending |
-| SETT-01 | — | Pending |
-| SETT-02 | — | Pending |
-| EDIT-01 | — | Pending |
-| INFRA-01 | — | Pending |
-| INFRA-02 | — | Pending |
+| SHELL-01 | Phase 3 | Pending |
+| SHELL-02 | Phase 3 | Pending |
+| ACCESS-01 | Phase 3 | Pending |
+| ACCESS-02 | Phase 3 | Pending |
+| ACCESS-03 | Phase 3 | Pending |
+| ACCESS-04 | Phase 3 | Pending |
+| SETT-01 | Phase 4 | Pending |
+| SETT-02 | Phase 4 | Pending |
+| INFRA-01 | Phase 5 | Pending |
+| INFRA-02 | Phase 5 | Pending |
+| REM-01 | Phase 6 | Pending |
+| REM-02 | Phase 6 | Pending |
+| REM-03 | Phase 6 | Pending |
+| GAL-01 | Phase 7 | Pending |
+| GAL-02 | Phase 7 | Pending |
+| GAL-03 | Phase 7 | Pending |
+| REV-01 | Phase 7 | Pending |
+| REV-02 | Phase 7 | Pending |
+| JINX-01 | Phase 8 | Pending |
+| MEET-01 | Phase 9 | Pending |
+| MEET-02 | Phase 9 | Pending |
+| MEET-03 | Phase 9 | Pending |
+| EDIT-01 | Phase 10 | Pending |
 
 **Coverage:**
 - v2.0 requirements: 23 total
-- Mapped to phases: 0 (filled by roadmap)
-- Unmapped: 23
+- Mapped to phases: 23/23
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-21*
-*Last updated: 2026-07-21 after initial definition*
+*Last updated: 2026-07-21 after roadmap creation (Phases 3-10)*
