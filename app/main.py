@@ -51,8 +51,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import config
 from app import auth
-from app.deps import require_editor
-from core import db, github_publish
+from app.deps import require_editor, require_owner
+from core import db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
 
@@ -90,6 +90,12 @@ _UNPUBLISH_FAILED_COPY = (
     "No se pudo despublicar. Inténtalo de nuevo. — Couldn't unpublish. Try again."
 )
 _UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
+
+# Owner settings panel copy (Phase 2, D-13 bilingual house style).
+_SETTINGS_SAVED_COPY = "Ajustes guardados. — Settings saved."
+_SETTINGS_ERROR_COPY = (
+    "Revisa los campos marcados. — Check the highlighted fields."
+)
 
 # Slug-rejection copy, keyed by SlugRejected.reason → (HTTP status, bilingual message).
 _SLUG_REJECT = {
@@ -402,9 +408,35 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
         asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
     except OSError:
         asset_v = 0
+    # D-12: surface whether the SESSION identity is the configured owner, so the
+    # template can conditionally render the owner-only settings link. Same fail-closed
+    # 0/unset guard as require_owner (a misconfigured owner id must never show the link).
+    owner_id = config.DISCORD_USER_ID
+    is_owner = bool(owner_id) and str(ident["discord_id"]) == str(owner_id)
     return templates.TemplateResponse(
         request, "editor.html",
-        {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v},
+        {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v,
+         "is_owner": is_owner},
+    )
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, ident: dict = Depends(require_owner)):
+    """Owner-only settings panel (PANEL-01/02): server-render the grouped, typed tunables.
+
+    ``require_owner`` is the D-10 fail-closed choke point — only the configured
+    ``DISCORD_USER_ID`` ever reaches this handler. The rendered payload is exactly
+    ``settings.all_for_ui()``, which is built from the ``_SCHEMA`` allowlist — a secret
+    (BOT_TOKEN, GITHUB_PAT, JINXXY_API_KEY, SESSION_SECRET) or structural value (DB_PATH)
+    can never appear in the body because it is never in that allowlist (PANEL-02).
+    """
+    try:
+        asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
+    except OSError:
+        asset_v = 0
+    return templates.TemplateResponse(
+        request, "settings.html",
+        {"groups": settings.all_for_ui(), "asset_v": asset_v},
     )
 
 
