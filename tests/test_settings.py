@@ -150,6 +150,26 @@ def test_all_for_ui_grouped(monkeypatch, tmp_path):
     for secret in ("BOT_TOKEN", "GITHUB_PAT", "JINXXY_API_KEY", "SESSION_SECRET", "DB_PATH"):
         assert secret not in blob                             # secrets/structural keys absent
 
+    # ── D-09: render metadata — label (all), min/max (int_range), options (timezone) ──
+    by_key = {
+        entry["key"]: entry
+        for bucket in grouped
+        for entry in bucket["settings"]
+    }
+    for key, entry in by_key.items():
+        assert entry["label"], f"{key} missing a truthy label"
+
+    jinxxy_poll = by_key["JINXXY_POLL_HOURS"]
+    assert jinxxy_poll["min"] == 1
+    assert jinxxy_poll["max"] == 168
+    catchup_grace = by_key["REMINDERS_CATCHUP_GRACE_HOURS"]
+    assert catchup_grace["min"] == 1
+    assert catchup_grace["max"] == 168
+
+    reminders_tz = by_key["REMINDERS_TZ"]
+    assert "America/Mexico_City" in reminders_tz["options"]
+    assert reminders_tz["options"] == sorted(reminders_tz["options"])
+
 
 # ── CONC-01: WAL journal mode is active after _get_conn() ─────────────────────────
 def test_wal_mode_active(monkeypatch, tmp_path):
