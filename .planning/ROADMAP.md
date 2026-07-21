@@ -33,7 +33,7 @@ FastAPI admin app that reads and writes that store). Phase 2 depends entirely on
 **Plans**: 3 plans (3 waves)
 
 Plans:
-- [ ] 01-01-PLAN.md — Wave 0 test scaffolding: tests/test_settings.py + read-at-use tests in the four migrated-cog test files (RED-first)
+- [x] 01-01-PLAN.md — Wave 0 test scaffolding: tests/test_settings.py + read-at-use tests in the four migrated-cog test files (RED-first)
 - [ ] 01-02-PLAN.md — The validated store: core/settings.py (schema/get/set/all_for_ui/seed_defaults/SettingRejected) + core/db.py (init_settings + WAL)
 - [ ] 01-03-PLAN.md — Consolidation: config.py PEP 562 __getattr__ read-at-use shim + bot.py startup seed
 
@@ -58,5 +58,5 @@ Phases execute in numeric order: 1 → 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Config Store + Consolidation | 0/3 | Not started | - |
+| 1. Config Store + Consolidation | 1/3 | In Progress|  |
 | 2. Owner Settings Panel | 0/TBD | Not started | - |
