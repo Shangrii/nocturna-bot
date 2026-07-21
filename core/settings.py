@@ -320,6 +320,30 @@ def get(key: str):
     return value
 
 
+def _get_raw(key: str):
+    """Return the RAW stored-or-default value for ``key`` — the same resolution as ``get()``
+    EXCEPT it skips the CONF-03 empty-list → ``fallback_key`` branch (02-05 gap closure, CR-02).
+
+    Used only by ``all_for_ui()`` so the panel's editable payload reflects exactly what is
+    stored (or the schema default), never a fallback resolved fresh for display. This is what
+    lets an unmodified full-form save re-persist an empty staff-role list instead of baking the
+    gallery fallback into REVIEWS/REMINDERS/JINXXY_STAFF_ROLE_IDS. ``get()`` itself is untouched,
+    so the bot's read-time CONF-03 cascade is byte-identical to before this helper existed.
+    """
+    descriptor = _SCHEMA[key]
+    default = descriptor.default
+    try:
+        with db._get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        value = default if row is None else json.loads(row["value"])
+    except Exception as e:  # missing table, corrupt JSON, or any sqlite error → default
+        log.warning("settings._get_raw(%r) fell back to default: %s", key, e)
+        value = default
+    return value
+
+
 def set(key: str, value) -> None:
     """Validate ``value`` for ``key`` then persist it. Raises SettingRejected on invalid input;
     writes NOTHING on failure (STORE-03).
@@ -356,24 +380,37 @@ def all_for_ui() -> list[dict]:
     """Return the safe tunables serialized for the (Phase 2) panel — grouped by feature.
 
     Each group carries its owning-feature name and its settings; each setting carries its key,
-    type-tag, current value (via ``get(key)``, so it reflects stored-or-default and the
-    read-time staff-role fallback), an optional field-hint, and D-09 render metadata: a
-    bilingual ``label`` (falls back to the key itself when a descriptor has no label), plus
-    ``min``/``max`` for ``int_range`` entries and a sorted ``options`` list of every IANA
-    timezone for the ``timezone`` entry. Includes ONLY the 19 safe tunables in ``_SCHEMA`` —
-    never a secret (BOT_TOKEN, GITHUB_PAT, JINXXY_API_KEY, SESSION_SECRET) or structural value
-    (DB_PATH). This is the whole point of the schema being an allowlist: a key not in
-    ``_SCHEMA`` can never reach the panel.
+    type-tag, the RAW stored-or-default value (via ``_get_raw(key)`` — the CONF-03 fallback is
+    resolved only at read time via ``get()``, NEVER baked into this editable payload, 02-05
+    CR-02), an optional field-hint, and D-09 render metadata: a bilingual ``label`` (falls back
+    to the key itself when a descriptor has no label), plus ``min``/``max`` for ``int_range``
+    entries and a sorted ``options`` list of every IANA timezone for the ``timezone`` entry.
+
+    ``snowflake`` values are serialized to ``str`` and ``role_list`` values to a comma-joined
+    ``str`` (empty list → ``""``) before being placed on the entry — Jinja's ``tojson`` would
+    otherwise emit a bare JS number literal for a Python int, which the browser silently rounds
+    to an IEEE-754 double above 2**53, corrupting every 17-20 digit Discord snowflake (02-05
+    CR-01). Quoting the value makes the round trip through the panel lossless; the existing
+    validators already accept digit strings and comma-separated strings on the way back in.
+
+    Includes ONLY the 19 safe tunables in ``_SCHEMA`` — never a secret (BOT_TOKEN, GITHUB_PAT,
+    JINXXY_API_KEY, SESSION_SECRET) or structural value (DB_PATH). This is the whole point of
+    the schema being an allowlist: a key not in ``_SCHEMA`` can never reach the panel.
     """
     grouped: dict[str, dict] = {}
     for descriptor in _SCHEMA.values():
         bucket = grouped.setdefault(
             descriptor.group, {"group": descriptor.group, "settings": []}
         )
+        value = _get_raw(descriptor.key)
+        if descriptor.type_tag == "snowflake":
+            value = str(value)
+        elif descriptor.type_tag == "role_list":
+            value = ", ".join(str(v) for v in value)
         entry = {
             "key": descriptor.key,
             "type": descriptor.type_tag,
-            "value": get(descriptor.key),
+            "value": value,
             "hint": descriptor.hint,
             "label": descriptor.label or descriptor.key,
         }
