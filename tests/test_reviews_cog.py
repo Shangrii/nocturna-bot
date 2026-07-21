@@ -21,6 +21,8 @@ import pytest
 import config
 from cogs import reviews
 from cogs.reviews import ReviewsCog
+from core import db
+from core import settings
 
 STAFF_ROLE_ID = 111
 OTHER_ROLE_ID = 222
@@ -780,3 +782,22 @@ def test_reconcile_bot_non_review_message_still_skipped(cog_with_user):
     asyncio.run(cog_with_user._reconcile(msg))
     cog_with_user._publish.assert_not_awaited()
     msg.add_reaction.assert_not_awaited()
+
+
+# ── 01-01 Wave 0: read-at-use + empty-list → gallery fallback at the gate ──────────
+# EXPECTED RED until 01-03 drops config.py's frozen REVIEWS_STAFF_ROLE_IDS assignment and
+# adds the config.__getattr__ shim that routes reads through settings.get (incl. CONF-03 fallback).
+def test_reviews_staff_gate_reads_at_use(tmp_path, monkeypatch):
+    # Strip the autouse _reviews_config pins so config.X falls through to settings.get.
+    monkeypatch.delattr(config, "REVIEWS_STAFF_ROLE_IDS", raising=False)
+    monkeypatch.delattr(config, "REVIEWS_CHANNEL_ID", raising=False)
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "cog.db"), raising=False)
+    db.init_settings()
+    settings.set("REVIEWS_STAFF_ROLE_IDS", [STAFF_ROLE_ID])
+    assert reviews._is_staff(_member([STAFF_ROLE_ID])) is True
+    settings.set("REVIEWS_STAFF_ROLE_IDS", [OTHER_ROLE_ID])       # change the stored list
+    assert reviews._is_staff(_member([STAFF_ROLE_ID])) is False   # second read reflects it
+    # empty specific list → the gate composes down to GALLERY_STAFF_ROLE_IDS (CONF-03)
+    settings.set("REVIEWS_STAFF_ROLE_IDS", [])
+    settings.set("GALLERY_STAFF_ROLE_IDS", [STAFF_ROLE_ID])
+    assert reviews._is_staff(_member([STAFF_ROLE_ID])) is True
