@@ -353,3 +353,56 @@ def test_validate_config_passes_when_all_set(monkeypatch):
     monkeypatch.setattr(config, "DISCORD_OAUTH_REDIRECT_URI", "https://x/auth/callback")
 
     main.validate_config()  # must not raise
+
+
+# ── Task 2 (02-02): require_owner — narrows require_editor to the single owner ─────
+# (PANEL-01, D-10). The `DISCORD_USER_ID` fail-closed trap (Pitfall 1) and the
+# str-session/int-config type mismatch (Pitfall 4) each get a dedicated test.
+def test_require_owner_403_when_owner_id_unset(monkeypatch):
+    from app import deps
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 0)
+    req = _FakeRequest()
+    req.session = {"discord_id": "555"}
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(deps.require_owner(req))
+
+    assert ei.value.status_code == 403
+
+
+def test_require_owner_200_for_matching_owner(monkeypatch):
+    from app import deps
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 555)
+    req = _FakeRequest()
+    req.session = {"discord_id": "555"}
+
+    ident = asyncio.run(deps.require_owner(req))
+
+    assert ident["discord_id"] == "555"
+
+
+def test_require_owner_403_for_non_owner_session(monkeypatch):
+    from app import deps
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 555)
+    req = _FakeRequest()
+    req.session = {"discord_id": "999"}  # a real editor, but not the owner
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(deps.require_owner(req))
+
+    assert ei.value.status_code == 403
+
+
+def test_require_owner_403_without_session(monkeypatch):
+    from app import deps
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 555)
+    req = _FakeRequest()  # empty session
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(deps.require_owner(req))
+
+    assert ei.value.status_code == 403
