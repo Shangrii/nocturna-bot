@@ -11,8 +11,7 @@ Covers the D-11/D-12 contract:
 
 import io
 
-import pytest
-from PIL import Image, ImageOps
+from PIL import Image
 
 from core.image_optimize import optimize_to_webp
 

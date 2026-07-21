@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 import config
 from app.deps import require_editor
 from app.main import app
-from core import github_publish
 
 _IDENT = {"discord_id": "555", "slug": "aria"}
 

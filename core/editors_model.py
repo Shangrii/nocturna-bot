@@ -75,20 +75,6 @@ KNOWN_EFFECTS = frozenset(
     }
 )
 
-# The curated, team-defined specialty badge keys (UI-SPEC SpecialtyBadges, D-07).
-# Editors pick FROM this set — no free-form text — so a badge value can never carry
-# arbitrary markup; the front-end maps each key to a localized label + glyph.
-SPECIALTY_BADGES = frozenset(
-    {
-        "Outfits",
-        "Accessories",
-        "Dances",
-        "Textures",
-        "Blender",
-        "Modeling3D",
-    }
-)
-
 # A hex color: #rgb, #rrggbb, or #rrggbbaa (case-insensitive). ``fullmatch`` (no anchors)
 # is used so an embedded newline/`;` — e.g. ``#fff;color:red`` — can never slip through.
 _HEX_COLOR_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")

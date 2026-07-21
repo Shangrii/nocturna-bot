@@ -22,6 +22,7 @@ import config
 from cogs import gallery
 from cogs.gallery import GalleryCog
 from core import db
+from core import settings
 
 FILENAME_RE = re.compile(r"^\d{8}-\d+-\d+\.webp$")
 
@@ -686,3 +687,19 @@ def test_dismiss_tolerates_missing_check_prompt(cog_with_user, monkeypatch):
         types.SimpleNamespace(status=404, reason="Not Found"), "Unknown Reaction"))
     asyncio.run(cog_with_user._unpublish(msg))           # must not raise
     remove.assert_not_awaited()                          # dismiss commits nothing (D-07)
+
+
+# ── 01-01 Wave 0: read-at-use — the gate reflects a store change between two reads ─
+# EXPECTED RED until 01-03 removes config.py's frozen module-level GALLERY_STAFF_ROLE_IDS
+# assignment and adds the config.__getattr__ shim that routes reads through settings.get.
+def test_gallery_staff_gate_reads_at_use(tmp_path, monkeypatch):
+    # Strip the autouse _gallery_config pins so config.X falls through to the future
+    # __getattr__/settings.get instead of a value frozen in config.__dict__.
+    monkeypatch.delattr(config, "GALLERY_STAFF_ROLE_IDS", raising=False)
+    monkeypatch.delattr(config, "PHOTO_CHANNEL_ID", raising=False)
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "cog.db"), raising=False)
+    db.init_settings()
+    settings.set("GALLERY_STAFF_ROLE_IDS", [STAFF_ROLE_ID])
+    assert gallery._is_staff(_member([STAFF_ROLE_ID])) is True
+    settings.set("GALLERY_STAFF_ROLE_IDS", [OTHER_ROLE_ID])       # change the stored list
+    assert gallery._is_staff(_member([STAFF_ROLE_ID])) is False   # second read reflects it

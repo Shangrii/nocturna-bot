@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Nocturna · Ajustes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Admin-chrome fonts only — this page has no theme preview, so the 11 curated
+       theme fonts editor.html loads are not needed here (UI-SPEC Design System). -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/editor.css?v={{ asset_v | default(0) }}" />
+</head>
+<body>
+  {#- x-data MUST be single-quoted: `groups | tojson` emits double-quoted JSON, and
+      Jinja escapes ' -> ', so a single-quoted attribute can never be broken by
+      the data. A double-quoted attribute is closed by the JSON's first " (the whole
+      Alpine scope then fails to build -> every binding throws "not defined"). -#}
+  <div x-data='settingsApp({{ groups | tojson }})' x-cloak>
+
+    <!-- Persistent top bar -->
+    <header class="topbar">
+      <h1 class="wordmark">Nocturna</h1>
+      <span class="spacer"></span>
+      <button class="btn btn--accent" type="button" @click="save()" :disabled="saving"
+              x-text="saving ? 'Guardando… · Saving…' : 'Guardar ajustes · Save settings'"></button>
+      <a class="btn btn--ghost" href="/editor">Volver al editor · Back to editor</a>
+      <a class="btn btn--ghost" href="/logout">Salir · Sign out</a>
+    </header>
+
+    <main style="max-width: 640px; margin: 0 auto; padding: var(--sp-md);">
+      <template x-for="group in groups" :key="group.group">
+        <fieldset class="theme-group">
+          <legend class="label" x-text="groupLabel(group.group)"></legend>
+
+          <template x-for="setting in group.settings" :key="setting.key">
+            <div class="field" :class="errors[setting.key] ? 'field--invalid' : ''">
+              <label class="label" x-text="setting.label"></label>
+
+              <!-- snowflake: single Discord ID -->
+              <template x-if="setting.type === 'snowflake'">
+                <input type="text" inputmode="numeric" pattern="\d{17,20}"
+                       placeholder="123456789012345678"
+                       x-model="values[setting.key]" />
+              </template>
+
+              <!-- role_list: comma-separated Discord IDs -->
+              <template x-if="setting.type === 'role_list'">
+                <input type="text" placeholder="123, 456"
+                       x-model="values[setting.key]" />
+              </template>
+
+              <!-- int_range: bounded number -->
+              <template x-if="setting.type === 'int_range'">
+                <input type="number" :min="setting.min" :max="setting.max"
+                       x-model.number="values[setting.key]" />
+              </template>
+
+              <!-- timezone: select from all IANA zones -->
+              <template x-if="setting.type === 'timezone'">
+                <select x-model="values[setting.key]">
+                  <template x-for="tz in setting.options" :key="tz">
+                    <option :value="tz" x-text="tz" :selected="tz === setting.value"></option>
+                  </template>
+                </select>
+              </template>
+
+              <!-- free_string: plain text -->
+              <template x-if="setting.type === 'free_string'">
+                <input type="text" x-model="values[setting.key]" />
+              </template>
+
+              <!-- url -->
+              <template x-if="setting.type === 'url'">
+                <input type="url" x-model="values[setting.key]" />
+              </template>
+
+              <!-- lang: fixed es/en select, mirrors editor.html #f-lang -->
+              <template x-if="setting.type === 'lang'">
+                <select x-model="values[setting.key]">
+                  <option value="es" :selected="setting.value === 'es'">Español · Spanish</option>
+                  <option value="en" :selected="setting.value === 'en'">English · Inglés</option>
+                </select>
+              </template>
+
+              <p class="field-error" x-show="errors[setting.key]" x-text="errors[setting.key]"></p>
+              <p class="field-hint" x-show="setting.hint" x-text="setting.hint"></p>
+            </div>
+          </template>
+        </fieldset>
+      </template>
+    </main>
+
+    <!-- Toast -->
+    <div class="toast" x-show="toast" x-cloak :data-kind="toastKind" x-text="toast"
+         @click="toast=''" role="status" aria-live="polite"></div>
+  </div>
+
+  <!-- settingsApp defined BEFORE Alpine parses x-data; Alpine is VENDORED (not CDN) -->
+  <script>
+    function settingsApp(initial) {
+      // Flatten the grouped payload into a flat key->value map for x-model binding,
+      // while keeping `groups` (with its per-setting metadata: label/hint/min/max/
+      // options) intact for rendering. Only the `groups` payload is ever iterated —
+      // no secret/structural key is referenced anywhere in this scope (T-02-06).
+      const values = {};
+      for (const group of initial) {
+        for (const setting of group.settings) {
+          values[setting.key] = setting.value;
+        }
+      }
+      // Bilingual group display names (D-13) — all_for_ui() groups are keyed by the
+      // plain schema group id (gallery/reviews/reminders/jinxxy/meetings/forum); the
+      // legend must show the bilingual pair, so translate client-side.
+      const groupNames = {
+        gallery: 'Galería · Gallery',
+        reviews: 'Reseñas · Reviews',
+        reminders: 'Recordatorios · Reminders',
+        jinxxy: 'Tienda Jinxxy · Jinxxy store',
+        meetings: 'Reuniones · Meetings',
+        forum: 'Foro · Forum',
+      };
+      return {
+        groups: initial,
+        values,
+        saving: false,
+        toast: '',
+        toastKind: 'ok',
+        errors: {},
+
+        groupLabel(key) {
+          return groupNames[key] || key;
+        },
+
+        serialize() {
+          return { ...this.values };
+        },
+
+        async save() {
+          this.saving = true;
+          this.toast = '';
+          this.errors = {};
+          try {
+            const r = await fetch('/admin/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.serialize()),
+            });
+            const data = await r.json().catch(() => ({}));
+            if (r.ok && data.ok) {
+              this.toastKind = 'ok';
+              this.toast = data.message || 'Ajustes guardados. — Settings saved.';
+            } else {
+              this.toastKind = 'error';
+              this.errors = data.errors || {};
+              this.toast = 'Revisa los campos marcados. — Check the highlighted fields.';
+            }
+          } catch (e) {
+            this.toastKind = 'error';
+            this.toast = 'Error de red · Network error';
+          } finally {
+            this.saving = false;
+          }
+        },
+      };
+    }
+  </script>
+  <style>[x-cloak] { display: none !important; }</style>
+  <script defer src="/static/alpine.min.js"></script>
+</body>
+</html>

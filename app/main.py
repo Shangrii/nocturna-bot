@@ -51,8 +51,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import config
 from app import auth
-from app.deps import require_editor
-from core import db, github_publish
+from app.deps import require_editor, require_owner
+from core import db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
 
@@ -90,6 +90,12 @@ _UNPUBLISH_FAILED_COPY = (
     "No se pudo despublicar. Inténtalo de nuevo. — Couldn't unpublish. Try again."
 )
 _UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
+
+# Owner settings panel copy (Phase 2, D-13 bilingual house style).
+_SETTINGS_SAVED_COPY = "Ajustes guardados. — Settings saved."
+_SETTINGS_ERROR_COPY = (
+    "Revisa los campos marcados. — Check the highlighted fields."
+)
 
 # Slug-rejection copy, keyed by SlugRejected.reason → (HTTP status, bilingual message).
 _SLUG_REJECT = {
@@ -402,10 +408,77 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
         asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
     except OSError:
         asset_v = 0
+    # D-12: surface whether the SESSION identity is the configured owner, so the
+    # template can conditionally render the owner-only settings link. Same fail-closed
+    # 0/unset guard as require_owner (a misconfigured owner id must never show the link).
+    owner_id = config.DISCORD_USER_ID
+    is_owner = bool(owner_id) and str(ident["discord_id"]) == str(owner_id)
     return templates.TemplateResponse(
         request, "editor.html",
-        {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v},
+        {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v,
+         "is_owner": is_owner},
     )
+
+
+@app.get("/admin/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, ident: dict = Depends(require_owner)):
+    """Owner-only settings panel (PANEL-01/02): server-render the grouped, typed tunables.
+
+    ``require_owner`` is the D-10 fail-closed choke point — only the configured
+    ``DISCORD_USER_ID`` ever reaches this handler. The rendered payload is exactly
+    ``settings.all_for_ui()``, which is built from the ``_SCHEMA`` allowlist — a secret
+    (BOT_TOKEN, GITHUB_PAT, JINXXY_API_KEY, SESSION_SECRET) or structural value (DB_PATH)
+    can never appear in the body because it is never in that allowlist (PANEL-02).
+    """
+    try:
+        asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
+    except OSError:
+        asset_v = 0
+    return templates.TemplateResponse(
+        request, "settings.html",
+        {"groups": settings.all_for_ui(), "asset_v": asset_v},
+    )
+
+
+@app.post("/admin/settings")
+async def save_settings(request: Request, ident: dict = Depends(require_owner)):
+    """Atomic two-pass validate-then-write for the owner settings panel (PANEL-03/D-03/D-04/D-05).
+
+    Parses the body with the same 400-on-bad-JSON guard as ``/editor/save``. Then a TWO-PASS
+    write: first ``settings.validate_only`` every submitted key into a ``validated`` dict,
+    collecting any ``SettingRejected.reason`` into an ``errors`` map keyed by setting key. If
+    ANY field is invalid, return 422 with the error map WITHOUT calling ``settings.set`` on
+    ANY key — this is the load-bearing atomicity guarantee (D-04): a mixed valid/invalid POST
+    must write nothing, not just skip the invalid field. Only when every field validates does
+    the second pass call ``settings.set`` for each. Every write is routed through
+    ``settings.set`` (never raw SQL), whose ``_SCHEMA`` allowlist is the only way a key can
+    reach the database (T-02-10). Identity is ``ident`` from ``require_owner`` (session-only,
+    D-08 discipline) — the body supplies only WHAT changes, never WHO asks (T-02-11). CSRF is
+    covered by the existing SameSite=Lax session cookie, same as ``/editor/save`` — no
+    hand-rolled token (T-02-12).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    errors: dict[str, str] = {}
+    validated: dict[str, object] = {}
+    for key, raw_value in body.items():
+        try:
+            validated[key] = settings.validate_only(key, raw_value)  # dry-run, no write
+        except settings.SettingRejected as exc:
+            errors[key] = exc.reason
+
+    if errors:
+        return JSONResponse(status_code=422, content={"errors": errors})
+
+    for key, value in validated.items():
+        settings.set(key, value)
+
+    return {"ok": True, "message": _SETTINGS_SAVED_COPY}
 
 
 @app.post("/editor/image")

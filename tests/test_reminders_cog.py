@@ -22,6 +22,8 @@ from discord import app_commands
 
 import config
 from cogs import reminders
+from core import db
+from core import settings
 
 MX = ZoneInfo("America/Mexico_City")
 NY = ZoneInfo("America/New_York")
@@ -857,3 +859,17 @@ def test_editar_autocomplete_non_staff_returns_empty_no_db(cog, monkeypatch):
     choices = asyncio.run(cog.editar_autocomplete(inter, "jun"))
     assert choices == []
     list_reminders.assert_not_called()
+
+
+# ── 01-01 Wave 0: read-at-use — the staff gate reflects a store change between reads ─
+# EXPECTED RED until 01-03 drops config.py's frozen REMINDERS_STAFF_ROLE_IDS assignment and
+# adds the config.__getattr__ shim that routes reads through settings.get.
+def test_reminders_staff_gate_reads_at_use(tmp_path, monkeypatch):
+    # Strip the autouse _reminders_config pin so config.X falls through to settings.get.
+    monkeypatch.delattr(config, "REMINDERS_STAFF_ROLE_IDS", raising=False)
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "cog.db"), raising=False)
+    db.init_settings()
+    settings.set("REMINDERS_STAFF_ROLE_IDS", [STAFF_ROLE_ID])
+    assert reminders._is_staff(_member([STAFF_ROLE_ID])) is True
+    settings.set("REMINDERS_STAFF_ROLE_IDS", [OTHER_ROLE_ID])       # change the stored list
+    assert reminders._is_staff(_member([STAFF_ROLE_ID])) is False   # second read reflects it
