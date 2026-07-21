@@ -7,6 +7,12 @@ import config
 def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
+    # CONC-01: WAL journal mode lets the bot read while the panel writes the same file
+    # without "database is locked". WAL is persistent per-database, so this self-heals on
+    # whichever process opens the file first; the pragma is non-transactional and applies
+    # immediately (the `with conn:` idiom is unaffected). Requires a LOCAL filesystem —
+    # WAL does not work over a network share (both processes here run on the same host).
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
@@ -32,6 +38,25 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_avatars    ON forum_posts(avatars)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON forum_posts(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_source_url ON forum_posts(source_url)")
+
+
+# ── Config store (Fase 01: panel de settings) ─────────────────────────────────
+def init_settings():
+    """Create the key/value ``settings`` table if it doesn't exist (STORE-02).
+
+    Mirrors ``init_gallery_state`` in shape: a single ``CREATE TABLE IF NOT EXISTS``
+    inside ``with _get_conn() as conn:``. Deliberately NOT folded into ``init_db()``
+    (locked CONTEXT decision) and holds NO seeding logic — the defaults are seeded by
+    ``core/settings.py::seed_defaults()`` at startup. Idempotent: calling it twice is a
+    no-op. ``key`` is the tunable's name; ``value`` is the JSON-encoded stored value.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
 
 
 # ── Galería (Fase 5): cursor de backfill ──────────────────────────────────────
