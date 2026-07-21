@@ -1,66 +1,89 @@
-# Requirements: Nocturna Bot — Settings Panel
+# Requirements: Nocturna Bot — v2.0 Staff Dashboard
 
-**Defined:** 2026-07-19
-**Core Value:** The owner can change the bot's safe operational settings from a web panel — no shell access, no restart for most values — without exposing secrets or letting a bad value break a cog.
+**Defined:** 2026-07-21
+**Core Value:** The whole staff operates the bot from one web dashboard according to their
+access level — owner everything, Managers day-to-day operations, editors their own
+presentation pages — with no secrets exposed and no bad value able to break a cog.
 
-## v1 Requirements
+## v2.0 Requirements
 
-Requirements for the Settings Panel milestone. Each maps to a roadmap phase.
+Requirements for the Staff Dashboard milestone. Each maps to a roadmap phase.
+Visual contract: `.planning/sketches/001-dashboard-shell/` (variant A won).
 
-### Config Store (Phase 1)
+### Dashboard Shell (SHELL)
 
-- [ ] **STORE-01**: `core/settings.py` exposes `get(key)`, `set(key, value)`, and
-      `all_for_ui()` as the single source of truth for what is tunable (key, type, default,
-      validation, owning feature).
-- [ ] **STORE-02**: A `settings` table (`key TEXT PRIMARY KEY, value TEXT` JSON-encoded)
-      exists in the shared sqlite, created via the `CREATE TABLE IF NOT EXISTS` idiom in
-      `core/db.py`.
-- [ ] **STORE-03**: `settings.set` validates every value against the schema and raises a typed
-      `SettingRejected(reason)` on invalid input, writing nothing (ID shape `^\d{17,20}$`, int
-      ranges, TZ resolves via `zoneinfo.ZoneInfo`, enums/toggles constrained).
-- [ ] **STORE-04**: `settings.get` never raises — a missing or corrupt row falls back to the
-      `.env`/default seed so the bot always has a usable value.
-- [ ] **STORE-05**: On startup the `settings` table is idempotently seeded from the current
-      `.env`/defaults for any key not already present; behavior is byte-identical until the
-      owner edits something (no destructive migration).
+- [ ] **SHELL-01**: Staff can navigate the 7 sections (Overview, Gallery, Reviews, Reminders,
+      Jinxxy Store, Meetings, Settings) via a sidebar with a per-module color accent
+      (sketch 001, variant A).
+- [ ] **SHELL-02**: Overview shows bot status (connection, last Jinxxy sync, recent activity).
 
-### Config Consolidation (Phase 1)
+### Tiered Access (ACCESS)
 
-- [ ] **CONF-01**: The safe-tunable constants in `config.py` are read through `settings.get(...)`
-      at the point of use (read-at-use), replacing import-time freezing for those keys only.
-- [ ] **CONF-02**: Secrets and structural values in `config.py` stay exactly as they are —
-      frozen from `.env`, never migrated into the store.
-- [ ] **CONF-03**: The staff-role lists keep their fallback-to-`GALLERY_STAFF_ROLE_IDS`-when-empty
-      semantic (REVIEWS/REMINDERS/JINXXY) after migration.
+- [ ] **ACCESS-01**: The owner can view and use every section, including Settings.
+- [ ] **ACCESS-02**: A user with the Manager role (`1453560115423875205`) can view and use the
+      6 operational modules; Settings responds 403 for them.
+- [ ] **ACCESS-03**: An editor can only access their presentation section.
+- [ ] **ACCESS-04**: The owner can edit the role→tier mapping from Settings; a Manager cannot
+      self-elevate and the owner can never be locked out.
 
-### Concurrency (Phase 1)
+### Gallery (GAL)
 
-- [ ] **CONC-01**: The shared-sqlite access mode is decided and applied so the bot's reads and
-      the panel's writes (two processes, one file) do not collide with "database is locked".
+- [ ] **GAL-01**: A Manager can see the queue of photos pending approval.
+- [ ] **GAL-02**: A Manager can approve a photo and it publishes to the website with full
+      parity to the ✅ reaction flow — no double publish if a reaction lands concurrently.
+- [ ] **GAL-03**: A Manager can remove a published photo (🌙 parity).
 
-### Settings Panel (Phase 2)
+### Reviews (REV)
 
-- [ ] **PANEL-01**: A `require_owner` dependency in `app/deps.py` gates the panel to
-      `session.discord_id == config.DISCORD_USER_ID`, returning 403 otherwise, and **fails
-      closed** when `DISCORD_USER_ID` is unset (the `0` default must never authorize).
-- [x] **PANEL-02**: `GET /admin/settings` renders a form grouped by feature from
-      `settings.all_for_ui()`, each field typed (channel/role IDs as validated number inputs,
-      intervals as numbers, TZ as a select, toggles as checkboxes, prompts as text). Secrets
-      never appear.
-- [x] **PANEL-03**: `POST /admin/settings` validates every field server-side via `settings.set`,
-      writes the table, and re-renders with a success/error banner. An invalid value is rejected
-      before any write, so the bot never reads a bad value.
-- [ ] **PANEL-04**: A saved change is read by the bot on its next relevant use (reaction gate,
-      poll cycle, reminder tick); loop-interval changes apply on the next cycle/restart.
+- [ ] **REV-01**: A Manager can approve a pending review and it publishes to `reviews.json`.
+- [ ] **REV-02**: A Manager can remove a published review from the website.
 
-## v2 Requirements
+### Reminders (REM)
+
+- [ ] **REM-01**: A Manager can create, edit, and delete reminders (table + modal pattern).
+- [ ] **REM-02**: A Manager can pause and resume a reminder.
+- [ ] **REM-03**: A reminder edited or deleted from the panel never fires with stale data and
+      never loses the edit to the scheduler's write-back.
+
+### Jinxxy Store (JINX)
+
+- [ ] **JINX-01**: A Manager can trigger a manual sync and see the status/result of the last
+      sync (with an overlap guard against the periodic poll).
+
+### Meetings (MEET)
+
+- [ ] **MEET-01**: Meetings are persisted (transcript + summary) in the shared sqlite — today
+      they are not stored anywhere.
+- [ ] **MEET-02**: A Manager can browse the meeting history with transcript and summary.
+- [ ] **MEET-03**: A Manager can edit a summary and re-publish it to the forum.
+
+### Settings (SETT)
+
+- [ ] **SETT-01**: The v1 settings panel is migrated as a section of the shell with no loss of
+      functionality.
+- [ ] **SETT-02**: Channel/role fields show a readable name (#channel, @role) with the ID
+      beneath, resolved via a cache the bot publishes into the shared sqlite.
+
+### Editors (EDIT)
+
+- [ ] **EDIT-01**: The editors presentation section (`editors.nocturna-avatars.site`) is
+      integrated as a dashboard section with its own access tier.
+
+### Infrastructure (INFRA)
+
+- [ ] **INFRA-01**: Panel→bot actions (approve, sync, re-publish) travel through a queue table
+      in the shared sqlite that the bot dispatches, with action status visible in the panel.
+- [ ] **INFRA-02**: The shared sqlite is hardened for concurrent writers (`busy_timeout` +
+      retry) before the first write-heavy module ships.
+
+## Future Requirements
 
 Deferred to a future release. Tracked but not in this roadmap.
 
-### Panel polish
-
-- **POLISH-01**: Channel/role dropdowns populated from the guild via the bot token (v1 uses
-  validated ID inputs).
+- **FUT-01**: Guild-populated channel/role *dropdowns* (SETT-02 ships readable names on ID
+  inputs; full dropdown pickers remain future polish).
+- **FUT-02**: Overview quick actions (sketch 001 variant C) — approve-from-home, new reminder
+  shortcut.
 
 ## Out of Scope
 
@@ -69,33 +92,46 @@ Explicitly excluded. Documented to prevent scope creep.
 | Feature | Reason |
 |---------|--------|
 | Editing structural values or secrets | High blast radius / secret exposure; stay in `.env` |
-| Ops console / monitoring / manual triggers (sync-now, view logs, manage reminders) | v1 is a settings *editor*, not an ops console |
-| Multi-guild, multi-admin, or a dedicated bot-admin role | Single Nocturna guild, single owner |
+| Global module kill-switches (MEE6-style off toggles on Gallery/Reviews/Meetings) | Those flows have no designed "off" state; validated as anti-feature by research |
+| Audit-log console / process monitoring / log viewer | v2.0 Overview shows status, not an ops log console |
+| Wick-style granular per-permission builder | Three fixed tiers (owner/Manager/editor) are enough for one guild |
+| Real-time websocket status updates | Polling/reload is sufficient at this scale |
+| Multi-guild support | Single Nocturna guild |
 | Live loop-interval hot-swap (`change_interval`) | Interval edits apply next cycle/restart |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STORE-01 | Phase 1 | Pending |
-| STORE-02 | Phase 1 | Pending |
-| STORE-03 | Phase 1 | Pending |
-| STORE-04 | Phase 1 | Pending |
-| STORE-05 | Phase 1 | Pending |
-| CONF-01 | Phase 1 | Pending |
-| CONF-02 | Phase 1 | Pending |
-| CONF-03 | Phase 1 | Pending |
-| CONC-01 | Phase 1 | Pending |
-| PANEL-01 | Phase 2 | Pending |
-| PANEL-02 | Phase 2 | Complete |
-| PANEL-03 | Phase 2 | Complete |
-| PANEL-04 | Phase 2 | Pending |
+| SHELL-01 | — | Pending |
+| SHELL-02 | — | Pending |
+| ACCESS-01 | — | Pending |
+| ACCESS-02 | — | Pending |
+| ACCESS-03 | — | Pending |
+| ACCESS-04 | — | Pending |
+| GAL-01 | — | Pending |
+| GAL-02 | — | Pending |
+| GAL-03 | — | Pending |
+| REV-01 | — | Pending |
+| REV-02 | — | Pending |
+| REM-01 | — | Pending |
+| REM-02 | — | Pending |
+| REM-03 | — | Pending |
+| JINX-01 | — | Pending |
+| MEET-01 | — | Pending |
+| MEET-02 | — | Pending |
+| MEET-03 | — | Pending |
+| SETT-01 | — | Pending |
+| SETT-02 | — | Pending |
+| EDIT-01 | — | Pending |
+| INFRA-01 | — | Pending |
+| INFRA-02 | — | Pending |
 
 **Coverage:**
-- v1 requirements: 13 total
-- Mapped to phases: 13
-- Unmapped: 0 ✓
+- v2.0 requirements: 23 total
+- Mapped to phases: 0 (filled by roadmap)
+- Unmapped: 23
 
 ---
-*Requirements defined: 2026-07-19*
-*Last updated: 2026-07-19 after initial definition*
+*Requirements defined: 2026-07-21*
+*Last updated: 2026-07-21 after initial definition*
