@@ -17,6 +17,8 @@ import pytest
 
 import config
 from cogs import jinxxy
+from core import db
+from core import settings
 
 STAFF_ROLE_ID = 111
 OTHER_ROLE_ID = 222
@@ -930,3 +932,18 @@ def test_editar_autocomplete_returns_choices_for_staff(cog, monkeypatch):
     choices = asyncio.run(cog._editar_producto_autocomplete(inter, ""))
     assert len(choices) == 1
     assert choices[0].value == KEY
+
+
+# ── 01-01 Wave 0: read-at-use — the announce channel reflects a store change between reads ─
+# EXPECTED RED until 01-03 drops config.py's frozen JINXXY_ANNOUNCE_CHANNEL_ID assignment and
+# adds the config.__getattr__ shim that routes reads through settings.get.
+def test_jinxxy_announce_channel_reads_at_use(tmp_path, monkeypatch):
+    # Strip the autouse _jinxxy_config pins so config.X falls through to settings.get.
+    monkeypatch.delattr(config, "JINXXY_STAFF_ROLE_IDS", raising=False)
+    monkeypatch.delattr(config, "JINXXY_ANNOUNCE_CHANNEL_ID", raising=False)
+    monkeypatch.setattr(config, "DB_PATH", str(tmp_path / "cog.db"), raising=False)
+    db.init_settings()
+    settings.set("JINXXY_ANNOUNCE_CHANNEL_ID", 4242)
+    assert config.JINXXY_ANNOUNCE_CHANNEL_ID == 4242
+    settings.set("JINXXY_ANNOUNCE_CHANNEL_ID", 5353)             # change the stored channel
+    assert config.JINXXY_ANNOUNCE_CHANNEL_ID == 5353            # re-read reflects the new value
