@@ -150,6 +150,26 @@ def test_all_for_ui_grouped(monkeypatch, tmp_path):
     for secret in ("BOT_TOKEN", "GITHUB_PAT", "JINXXY_API_KEY", "SESSION_SECRET", "DB_PATH"):
         assert secret not in blob                             # secrets/structural keys absent
 
+    # ── D-09: render metadata — label (all), min/max (int_range), options (timezone) ──
+    by_key = {
+        entry["key"]: entry
+        for bucket in grouped
+        for entry in bucket["settings"]
+    }
+    for key, entry in by_key.items():
+        assert entry["label"], f"{key} missing a truthy label"
+
+    jinxxy_poll = by_key["JINXXY_POLL_HOURS"]
+    assert jinxxy_poll["min"] == 1
+    assert jinxxy_poll["max"] == 168
+    catchup_grace = by_key["REMINDERS_CATCHUP_GRACE_HOURS"]
+    assert catchup_grace["min"] == 1
+    assert catchup_grace["max"] == 168
+
+    reminders_tz = by_key["REMINDERS_TZ"]
+    assert "America/Mexico_City" in reminders_tz["options"]
+    assert reminders_tz["options"] == sorted(reminders_tz["options"])
+
 
 # ── CONC-01: WAL journal mode is active after _get_conn() ─────────────────────────
 def test_wal_mode_active(monkeypatch, tmp_path):
@@ -158,6 +178,31 @@ def test_wal_mode_active(monkeypatch, tmp_path):
     with db._get_conn() as conn:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert str(mode).lower() == "wal"
+
+
+# ── D-05/PANEL-03: validate_only is a dry-run mirror of set()'s validation half ───
+def test_validate_only_returns_coerced_value(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    assert settings.validate_only("JINXXY_POLL_HOURS", 6) == 6
+    # dry-run: nothing was written, get() still returns the default
+    assert settings.get("JINXXY_POLL_HOURS") == config.JINXXY_POLL_HOURS
+
+
+def test_validate_only_rejects_out_of_range(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    with pytest.raises(settings.SettingRejected):
+        settings.validate_only("JINXXY_POLL_HOURS", 9999)
+    # no write occurred on the rejected dry-run
+    assert settings.get("JINXXY_POLL_HOURS") == config.JINXXY_POLL_HOURS
+
+
+def test_validate_only_rejects_unknown_key(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    with pytest.raises(settings.SettingRejected):
+        settings.validate_only("NOT_A_REAL_KEY", "x")
 
 
 # ── CONC-01: a held read + a concurrent write do not collide with "database is locked" ──
