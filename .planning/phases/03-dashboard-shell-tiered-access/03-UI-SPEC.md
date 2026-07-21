@@ -1,7 +1,8 @@
 ---
 phase: 3
 slug: dashboard-shell-tiered-access
-status: draft
+status: approved
+reviewed_at: 2026-07-21T10:35:13-06:00
 shadcn_initialized: false
 preset: none
 created: 2026-07-21
