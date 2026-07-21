@@ -19,7 +19,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Callable
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from core import db
 
@@ -154,6 +154,9 @@ class _Setting:
     validate: Callable[[object], object]
     fallback_key: str | None = None   # empty-list → resolve this key instead (CONF-03)
     hint: str = ""      # optional rendering hint for the panel
+    label: str = ""     # bilingual ES-EN human label for the panel (D-09/D-13)
+    min: int | None = None   # int_range lower bound, exposed for panel rendering (D-09)
+    max: int | None = None   # int_range upper bound, exposed for panel rendering (D-09)
 
 
 # ── the 19 safe tunables, grouped exactly as CONTEXT.md's "Safe tunables in scope" ──
@@ -163,106 +166,127 @@ _SCHEMA: dict[str, _Setting] = {
         "PHOTO_CHANNEL_ID", "gallery", "snowflake",
         int(os.getenv("PHOTO_CHANNEL_ID", "1416329356426481717")),
         _validate_channel_id,
+        label="Canal de galería · Gallery channel",
     ),
     "GALLERY_STAFF_ROLE_IDS": _Setting(
         "GALLERY_STAFF_ROLE_IDS", "gallery", "role_list",
         _env_role_ids("GALLERY_STAFF_ROLE_IDS"),
         _validate_role_id_list,
+        label="Roles de staff de galería · Gallery staff roles",
     ),
     # ── Reseñas ──
     "REVIEWS_CHANNEL_ID": _Setting(
         "REVIEWS_CHANNEL_ID", "reviews", "snowflake",
         int(os.getenv("REVIEWS_CHANNEL_ID", "1453534905706221600")),
         _validate_channel_id,
+        label="Canal de reseñas · Reviews channel",
     ),
     "REVIEWS_STAFF_ROLE_IDS": _Setting(
         "REVIEWS_STAFF_ROLE_IDS", "reviews", "role_list",
         _env_role_ids("REVIEWS_STAFF_ROLE_IDS"),
         _validate_role_id_list,
         fallback_key="GALLERY_STAFF_ROLE_IDS",
+        label="Roles de staff de reseñas · Reviews staff roles",
     ),
     # ── Recordatorios ──
     "REMINDERS_TZ": _Setting(
         "REMINDERS_TZ", "reminders", "timezone",
         os.getenv("REMINDERS_TZ", "America/Mexico_City"),
         _validate_timezone,
+        label="Zona horaria de recordatorios · Reminders timezone",
     ),
     "REMINDERS_STAFF_ROLE_IDS": _Setting(
         "REMINDERS_STAFF_ROLE_IDS", "reminders", "role_list",
         _env_role_ids("REMINDERS_STAFF_ROLE_IDS"),
         _validate_role_id_list,
         fallback_key="GALLERY_STAFF_ROLE_IDS",
+        label="Roles de staff de recordatorios · Reminders staff roles",
     ),
     "REMINDERS_CATCHUP_GRACE_HOURS": _Setting(
         "REMINDERS_CATCHUP_GRACE_HOURS", "reminders", "int_range",
         int(os.getenv("REMINDERS_CATCHUP_GRACE_HOURS", "6")),
         _make_int_range(1, 168),
+        label="Horas de gracia de recuperación · Catch-up grace hours",
+        min=1, max=168,
     ),
     # ── Jinxxy / tienda ──
     "JINXXY_ANNOUNCE_CHANNEL_ID": _Setting(
         "JINXXY_ANNOUNCE_CHANNEL_ID", "jinxxy", "snowflake",
         int(os.getenv("JINXXY_ANNOUNCE_CHANNEL_ID", "1525202600738295818")),
         _validate_channel_id,
+        label="Canal de anuncios de Jinxxy · Jinxxy announce channel",
     ),
     "JINXXY_POLL_HOURS": _Setting(
         "JINXXY_POLL_HOURS", "jinxxy", "int_range",
         int(os.getenv("JINXXY_POLL_HOURS", "6")),
         _make_int_range(1, 168),
+        label="Horas entre sondeos de Jinxxy · Jinxxy poll hours",
+        min=1, max=168,
     ),
     "JINXXY_STAFF_ROLE_IDS": _Setting(
         "JINXXY_STAFF_ROLE_IDS", "jinxxy", "role_list",
         _env_role_ids("JINXXY_STAFF_ROLE_IDS"),
         _validate_role_id_list,
         fallback_key="GALLERY_STAFF_ROLE_IDS",
+        label="Roles de staff de Jinxxy · Jinxxy staff roles",
     ),
     "JINXXY_STORE_URL": _Setting(
         "JINXXY_STORE_URL", "jinxxy", "url",
         os.getenv("JINXXY_STORE_URL", "https://nocturna-avatars.site/en/store"),
         _validate_url,
+        label="URL de la tienda Jinxxy · Jinxxy store URL",
     ),
     "WEBSITE_BASE_URL": _Setting(
         "WEBSITE_BASE_URL", "jinxxy", "url",
         os.getenv("WEBSITE_BASE_URL", "https://nocturna-avatars.site"),
         _validate_url,
+        label="URL base del sitio web · Website base URL",
     ),
     # ── Reuniones ──
     "MEETINGS_FORUM_ID": _Setting(
         "MEETINGS_FORUM_ID", "meetings", "snowflake",
         int(os.getenv("MEETINGS_FORUM_ID", "1517386124044013588")),
         _validate_channel_id,
+        label="Foro de reuniones · Meetings forum",
     ),
     "MEETING_LANG": _Setting(
         "MEETING_LANG", "meetings", "lang",
         os.getenv("MEETING_LANG", "es"),
         _validate_lang,
+        label="Idioma de reuniones · Meeting language",
     ),
     "WHISPER_PROMPT": _Setting(
         "WHISPER_PROMPT", "meetings", "free_string",
         os.getenv("WHISPER_PROMPT", "Reunión en español del equipo Nocturna. Bot: CachoraBot."),
         _validate_free_string,
+        label="Prompt de Whisper · Whisper prompt",
     ),
     "WHISPER_MODEL": _Setting(
         "WHISPER_MODEL", "meetings", "free_string",
         os.getenv("WHISPER_MODEL", "large-v3-turbo"),
         _validate_free_string,
         hint="the model must already be available on the host (faster-whisper)",
+        label="Modelo de Whisper · Whisper model",
     ),
     "OLLAMA_MODEL": _Setting(
         "OLLAMA_MODEL", "meetings", "free_string",
         os.getenv("OLLAMA_MODEL", "phi4"),
         _validate_free_string,
         hint="the model must already be pulled on the host (ollama)",
+        label="Modelo de Ollama · Ollama model",
     ),
     # ── Foro / encoding ──
     "FORUM_CHANNEL_ID": _Setting(
         "FORUM_CHANNEL_ID", "forum", "snowflake",
         int(os.getenv("FORUM_CHANNEL_ID", "0")),
         _validate_channel_id_or_zero,
+        label="Canal de foro · Forum channel",
     ),
     "ENCODING_CHANNEL_ID": _Setting(
         "ENCODING_CHANNEL_ID", "forum", "snowflake",
         int(os.getenv("ENCODING_CHANNEL_ID", "0")),
         _validate_channel_id_or_zero,
+        label="Canal de codificación · Encoding channel",
     ),
 }
 
@@ -321,24 +345,32 @@ def all_for_ui() -> list[dict]:
 
     Each group carries its owning-feature name and its settings; each setting carries its key,
     type-tag, current value (via ``get(key)``, so it reflects stored-or-default and the
-    read-time staff-role fallback), and an optional field-hint for typed rendering. Includes
-    ONLY the 19 safe tunables in ``_SCHEMA`` — never a secret (BOT_TOKEN, GITHUB_PAT,
-    JINXXY_API_KEY, SESSION_SECRET) or structural value (DB_PATH). This is the whole point of
-    the schema being an allowlist: a key not in ``_SCHEMA`` can never reach the panel.
+    read-time staff-role fallback), an optional field-hint, and D-09 render metadata: a
+    bilingual ``label`` (falls back to the key itself when a descriptor has no label), plus
+    ``min``/``max`` for ``int_range`` entries and a sorted ``options`` list of every IANA
+    timezone for the ``timezone`` entry. Includes ONLY the 19 safe tunables in ``_SCHEMA`` —
+    never a secret (BOT_TOKEN, GITHUB_PAT, JINXXY_API_KEY, SESSION_SECRET) or structural value
+    (DB_PATH). This is the whole point of the schema being an allowlist: a key not in
+    ``_SCHEMA`` can never reach the panel.
     """
     grouped: dict[str, dict] = {}
     for descriptor in _SCHEMA.values():
         bucket = grouped.setdefault(
             descriptor.group, {"group": descriptor.group, "settings": []}
         )
-        bucket["settings"].append(
-            {
-                "key": descriptor.key,
-                "type": descriptor.type_tag,
-                "value": get(descriptor.key),
-                "hint": descriptor.hint,
-            }
-        )
+        entry = {
+            "key": descriptor.key,
+            "type": descriptor.type_tag,
+            "value": get(descriptor.key),
+            "hint": descriptor.hint,
+            "label": descriptor.label or descriptor.key,
+        }
+        if descriptor.type_tag == "int_range":
+            entry["min"] = descriptor.min
+            entry["max"] = descriptor.max
+        if descriptor.type_tag == "timezone":
+            entry["options"] = sorted(available_timezones())
+        bucket["settings"].append(entry)
     return list(grouped.values())
 
 
