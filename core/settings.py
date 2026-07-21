@@ -309,3 +309,48 @@ def set(key: str, value) -> None:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, json.dumps(validated)),
         )
+
+
+def all_for_ui() -> list[dict]:
+    """Return the safe tunables serialized for the (Phase 2) panel — grouped by feature.
+
+    Each group carries its owning-feature name and its settings; each setting carries its key,
+    type-tag, current value (via ``get(key)``, so it reflects stored-or-default and the
+    read-time staff-role fallback), and an optional field-hint for typed rendering. Includes
+    ONLY the 19 safe tunables in ``_SCHEMA`` — never a secret (BOT_TOKEN, GITHUB_PAT,
+    JINXXY_API_KEY, SESSION_SECRET) or structural value (DB_PATH). This is the whole point of
+    the schema being an allowlist: a key not in ``_SCHEMA`` can never reach the panel.
+    """
+    grouped: dict[str, dict] = {}
+    for descriptor in _SCHEMA.values():
+        bucket = grouped.setdefault(
+            descriptor.group, {"group": descriptor.group, "settings": []}
+        )
+        bucket["settings"].append(
+            {
+                "key": descriptor.key,
+                "type": descriptor.type_tag,
+                "value": get(descriptor.key),
+                "hint": descriptor.hint,
+            }
+        )
+    return list(grouped.values())
+
+
+# ── startup-only helper (NOT part of the get/set/all_for_ui panel-facing contract) ──
+def seed_defaults() -> None:
+    """Idempotently seed every schema key to its ``.env``/default value (STORE-05).
+
+    Startup-only (01-03 wires the single call site in ``bot.py::main()``, per Open Question 1);
+    not part of the panel-facing API. Ensures the table exists via ``db.init_settings()`` first,
+    then ``INSERT OR IGNORE`` each default — so running it twice is a no-op and it NEVER
+    overwrites an owner's saved edit (Pitfall 3). Defaults are byte-identical to config.py's
+    current literals, so seeding preserves today's behavior exactly.
+    """
+    db.init_settings()
+    with db._get_conn() as conn:
+        for descriptor in _SCHEMA.values():
+            conn.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                (descriptor.key, json.dumps(descriptor.default)),
+            )
