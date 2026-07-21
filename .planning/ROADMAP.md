@@ -15,7 +15,7 @@ FastAPI admin app that reads and writes that store). Phase 2 depends entirely on
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Config Store + Consolidation** - Validated settings store in shared sqlite; `config.py` safe tunables read at-use
+- [x] **Phase 1: Config Store + Consolidation** - Validated settings store in shared sqlite; `config.py` safe tunables read at-use (completed 2026-07-21)
 - [ ] **Phase 2: Owner Settings Panel** - Owner-gated `GET`/`POST /admin/settings` form on the existing admin app
 
 ## Phase Details
@@ -35,7 +35,7 @@ FastAPI admin app that reads and writes that store). Phase 2 depends entirely on
 Plans:
 - [x] 01-01-PLAN.md — Wave 0 test scaffolding: tests/test_settings.py + read-at-use tests in the four migrated-cog test files (RED-first)
 - [x] 01-02-PLAN.md — The validated store: core/settings.py (schema/get/set/all_for_ui/seed_defaults/SettingRejected) + core/db.py (init_settings + WAL)
-- [ ] 01-03-PLAN.md — Consolidation: config.py PEP 562 __getattr__ read-at-use shim + bot.py startup seed
+- [x] 01-03-PLAN.md — Consolidation: config.py PEP 562 __getattr__ read-at-use shim + bot.py startup seed
 
 ### Phase 2: Owner Settings Panel
 **Goal**: The owner can view and edit the safe tunables from a web form on the existing admin app, with server-side validation gating every write and secrets never exposed.
@@ -58,5 +58,5 @@ Phases execute in numeric order: 1 → 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Config Store + Consolidation | 2/3 | In Progress|  |
+| 1. Config Store + Consolidation | 3/3 | Complete   | 2026-07-21 |
 | 2. Owner Settings Panel | 0/TBD | Not started | - |
