@@ -180,6 +180,31 @@ def test_wal_mode_active(monkeypatch, tmp_path):
     assert str(mode).lower() == "wal"
 
 
+# ── D-05/PANEL-03: validate_only is a dry-run mirror of set()'s validation half ───
+def test_validate_only_returns_coerced_value(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    assert settings.validate_only("JINXXY_POLL_HOURS", 6) == 6
+    # dry-run: nothing was written, get() still returns the default
+    assert settings.get("JINXXY_POLL_HOURS") == config.JINXXY_POLL_HOURS
+
+
+def test_validate_only_rejects_out_of_range(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    with pytest.raises(settings.SettingRejected):
+        settings.validate_only("JINXXY_POLL_HOURS", 9999)
+    # no write occurred on the rejected dry-run
+    assert settings.get("JINXXY_POLL_HOURS") == config.JINXXY_POLL_HOURS
+
+
+def test_validate_only_rejects_unknown_key(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    with pytest.raises(settings.SettingRejected):
+        settings.validate_only("NOT_A_REAL_KEY", "x")
+
+
 # ── CONC-01: a held read + a concurrent write do not collide with "database is locked" ──
 def test_wal_concurrent_read_write(monkeypatch, tmp_path):
     _use_tmp_db(monkeypatch, tmp_path)
