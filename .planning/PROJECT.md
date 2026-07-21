@@ -30,15 +30,17 @@ for most values — without ever exposing secrets or letting a bad value break a
 - ✓ Meetings: voice capture → Whisper transcription → Ollama summary → forum post — pre-GSD
 - ✓ Editors admin app (FastAPI): Discord OAuth + live role re-check, self-serve profile
   editor, image/media upload, view counter — pre-GSD
+- ✓ Config store: `core/settings.py` (schema + get/set/all_for_ui) backed by a `settings`
+  table in the shared sqlite, with per-type validation rejecting bad IDs/intervals/TZ before
+  any write — Validated in Phase 1: Config Store + Consolidation
+- ✓ `config.py` consolidation: the 19 safe tunables read at-use via `settings.get` through a
+  PEP 562 `__getattr__` shim; secrets/structural values stay frozen from `.env`; behavior
+  byte-identical until an owner edits — Validated in Phase 1: Config Store + Consolidation
 
 ### Active
 
 <!-- Current scope: the Settings Panel milestone. Building toward these. -->
 
-- [ ] Config store: a single source of truth (`core/settings.py`) for what is tunable,
-      backed by a `settings` table in the shared sqlite, with typed validation
-- [ ] `config.py` consolidation: safe tunables read at-use via `settings.get`; secrets and
-      structural values stay frozen from `.env`
 - [ ] Owner-only settings panel on the existing admin app (`GET`/`POST /admin/settings`)
 
 ### Out of Scope
@@ -85,12 +87,18 @@ for most values — without ever exposing secrets or letting a bad value break a
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Shared sqlite is the settings channel (panel writes, bot reads) | Both processes already share `DB_PATH`; avoids building IPC/socket/signal | — Pending |
-| Reload = read-at-use (`settings.get` at the point of consumption) | A saved change takes effect on the next use; no restart for most values | — Pending |
-| Loop-interval edits apply next cycle/restart, not instantly | `@tasks.loop` intervals are read once per cycle; live hot-swap is out of scope | — Pending |
-| Access = owner only (`session.discord_id == DISCORD_USER_ID`) | Editing staff-role lists is a trust-boundary change; only the owner may | — Pending |
-| Owner gate must fail closed when `DISCORD_USER_ID` is unset (defaults to `0`) | Review note: a `0` default must never authorize; unset config must deny, not open | — Pending |
-| Adopt WAL journal mode for the shared sqlite (proposed) | Bot reads + panel writes from two processes; WAL avoids reader/writer lock contention | — Pending |
+| Shared sqlite is the settings channel (panel writes, bot reads) | Both processes already share `DB_PATH`; avoids building IPC/socket/signal | ✓ Validated in Phase 1 |
+| Reload = read-at-use (`settings.get` at the point of consumption) | A saved change takes effect on the next use; no restart for most values | ✓ Validated in Phase 1 |
+| Loop-interval edits apply next cycle/restart, not instantly | `@tasks.loop` intervals are read once per cycle; live hot-swap is out of scope | — Pending (Phase 2) |
+| Access = owner only (`session.discord_id == DISCORD_USER_ID`) | Editing staff-role lists is a trust-boundary change; only the owner may | — Pending (Phase 2) |
+| Owner gate must fail closed when `DISCORD_USER_ID` is unset (defaults to `0`) | Review note: a `0` default must never authorize; unset config must deny, not open | — Pending (Phase 2) |
+| Adopt WAL journal mode for the shared sqlite | Bot reads + panel writes from two processes; WAL avoids reader/writer lock contention | ✓ Validated in Phase 1 (`PRAGMA journal_mode=WAL` on every connection) |
+
+## Current State
+
+Phase 1 complete (2026-07-21) — validated sqlite-backed settings store live; `config.py`'s 19
+safe tunables read at-use through it, byte-identical to `.env` until edited; full suite 617
+passing. Next: Phase 2 — Owner Settings Panel (owner-gated `GET`/`POST /admin/settings`).
 
 ---
-*Last updated: 2026-07-19 after bootstrapping GSD from the settings-panel design spec*
+*Last updated: 2026-07-21 after completing Phase 1 (Config Store + Consolidation)*
