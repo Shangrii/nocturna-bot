@@ -6,15 +6,41 @@ A Discord bot for the Nocturna Avatars community that automates the team's conte
 pipeline: it publishes staff-approved gallery photos, reviews, and store products to the
 public website repo (cross-repo GitHub commits), transcribes/summarizes voice meetings,
 runs scheduled reminders, and powers a separate FastAPI admin app where editors self-serve
-their profile pages. This milestone adds an **owner-only web Settings Panel** so the bot's
-safe operational settings can be viewed and edited without SSHing into the host to hand-edit
-`.env`.
+their profile pages. This milestone turns that admin app into a **full staff dashboard**
+(MEE6-style, sketch 001 variant A): sidebar navigation across 7 modules with real actions
+(gallery approval queue, reminders CRUD, manual Jinxxy sync, reviews moderation, meeting
+transcripts), tiered access (owner / Manager / editor), and permissions editable from the
+panel itself.
 
 ## Core Value
 
-The owner can change the bot's safe operational settings (channels, staff roles, poll
-intervals, timezone, meeting/whisper tuning) from a web panel — no shell access, no restart
-for most values — without ever exposing secrets or letting a bad value break a cog.
+The whole staff operates the bot from one web dashboard according to their access level —
+owner gets everything, Managers run day-to-day operations without shell or Discord-reaction
+workarounds, editors manage their own presentation pages — with the same guarantees as v1:
+no secrets exposed, no bad value able to break a cog.
+
+## Current Milestone: v2.0 Staff Dashboard
+
+**Goal:** Convert the admin panel into a complete MEE6-style dashboard (sketch 001, variant A)
+where all staff operate the bot by access tier: owner everything, Managers operations,
+editors their own page.
+
+**Target features:**
+- Dashboard shell — sidebar with per-module color accents (sketch 001 variant A), 7 sections:
+  Overview, Gallery, Reviews, Reminders, Jinxxy Store, Meetings, Settings
+- Tiered access — owner: full; Manager role (`1453560115423875205`): everything except
+  Settings; editors: their profile/presentation section
+- Editable permissions — role→tier assignment (Manager, editor roles) manageable from
+  Settings (owner-only)
+- Gallery — approval queue: approve/remove photos with parity to the ✅/🌙 reaction flow
+- Reviews — approve/remove website reviews from the panel
+- Reminders — full CRUD + pause/resume (table + modal pattern)
+- Jinxxy Store — manual sync trigger + last-sync status
+- Meetings — browse transcripts/summaries; edit and re-publish a summary to the forum
+- Settings — v1 panel migrated into the shell, now with readable names (#channel, @role)
+  resolved via Discord API, ID shown beneath (POLISH-01 in scope)
+- Editors section — the guns.lol-style presentation panel (`editors.nocturna-avatars.site`)
+  integrated as a dashboard section
 
 ## Requirements
 
@@ -43,19 +69,33 @@ for most values — without ever exposing secrets or letting a bad value break a
 
 ### Active
 
-<!-- Current scope: the Settings Panel milestone. Building toward these. -->
+<!-- Current scope: the v2.0 Staff Dashboard milestone. Building toward these. -->
 
-- (none — Phase 2 was the final phase of this milestone)
+- Dashboard shell with sidebar navigation across 7 modules (sketch 001 variant A)
+- Tiered access: owner / Manager role / editors, with role→tier assignment editable in
+  Settings (owner-only)
+- Gallery approval queue with reaction-flow parity
+- Reviews approve/remove from the panel
+- Reminders CRUD + pause/resume
+- Jinxxy manual sync + status
+- Meetings transcript/summary browser with edit + re-publish
+- Settings migrated into the shell with Discord-API-resolved readable names
+- Editors presentation section integrated into the dashboard
 
 ### Out of Scope
 
 <!-- Explicit boundaries. Includes reasoning to prevent re-adding. -->
 
 - Editing structural values or secrets — high blast radius / secret exposure; stay in `.env`
-- Guild-populated channel/role dropdowns — v1 uses validated ID inputs; live guild fetch is later polish
-- Ops console / monitoring / manual action triggers (sync-now, view logs) — v1 is a settings *editor*, not an ops console
-- Multi-guild, multi-admin, or a dedicated bot-admin role — single Nocturna guild, single owner
+- Multi-guild support — single Nocturna guild
 - Live loop-interval hot-swap (`change_interval`) — interval edits apply next cycle/restart
+- Log viewer / process monitoring — v2.0 shows bot status on Overview, not an ops log console
+- Overview quick actions (variant C of sketch 001) — variant A won; actions live in their modules
+
+<!-- Superseded in v2.0 (were out of scope in v1.0):
+     - Guild channel/role name resolution (POLISH-01) — now in scope via Discord API
+     - Manual action triggers — Jinxxy sync-now now in scope
+     - Non-owner admin access — Manager tier now in scope -->
 
 ## Context
 
@@ -97,15 +137,35 @@ for most values — without ever exposing secrets or letting a bad value break a
 | Access = owner only (`session.discord_id == DISCORD_USER_ID`) | Editing staff-role lists is a trust-boundary change; only the owner may | ✓ Validated in Phase 2 (`require_owner`) |
 | Owner gate must fail closed when `DISCORD_USER_ID` is unset (defaults to `0`) | Review note: a `0` default must never authorize; unset config must deny, not open | ✓ Validated in Phase 2 |
 | Adopt WAL journal mode for the shared sqlite | Bot reads + panel writes from two processes; WAL avoids reader/writer lock contention | ✓ Validated in Phase 1 (`PRAGMA journal_mode=WAL` on every connection) |
+| v2.0: Admin app calls Discord API to resolve channel/role names | Readable names (#channel, @role) in the dashboard; partially revisits the v1 "no bot credentials in the admin app" stance — scope/credential choice decided at planning | — Pending (v2.0) |
+| v2.0: Access tiers = owner > Manager role > editor, tier assignment editable in Settings (owner-only) | One dashboard for all staff; permission edits are a trust-boundary change so they stay owner-gated | — Pending (v2.0) |
 
 ## Current State
 
-Phase 2 complete (2026-07-21) — owner-gated `GET`/`POST /admin/settings` live on the admin
-app; verification passed 4/4 success criteria after gap-closure plan 02-05 (snowflake IDs
-string-serialized end-to-end, raw values round-tripped so the CONF-03 cascade survives panel
-saves); full suite 645 passing. This was the final phase of the Settings Panel milestone.
-Open advisory items: 6 code-review warnings in `02-REVIEW.md`; SECURITY.md not yet produced
-(`/gsd:secure-phase 2`).
+Milestone v1.0 (Settings Panel) shipped 2026-07-21: config store + consolidation (Phase 1)
+and the owner-only settings panel (Phase 2), verification 4/4, full suite 645 passing,
+`02-SECURITY.md` produced via `/gsd:secure-phase 2`. Open advisory items: 6 code-review
+warnings in the archived `02-REVIEW.md`.
+
+Milestone v2.0 (Staff Dashboard) started 2026-07-21 — defining requirements. Visual contract:
+`.planning/sketches/001-dashboard-shell/` (variant A won).
+
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
 
 ---
-*Last updated: 2026-07-21 after completing Phase 2 (Owner Settings Panel)*
+*Last updated: 2026-07-21 after starting milestone v2.0 (Staff Dashboard)*
