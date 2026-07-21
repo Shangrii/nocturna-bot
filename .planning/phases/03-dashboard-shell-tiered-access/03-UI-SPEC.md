@@ -27,7 +27,7 @@ an actionable contract and adds Phase-3-specific component/copy decisions the sk
 | Preset | not applicable |
 | Component library | none — hand-rolled CSS ported from `.planning/sketches/themes/default.css` into a new stylesheet (e.g. `app/static/dashboard.css`), plus Jinja partials for reuse: `_dashboard_base.html`, `_sidebar.html`, `module_stub.html`, `forbidden.html` (RESEARCH.md Recommended Project Structure) |
 | Icon library | none — plain Unicode glyphs as used in the sketch (⌂ Overview, 🖼 Gallery, ★ Reviews, ⏰ Reminders, 🛍 Jinxxy, 🎙 Meetings, ⚙ Settings, 🔒 locked-nav-item). Zero-dependency choice, consistent with "no build step." |
-| Font | Inter (sans, `--font-sans: 'Inter','Segoe UI',system-ui,sans-serif`), loaded via Google Fonts `family=Inter:wght@400;700` — same loading pattern already used in `app/templates/settings.html`. Mono fallback `--font-mono: 'Cascadia Code','JetBrains Mono',monospace` for raw Discord IDs shown beneath resolved names. |
+| Font | Inter (sans, `--font-sans: 'Inter','Segoe UI',system-ui,sans-serif`), loaded via Google Fonts `family=Inter:wght@400;600` — same loading pattern already used in `app/templates/settings.html` (adjust the weight list to 400/600 only, see Typography). Mono fallback `--font-mono: 'Cascadia Code','JetBrains Mono',monospace` for raw Discord IDs shown beneath resolved names. |
 
 **Scope note:** `app/templates/settings.html` keeps its current `editor.css`-based look unchanged
 this phase (SETT-01 migration into the shell chrome is Phase 4, per CONTEXT.md phase boundary and
@@ -53,28 +53,35 @@ Declared values (must be multiples of 4), transcribed from `default.css`:
 
 Exceptions: **12px** (`--space-3`) — used for the sidebar group-label top padding (`.grp`) and the
 gallery-card body inner padding (`.gcard .b`). This is a pre-existing value in the locked sketch
-theme, not a new deviation; keep it as-is rather than rounding to 8 or 16.
+theme, not a new deviation; keep it as-is rather than rounding to 8 or 16. **This is the only
+permitted exception** — no further ad-hoc spacing values (e.g. 10px, 14px, 20px) may be introduced
+anywhere in Phase 3 markup/CSS; every other measurement must resolve to one of the scale tokens
+above.
 
 ---
 
 ## Typography
 
+Exactly 4 sizes, exactly 2 weights — closed set, no other `font-size`/`font-weight` value may
+appear in Phase 3 markup or CSS.
+
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Label | 12px (`--text-xs`) | 600 semibold | 1.2 — uppercase labels, table headers, badges, hints, group headings |
-| Body | 13px (`--text-sm`) | 400 regular | 1.5 — table cell text, nav items, chips, muted copy, review/quote text |
-| Heading | 18px (`--text-lg`) | 700 bold | 1.2 — module header title (`.mod-hdr .t`), stat value emphasis contexts |
-| Display | 26px (`--text-2xl`) | 700 bold | 1.2 — page title (`.ph .ttl`), i.e. "Overview", "Recordatorios", etc. |
+| Body | 13px (`--text-sm`) | 400 regular | 1.5 — body element default, table cell text, nav items, chips, muted copy, review/quote text |
+| Heading | 18px (`--text-lg`) | 600 semibold | 1.2 — module header title (`.mod-hdr .t`), Overview stat-tile numeric value (`.stat .v`) |
+| Display | 26px (`--text-2xl`) | 600 semibold | 1.2 — page title (`.ph .ttl`), i.e. "Overview", "Recordatorios", etc. |
 
-Font weights used: **400 regular** (body/muted text) and **600 semibold** (labels, buttons, card
-headers, badges) are the 2 core weights. **700 bold** is an explicit, locked exception reserved
-only for page-level Display headings, module-header titles, and stat-tile numeric values (`.stat
-.v`) — never used for body copy or buttons. Do not introduce any other weight (the sketch's `800`
-on the single-letter brand-logo monogram is decorative and out of scope for content typography).
+Font weights used: **400 regular** (body/muted text only) and **600 semibold** (everything else —
+labels, buttons, card headers, badges, module titles, stat values, page titles). No 700/bold and
+no 800 anywhere in Phase 3 (the sketch's `--font-sans` 700/800 usages — page title, stat value,
+brand-logo monogram — all collapse onto 600 semibold for this phase's implementation). Load only
+Inter 400 and 600 from Google Fonts; drop the 700 weight from the font `@import`/`<link>` list.
 
-Full raw token reference (for in-between sizes the 4 roles above don't cover, e.g. stat values at
-`--text-xl` 21px): `--text-xs` 12px / `--text-sm` 13px / `--text-base` 15px (body element default)
-/ `--text-lg` 18px / `--text-xl` 21px / `--text-2xl` 26px — verbatim from `default.css`, locked.
+`--text-base` (15px) and `--text-xl` (21px) from `default.css` are **not used** anywhere in Phase 3
+— every element that the sketch styled with those two tokens is re-mapped onto Body (13px) or
+Heading (18px) respectively per the table above, so the rendered UI only ever shows the 4 declared
+sizes.
 
 ---
 
@@ -177,6 +184,11 @@ variant A + CONTEXT.md D-01–D-16).
   the toggle switch and on/off badge (see Copywriting Contract out-of-scope note).
 
 ### Overview page
+- **Primary visual anchor: the bot-status stat tile** (leftmost, `--color-success`/`--color-danger`
+  accent depending on heartbeat freshness) — it answers the single most important question on this
+  screen ("is the bot up?") and should draw the eye first. The recent-activity table is the
+  secondary focal point below it; the remaining stat tiles (last Jinxxy sync, etc.) are tertiary,
+  same visual weight as each other.
 - Stat tiles (`.stat`, 4-column grid, `--space-4` gap): Bot status (online/offline + uptime),
   pending-count-shaped tiles are NOT populated with real queue data yet (Phases 6-9 own those
   counts) — Phase 3 shows what D-09/D-10/D-11 plumbing actually provides: bot status, last Jinxxy
@@ -191,8 +203,6 @@ variant A + CONTEXT.md D-01–D-16).
 - New template, in-shell where feasible (wrapped in the same base layout so the sidebar is still
   visible, reinforcing "you can see the section exists, you just can't use it"), NOT a reuse of
   `login.html`. Bilingual copy per Copywriting Contract above. HTTP 403.
-
-</br>
 
 ---
 
