@@ -17,7 +17,7 @@ FastAPI admin app that reads and writes that store). Phase 2 depends entirely on
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Config Store + Consolidation** - Validated settings store in shared sqlite; `config.py` safe tunables read at-use (completed 2026-07-21)
-- [ ] **Phase 2: Owner Settings Panel** - Owner-gated `GET`/`POST /admin/settings` form on the existing admin app
+- [x] **Phase 2: Owner Settings Panel** - Owner-gated `GET`/`POST /admin/settings` form on the existing admin app (completed 2026-07-21)
 
 ## Phase Details
 
@@ -68,7 +68,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 02-04-PLAN.md — GET/POST /admin/settings routes (atomic validate-then-write) + is_owner context + integration tests [Wave 3]
+- [x] 02-04-PLAN.md — GET/POST /admin/settings routes (atomic validate-then-write) + is_owner context + integration tests [Wave 3]
 
 ## Progress
 
@@ -78,4 +78,4 @@ Phases execute in numeric order: 1 → 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Config Store + Consolidation | 3/3 | Complete   | 2026-07-21 |
-| 2. Owner Settings Panel | 3/4 | In Progress|  |
+| 2. Owner Settings Panel | 4/4 | Complete   | 2026-07-21 |
