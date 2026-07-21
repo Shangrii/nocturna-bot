@@ -1,70 +1,26 @@
 ---
 phase: 02-owner-settings-panel
-verified: 2026-07-21T18:00:00Z
-status: gaps_found
-score: 2/4 roadmap success criteria verified
+verified: 2026-07-21T19:30:00Z
+status: passed
+score: 4/4 roadmap success criteria verified
 overrides_applied: 0
-gaps:
-  - truth: "GET /admin/settings renders the tunables grouped by feature with typed fields, and no secret ever appears in the form (with the rendered/edited values being data-integrity-preserving, not silently corrupted)"
-    status: failed
-    reason: >
-      core/settings.py::all_for_ui() serializes snowflake (single ID) and role_list
-      (list of IDs) values as Python int/list[int] — reproduced directly: PHOTO_CHANNEL_ID's
-      default 1416329356426481717 comes back from all_for_ui() as a bare `int`.
-      settings.html hydrates via `x-data='settingsApp({{ groups | tojson }})'`, which Jinja's
-      `tojson` renders as a bare JSON number literal (confirmed: `1416329356426481717` with no
-      quotes). Alpine/JS parses that literal as an IEEE-754 double; Discord snowflakes
-      (17-20 digits) exceed Number.MAX_SAFE_INTEGER (9007199254740991) by three orders of
-      magnitude, so the value is silently rounded before it is ever shown in the input.
-      Server-side validation (`_validate_channel_id` — `str(value).isdigit()`) accepts the
-      corrupted-but-still-numeric value, so one "Save settings" click with zero edits can
-      rewrite every channel/forum/role ID in the store to a wrong value. This is CR-01 in
-      02-REVIEW.md and remains unfixed in the current HEAD (a1fa945) — no follow-up commit
-      touches core/settings.py's value serialization or settings.html's snowflake/role_list
-      binding since the review was written.
-    artifacts:
-      - path: "core/settings.py"
-        issue: "all_for_ui() emits raw int/list[int] for snowflake/role_list type_tags (line ~373-386) instead of strings; confirmed via direct call: all_for_ui() -> PHOTO_CHANNEL_ID value is <class 'int'> 1416329356426481717"
-      - path: "app/templates/settings.html"
-        issue: "x-data='settingsApp({{ groups | tojson }})' (line 22) hydrates the raw numeric payload into a JS scope with no string-guard for snowflake/role_list values; x-model on the snowflake/role_list inputs (lines 47, 53) binds directly to the (corrupted) numeric value"
-    missing:
-      - "Serialize snowflake values as str and role_list entries as list[str] in all_for_ui() (validators already accept digit strings, so the POST round-trip needs no further change)"
-      - "A regression test asserting all_for_ui() never emits a bare int/float for a snowflake/role_list value (or, more directly, that no numeric literal above 2**53 appears in the tojson-serialized payload)"
-
-  - truth: "A valid POST persists to the store and re-renders with a success banner; the bot never reads a bad value because a normal save does not silently corrupt unrelated settings (CONF-03's staff-role fallback-to-GALLERY cascade must survive ordinary panel use, per the phase's stated Core Value: 'without exposing secrets or letting a bad value break a cog')"
-    status: failed
-    reason: >
-      Reproduced directly against the live route: seeded GALLERY_STAFF_ROLE_IDS=[111] (so
-      REVIEWS_STAFF_ROLE_IDS, which is stored empty, cascades to [111] via the CONF-03
-      read-time fallback). Built the payload exactly as settings.html's client does — GET the
-      groups via all_for_ui(), flatten to a full key->value map — and POSTed it back UNCHANGED
-      (mirrors clicking "Guardar ajustes" with no edits). The POST succeeds (200, {ok:true}).
-      After the save, GALLERY_STAFF_ROLE_IDS was changed to [222] and REVIEWS_STAFF_ROLE_IDS
-      still returned [111] instead of cascading to [222] — the fallback is permanently broken
-      because the resolved value was baked into REVIEWS_STAFF_ROLE_IDS's own row. This is CR-02
-      in 02-REVIEW.md, confirmed still present: settings.html::serialize() (lines 138-140)
-      posts `{...this.values}` (every key, always) and all_for_ui()'s `value` field
-      (core/settings.py line 376) is sourced via get(), which resolves the fallback. This
-      directly breaks Phase 1's CONF-03 requirement through completely ordinary use of the
-      Phase 2 panel — not an edge case, but the panel's designed always-post-the-whole-form
-      behavior.
-    artifacts:
-      - path: "app/templates/settings.html"
-        issue: "serialize() (lines 138-140) returns the full flattened values map on every save; the client has no concept of 'dirty' vs 'untouched' fields"
-      - path: "core/settings.py"
-        issue: "all_for_ui()'s entry['value'] = get(descriptor.key) (line 376) resolves the CONF-03 fallback before the value ever reaches the editable payload, so an unmodified round-trip bakes it in"
-    missing:
-      - "all_for_ui() should expose the raw stored value (bypassing the fallback_key resolution) for the editable payload — or the client should diff against the initial snapshot and post only changed keys"
-      - "An integration test seeding a gallery role, GETting the panel payload, POSTing it back unchanged, and asserting the dependent (REVIEWS/REMINDERS/JINXXY) staff-role key still cascades from a subsequent gallery edit"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 2/4
+  gaps_closed:
+    - "GET /admin/settings renders the tunables grouped by feature with typed fields, and no secret ever appears in the form (CR-01 snowflake precision loss)"
+    - "A valid POST persists to the store and re-renders with a success banner; an invalid POST returns an inline field error and writes nothing (CR-02 CONF-03 fallback baking on unchanged save)"
+  gaps_remaining: []
+  regressions: []
 human_verification: []
 ---
 
 # Phase 2: Owner Settings Panel Verification Report
 
 **Phase Goal:** The owner can view and edit the safe tunables from a web form on the existing admin app, with server-side validation gating every write and secrets never exposed.
-**Verified:** 2026-07-21T18:00:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-07-21T19:30:00Z
+**Status:** passed
+**Re-verification:** Yes — after gap closure (plan 02-05, commits 7699ccc/c88c728/f713571)
 
 ## Goal Achievement
 
@@ -72,48 +28,48 @@ human_verification: []
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | A non-owner hitting any `/admin/settings` route gets 403 and no data; the owner gets 200. The gate fails closed when `DISCORD_USER_ID` is unset. | VERIFIED | `app/deps.py::require_owner` (lines 69-94) checks `if not owner_id: raise 403` BEFORE the identity comparison, str-normalizes both operands, reads identity from `request.session` only. `app/main.py` wires `Depends(require_owner)` on both GET (line 424) and POST (line 444). `tests/test_app_auth.py` (4 tests) and `tests/test_app_settings.py` (403-no-data tests) pass — ran locally: 52/52 relevant tests pass. |
-| 2 | `GET /admin/settings` renders the tunables grouped by feature with typed fields, and no secret ever appears in the form. | FAILED | Renders and groups correctly, and the secret-absence guarantee holds (verified: `_SCHEMA` allowlist, tests assert absence). **However** snowflake/role_list values are corrupted by JS float-precision loss before display — see gap 1 (CR-01, reproduced directly: `all_for_ui()` emits `PHOTO_CHANNEL_ID` as Python `int` 1416329356426481717, serialized by `tojson` as a bare JS number literal that exceeds `Number.MAX_SAFE_INTEGER`). The "typed field" contract is not integrity-preserving for real Discord IDs. |
-| 3 | A valid `POST` persists to the store and re-renders with a success banner; an invalid `POST` returns an inline field error and writes nothing. | FAILED | The narrow, tested behavior works (single-field valid POST persists; mixed valid/invalid POST writes nothing — `tests/test_app_settings.py` passes). **However**, because the client always posts the entire form (`serialize()` returns all 19 keys) and `all_for_ui()`'s value is fallback-resolved, a "valid" POST — even an unmodified save — permanently bakes the CONF-03 staff-role cascade into its dependent keys. Reproduced directly (see gap 2): GET+POST-unchanged, then editing `GALLERY_STAFF_ROLE_IDS`, leaves `REVIEWS_STAFF_ROLE_IDS` stuck on the old resolved value instead of cascading. This is exactly the "letting a bad value break a cog" failure mode the milestone's Core Value statement (REQUIREMENTS.md) explicitly rules out. |
-| 4 | After a save, the bot picks up the new value on its next relevant use (loop-interval changes on the next cycle). | VERIFIED (narrow), with caveat | `tests/test_app_settings.py` proves `settings.get(key)` reflects a POSTed value immediately — the specific literal truth holds. Caveat: this truth's spirit is undermined by gap 2's cascade-baking bug (a saved value that was never intentionally edited by the owner still overwrites what the bot reads). Also noted as a deployment risk (not blocking this truth): `app/main.py`'s `lifespan` calls `db.init_presence()`/`db.init_view_counts()` but not `db.init_settings()` (WR-01 in 02-REVIEW.md) — on a fresh deploy where the admin app starts before the bot seeds the table, the first POST 500s. Confirmed via `grep`: `init_settings` does not appear in `app/main.py`. |
+| 1 | A non-owner hitting any `/admin/settings` route gets 403 and no data; the owner gets 200. The gate fails closed when `DISCORD_USER_ID` is unset. | VERIFIED (regression check — unchanged since prior PASS) | `app/deps.py::require_owner` (lines 69-94) unchanged: `if not owner_id: raise 403` runs BEFORE the identity comparison, both operands `str()`-normalized, identity read from `request.session` only. `app/main.py` wires `Depends(require_owner)` on both GET (line 424) and POST (line 444). `tests/test_app_auth.py` + the two 403-path tests in `tests/test_app_settings.py` pass. |
+| 2 | `GET /admin/settings` renders the tunables grouped by feature with typed fields, and no secret ever appears in the form. | VERIFIED (gap closed) | `core/settings.py::all_for_ui()` (lines 379-423) now sources every entry's value from the new `_get_raw()` (lines 323-344) and string-serializes `snowflake` → `str(value)` and `role_list` → comma-joined `str` before the value is placed on the entry. Independently reproduced (not just re-reading the review): direct call after `seed_defaults()` — `PHOTO_CHANNEL_ID` value is `'1416329356426481717'` of type `str`; `json.dumps(all_for_ui())` (the `tojson`-equivalent payload) contains zero bare integer literals ≥ 16 digits. Secret-absence guarantee unchanged (`_SCHEMA` allowlist; `tests/test_app_settings.py::test_get_settings_owner_renders_grouped_no_secret` passes). |
+| 3 | A valid POST persists to the store and re-renders with a success banner; an invalid POST returns an inline field error and writes nothing. | VERIFIED (gap closed) | The narrow atomicity behavior (unchanged, still passing) plus the CR-02 defect is fixed: `all_for_ui()`'s payload now carries the RAW (unresolved) staff-role value via `_get_raw()`, which omits the `fallback_key` branch. Independently reproduced end-to-end via `TestClient`: seeded `GALLERY_STAFF_ROLE_IDS=[111]`, flattened `all_for_ui()` (mirroring `settingsApp`'s exact client-side flatten in `settings.html:104-114`), POSTed the payload UNCHANGED to `/admin/settings` → 200 `{ok:true}`; `REVIEWS_STAFF_ROLE_IDS` remained `[111]` (still cascading, not baked); a subsequent gallery-only edit to `[222]` cascaded to `REVIEWS_STAFF_ROLE_IDS`/`REMINDERS_STAFF_ROLE_IDS`/`JINXXY_STAFF_ROLE_IDS`, all now `[222]`. This is the exact CR-02 repro from the prior verification, now inverted. `get()` itself is byte-identical (confirmed by direct read of `core/settings.py:295-320`) — the bot's read-time CONF-03 cascade is untouched. |
+| 4 | After a save, the bot picks up the new value on its next relevant use (loop-interval changes on the next cycle). | VERIFIED | `settings.get(key)` reflects a POSTed value immediately (`tests/test_app_settings.py::test_post_settings_round_trip_visible_to_settings_get`, `::test_post_settings_valid_change_persists_and_returns_ok`). CONF-01 read-at-use wiring in `config.py::__getattr__` (routes `_SAFE_TUNABLE_KEYS` through `settings.get`) is unchanged from Phase 1 and untouched by this gap-closure plan. The gap-2 concern (an untouched field's resolved value silently overwriting what the bot reads) no longer applies now that `all_for_ui()` exposes the raw, unresolved value. |
 
-**Score:** 2/4 roadmap success criteria fully verified (SC1, SC4-narrow); 2/4 have confirmed, reproduced, unfixed critical defects (SC2, SC3).
+**Score:** 4/4 roadmap success criteria verified.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `core/settings.py` (`all_for_ui`, `validate_only`) | D-09 render metadata + dry-run validation | VERIFIED (exists, substantive, wired, tested) | `label`/`min`/`max`/`options` present for all relevant type_tags; `validate_only` is DB-free and preserves the `_SCHEMA` allowlist. 17/17 `tests/test_settings.py` pass. Value-serialization defect (gap 1) is a real bug but does not remove artifact substance. |
-| `app/deps.py::require_owner` | Fail-closed owner gate | VERIFIED | Confirmed by direct read: falsy-guard before comparison, str-normalization, session-only identity. `require_editor` untouched. |
-| `app/templates/settings.html` | SSR + Alpine hydrate form, 7 typed controls, per-field errors | VERIFIED (exists, substantive, wired) but carries the CR-01/CR-02 data-integrity defects | All 7 `type_tag` controls present; single-quoted `x-data='settingsApp('` present; `.field-error`/`field--invalid` present; `fetch('/admin/settings'` present. |
-| `app/templates/editor.html` (owner link) | `{% if is_owner %}`-guarded `/admin/settings` link | VERIFIED | `grep` confirms the guard and link; `app/main.py::editor_page` now computes and passes `is_owner`. |
-| `app/static/editor.css` (`.field-error`, `.field--invalid`) | Inline error styling | VERIFIED | Present, references `var(--red-on-ink)`. |
-| `app/main.py` (`GET`/`POST /admin/settings`) | Routes gated by `require_owner`, two-pass validate-then-write | VERIFIED at the route-wiring level; FAILED at the data-integrity level (see gaps) | Both routes present, `Depends(require_owner)` on both, `validate_only` precedes `settings.set` in the POST handler body (confirmed by reading `app/main.py:443-481`). No raw SQL. |
-| `tests/test_app_settings.py`, `tests/test_app_auth.py`, `tests/test_settings_template.py` | Integration/unit coverage | VERIFIED (exist, run, pass) | 52 tests across these four files + `test_settings.py` pass locally. None of these tests exercise browser-side JS number semantics or a GET→POST-unchanged round trip, which is exactly why CR-01/CR-02 survived to this point (confirmed independently in this verification, not merely restated from the review). |
+| `core/settings.py` (`all_for_ui`, `_get_raw`, `get`, `validate_only`) | Raw-value reader + string-serializing UI payload, byte-identical `get()` | VERIFIED (exists, substantive, wired, tested) | `_get_raw()` (lines 323-344) duplicates `get()`'s SELECT+json.loads+fallback-to-default resolution but omits the `fallback_key` branch; `all_for_ui()` (line 405) calls `_get_raw(descriptor.key)` and coerces snowflake/role_list to `str` (lines 406-409). `get()` (lines 295-320) is unchanged from the pre-gap-closure version. |
+| `app/deps.py::require_owner` | Fail-closed owner gate | VERIFIED (unchanged, regression-checked) | Confirmed by direct read: falsy-guard before comparison, str-normalization, session-only identity. |
+| `app/templates/settings.html` | SSR + Alpine hydrate form, typed controls | VERIFIED (unchanged, confirmed no template edit was needed) | `x-model="values[setting.key]"` on `type="text"` inputs for snowflake/role_list (lines 47, 53) already bind strings; `tojson` now emits quoted strings for those fields since the source data changed, requiring zero template changes — confirmed by direct read. |
+| `tests/test_settings.py` | Unit regression: snowflake/role_list are strings, no bare int > 2**53, raw value bypasses fallback | VERIFIED | Contains `_get_raw`/`all_for_ui`-targeted tests; 22 tests in this file pass. |
+| `tests/test_app_settings.py` | Integration regression: full-form GET→POST-unchanged preserves snowflake precision and the CONF-03 cascade | VERIFIED | `test_post_settings_unchanged_save_preserves_snowflake_precision` and `test_post_settings_unchanged_save_preserves_staff_role_cascade` (using a `_flatten()` helper that mirrors `settingsApp`'s client-side flatten exactly) both present and passing. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|----|--------|---------|
-| `app/main.py` GET/POST `/admin/settings` | `require_owner` | `Depends(require_owner)` | WIRED | Confirmed in both route decorators. |
-| `app/main.py` POST `/admin/settings` | `settings.validate_only` then `settings.set` | two-pass validate-all-then-write-all | WIRED (validation pass), but data fed into pass 2 is fallback-resolved (see gap 2) | `validate_only` loop precedes the `set` loop; confirmed no `set` call inside the validation loop. |
-| `app/main.py` GET `/admin/settings` | `settings.all_for_ui()` | server-render into `settings.html` | WIRED, but the payload embeds gap-1/gap-2 defects | `settings_page` passes `settings.all_for_ui()` as `groups` directly to the template context. |
-| `settings.html::save()` | `/admin/settings` | `fetch POST application/json` | WIRED | `fetch('/admin/settings', {method: 'POST', ...})` confirmed; response branches on `{ok,message}` vs `{errors}`. |
+| `app/main.py` GET/POST `/admin/settings` | `require_owner` | `Depends(require_owner)` | WIRED | Confirmed in both route decorators, unchanged. |
+| `core/settings.py::all_for_ui` | `core/settings.py::_get_raw` | raw stored value, no fallback resolution | WIRED | `all_for_ui()` line 405 calls `_get_raw(descriptor.key)`, not `get(`. Confirmed by direct read. |
+| `core/settings.py::all_for_ui` | `app/templates/settings.html` tojson payload | `str()`/comma-join serialization → tojson emits quoted strings | WIRED | `settings_page` passes `settings.all_for_ui()` directly as `groups`; template's `x-data='settingsApp({{ groups | tojson }})'` (line 22) unchanged; snowflake/role_list values are now pre-quoted strings by the time they reach `tojson`. |
+| `settings.html::save()` | `/admin/settings` | `fetch POST application/json` | WIRED | `fetch('/admin/settings', {method: 'POST', ...})` confirmed; `serialize()` posts `{...this.values}` — every key, current (now string-safe) value. |
+| `app/main.py` POST `/admin/settings` | `settings.validate_only` then `settings.set` | two-pass validate-all-then-write-all | WIRED | Unchanged; `validate_only` loop precedes the `set` loop. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|---------------------|--------|
-| `settings.html` `groups`/`values` | `settings.all_for_ui()` | Real sqlite-backed `settings` table via `core/settings.py::get()` | Yes (real data) | FLOWING, but the resolved value for snowflake/role_list/fallback-derived fields is either precision-corrupted client-side (gap 1) or destructively re-persisted on save (gap 2) — the flow is real but not integrity-preserving for these two field classes. |
+| `settings.html` `groups`/`values` | `settings.all_for_ui()` | Real sqlite-backed `settings` table via `core/settings.py::_get_raw()` | Yes (real, raw, unresolved data) | FLOWING and integrity-preserving — independently reproduced via direct Python call and via a live `TestClient` GET-payload → POST-unchanged round trip; snowflake precision and the CONF-03 cascade both survive. |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| `settings.all_for_ui()` snowflake value type | Direct Python call against a real tmp-DB store | `PHOTO_CHANNEL_ID` value is `<class 'int'> 1416329356426481717`, `tojson`-equivalent serialization is the bare literal `1416329356426481717` (no quotes) | FAIL — confirms CR-01 is live in the current codebase |
-| GET→POST-unchanged preserves CONF-03 cascade | TestClient round-trip: seed `GALLERY_STAFF_ROLE_IDS=[111]`, GET groups, flatten to values, POST unchanged, then change `GALLERY_STAFF_ROLE_IDS=[222]`, re-check `REVIEWS_STAFF_ROLE_IDS` | POST returns 200 `{ok:true}`; after the gallery edit, `REVIEWS_STAFF_ROLE_IDS` remained `[111]` instead of cascading to `[222]` | FAIL — confirms CR-02 is live in the current codebase |
-| `tests/test_app_settings.py tests/test_settings.py tests/test_settings_template.py tests/test_app_auth.py` | `pytest -q` | 52 passed | PASS (but does not cover the two failure modes above — the suite's fixtures always POST a hand-built single/dual-key body, never a full-form GET→POST round trip, and never execute JS) |
-| Debt-marker scan (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) on `app/main.py`, `app/deps.py`, `app/templates/settings.html`, `core/settings.py` | `grep -inE` | No matches (the only `placeholder` hits are legitimate HTML attributes / prose) | PASS |
+| `settings.all_for_ui()` snowflake value type/precision | Direct Python call against a real tmp-DB store (independently executed, not re-reading prior evidence) | `PHOTO_CHANNEL_ID` value is `<class 'str'> '1416329356426481717'`; `json.dumps(all_for_ui())` contains zero bare int literals ≥ 16 digits | PASS — CR-01 fix confirmed live |
+| GET→POST-unchanged preserves CONF-03 cascade | Direct Python round trip: seed `GALLERY_STAFF_ROLE_IDS=[111]`, call `all_for_ui()`, confirm `REVIEWS_STAFF_ROLE_IDS` raw value is `""`, confirm `settings.get("REVIEWS_STAFF_ROLE_IDS")` still cascades to `[111]` | Raw payload value `""`; `get()` cascade `[111]` | PASS — CR-02 fix confirmed live |
+| `pytest tests/test_settings.py tests/test_app_settings.py tests/test_settings_template.py tests/test_app_auth.py -q` | Direct execution | 59 passed | PASS |
+| `pytest -q` (full repo suite, regression check) | Direct execution | 645 passed | PASS — no regressions introduced by the gap-closure plan |
+| Debt-marker scan (`TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER`) on `core/settings.py`, `tests/test_settings.py`, `tests/test_app_settings.py` | `grep -inE` | One match: `core/settings.py:352` "parameterized `?` placeholder" — a legitimate reference to a SQL placeholder, not a debt marker | PASS |
 
 ### Probe Execution
 
@@ -123,40 +79,43 @@ No `scripts/*/tests/probe-*.sh` conventional probes exist in this repository and
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|--------------|--------|----------|
-| PANEL-01 | 02-02-PLAN, 02-04-PLAN | `require_owner` gate, fails closed | SATISFIED | `app/deps.py::require_owner`, `tests/test_app_auth.py` (4 tests), `tests/test_app_settings.py` 403-path tests all pass. |
-| PANEL-02 | 02-01-PLAN, 02-03-PLAN, 02-04-PLAN | GET renders typed, grouped, secret-free form | BLOCKED | Renders and is secret-free, but CR-01 (unfixed) corrupts snowflake/role-list display data — see gap 1. REQUIREMENTS.md's traceability table marks this "Complete", which this verification disputes on data-integrity grounds. |
-| PANEL-03 | 02-01-PLAN, 02-04-PLAN | POST validates server-side, atomic write, secrets never written bad | BLOCKED | Two-pass validate-then-write is correctly wired and the mixed valid/invalid regression test passes, but CR-02 (unfixed) means an ordinary, fully-valid save silently and permanently corrupts the CONF-03 staff-role cascade — see gap 2. REQUIREMENTS.md marks this "Complete", which this verification disputes. |
-| PANEL-04 | 02-04-PLAN | Saved change is read by the bot on next use | SATISFIED (narrow), at-risk (broader) | `settings.get` reflects a POSTed value immediately (tested). At-risk from gap 2 (an untouched field's resolved value gets baked in, so the bot may read a stale/incorrect value after a later gallery edit) and from WR-01 (missing `db.init_settings()` in `lifespan` risks a 500 on first save after a fresh deploy — confirmed absent via grep, not present in `app/main.py`). |
+| PANEL-01 | 02-02-PLAN, 02-04-PLAN | `require_owner` gate, fails closed | SATISFIED | `app/deps.py::require_owner` unchanged since the prior verified PASS; `tests/test_app_auth.py` + 403-path tests pass. |
+| PANEL-02 | 02-01-PLAN, 02-03-PLAN, 02-04-PLAN, 02-05-PLAN | GET renders typed, grouped, secret-free form | SATISFIED | Renders, is secret-free, and now (post gap-closure) preserves Discord ID precision through the `tojson`/JS boundary — CR-01 independently reproduced as fixed. |
+| PANEL-03 | 02-01-PLAN, 02-04-PLAN, 02-05-PLAN | POST validates server-side, atomic write, secrets never written bad | SATISFIED | Two-pass validate-then-write correctly wired; CR-02 independently reproduced as fixed — an ordinary unchanged save no longer bakes the CONF-03 fallback into dependent keys. |
+| PANEL-04 | 02-04-PLAN | Saved change is read by the bot on next use | SATISFIED | `settings.get` reflects a POSTed value immediately (tested); the gap-2 cascade-baking risk that undermined this truth's broader intent is resolved. |
 
-**Orphan check:** `.planning/REQUIREMENTS.md` maps exactly PANEL-01..04 to Phase 2; all four appear in at least one plan's `requirements:` frontmatter (02-01: PANEL-02/03; 02-02: PANEL-01; 02-03: PANEL-02; 02-04: PANEL-01/02/03/04). No orphaned requirements.
+**Orphan check:** `.planning/REQUIREMENTS.md` maps exactly PANEL-01..04 to Phase 2; all four appear in at least one plan's `requirements:` frontmatter (02-01: PANEL-02/03; 02-02: PANEL-01; 02-03: PANEL-02; 02-04: PANEL-01/02/03/04; 02-05 gap-closure: PANEL-02/03). No orphaned requirements.
 
-**Note:** `REQUIREMENTS.md`'s own traceability table (lines 89-92) currently marks PANEL-02/PANEL-03 "Complete" and PANEL-01/PANEL-04 "Pending" — inconsistent with both this verification's findings (PANEL-01 is solid; PANEL-02/03 have unresolved critical defects) and with 02-REVIEW.md. This table was not updated to reflect the code review's findings.
+**Note (documentation bookkeeping, not a code gap):** `REQUIREMENTS.md`'s own traceability table (lines 89-92) still marks PANEL-02/PANEL-03 "Complete" and PANEL-01/PANEL-04 "Pending" — this table was written before Phase 2 execution and was never updated to reflect either the original code review or this gap closure. It does not affect the code-level verdict above (all four requirements are independently SATISFIED against the current codebase), but the table should be refreshed for accuracy.
 
 ### Anti-Patterns Found
 
+None blocking. No `TBD`/`FIXME`/`XXX`/unreferenced debt markers in the gap-closure files (`core/settings.py`, `tests/test_settings.py`, `tests/test_app_settings.py`). The two previously-BLOCKER findings (CR-01, CR-02) are resolved and independently confirmed fixed in this verification.
+
+Carried-forward WARNING/INFO items from `02-REVIEW.md` (robustness/consistency, not data-integrity blockers, and out of scope for the CR-01/CR-02 gap-closure plan — confirmed still present via direct inspection):
+
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `core/settings.py` / `app/templates/settings.html` | settings.py:376, settings.html:22,47,53,109-114,138-140 | CR-01: bare-int snowflake/role_list serialization into a JS numeric context | BLOCKER | Confirmed live and unfixed; silently corrupts real Discord IDs on save (see gap 1). |
-| `app/templates/settings.html` / `core/settings.py` | settings.html:138-140, settings.py:376 | CR-02: full-form POST bakes fallback-resolved values, breaking CONF-03 | BLOCKER | Confirmed live and unfixed via direct reproduction; breaks the staff-role cascade on ordinary use (see gap 2). |
-| `app/main.py` | lifespan (~271-286) | WR-01: `db.init_settings()` missing from the `try` block that pre-creates `init_presence`/`init_view_counts` | WARNING | Fresh-deploy race: first POST 500s if the admin app starts before the bot has seeded the settings table. Confirmed absent via grep. |
-| `app/main.py` | ~478-481 | WR-02: multi-key write loop is not transactional; a mid-loop failure leaves a partial write and an unhandled 500 | WARNING | Only manifests under a DB/disk error mid-write; the validation-failure path (the tested path) is correctly atomic. |
-| `app/main.py`, `core/settings.py`, `settings.html` | main.py:471-476, settings.py multiple, settings.html:89 | WR-04: raw English-only `SettingRejected.reason` strings surfaced to the owner-facing field-error element, breaking the D-13 bilingual-copy house style | WARNING | Cosmetic/i18n inconsistency, not a functional blocker. |
+| `app/main.py` | lifespan (~271-286) | WR-01: `db.init_settings()` still missing from the `try` block that pre-creates `init_presence`/`init_view_counts` | WARNING | Fresh-deploy race: first POST 500s if the admin app starts before the bot has seeded the settings table. Confirmed absent via grep — unchanged from the prior verification, not addressed by 02-05 (out of scope for that plan). |
+| `app/main.py` | ~478-481 | WR-02: multi-key write loop is not transactional; a mid-loop failure leaves a partial write and an unhandled 500 | WARNING | Only manifests under a DB/disk error mid-write; unchanged from prior verification. |
+| `app/main.py` | ~305-310 | WR-04: CORS origin bakes the panel-tunable `WEBSITE_BASE_URL` at import time | WARNING | Unchanged; cosmetic/documentation risk, not a data-integrity defect. |
+| `app/deps.py` | 69-94 | WR-06: `/admin/settings` skips the live role re-check that `require_editor` performs elsewhere | WARNING | Unchanged; small blast radius (only the single configured owner ID can ever pass). |
 
-*(WR-01/WR-02/WR-04 and the five Info-level findings are carried forward from `02-REVIEW.md`; independently confirmed present via direct file inspection during this verification, not merely restated from the review.)*
+These four warnings do not block phase goal achievement — none of them concern the roadmap success criteria (owner gate correctness, typed/secret-free render, valid-POST-persists/invalid-POST-rejects, bot-reads-next-use). They were already present and accepted as non-blocking at the time of the original code review; the gap-closure plan correctly scoped itself to CR-01/CR-02 only, per its own `<objective>`.
 
 ### Human Verification Required
 
-None. Both critical defects (CR-01, CR-02) were reproduced deterministically via direct code execution (Python `all_for_ui()` output inspection for CR-01's numeric type/JSON literal; a live `TestClient` GET→POST-unchanged→re-check round trip for CR-02) — no browser or visual judgment call is needed to confirm they are real and unfixed.
+None. Both previously-failed roadmap success criteria (SC2/PANEL-02, SC3/PANEL-03) were reproduced as FIXED via direct, independent code execution in this verification session — a fresh Python `all_for_ui()` call (type/precision check for CR-01) and a fresh `TestClient` GET→POST-unchanged→gallery-edit round trip (cascade-survival check for CR-02) — not by re-reading 02-REVIEW.md's or 02-05-SUMMARY.md's claims. No browser or visual judgment call is needed to confirm they are real and fixed.
 
 ### Gaps Summary
 
-Both CRITICAL findings from `02-REVIEW.md` (CR-01 snowflake/role-list precision corruption; CR-02 staff-role fallback cascade destruction) were independently reproduced against the current HEAD (`a1fa945`) in this verification and remain unfixed — there is no commit after the review that touches `core/settings.py`'s value serialization, `settings.html`'s snowflake/role_list bindings, or the client's dirty-field tracking. Both bugs are triggered by entirely ordinary use of the panel (viewing a real Discord-ID-bearing field; clicking Save), not by an edge case, and both directly contradict the phase's stated Core Value ("without exposing secrets or letting a bad value break a cog") and Phase 1's CONF-03 requirement, which Phase 2 is required not to break. Because these are the exact mechanisms behind PANEL-02 ("typed fields") and PANEL-03 ("valid POST persists ... the bot never reads a bad value"), those two roadmap success criteria are marked FAILED. PANEL-01 (owner gate) is solid and fully verified. PANEL-04's literal, narrow truth (an immediate save is visible to `settings.get`) is verified, but its broader intent is undermined by CR-02's cascade-baking side effect.
+None. Both CRITICAL findings from `02-REVIEW.md` (CR-01 snowflake/role-list precision corruption; CR-02 staff-role fallback cascade destruction), which drove the prior `gaps_found` verdict, were closed by gap-closure plan 02-05 (commits `7699ccc`, `c88c728`, `f713571`) and are independently confirmed resolved in this re-verification via direct code execution against the current HEAD, not by trusting the plan's SUMMARY or the code review's re-check. `core/settings.py::get()` remains byte-identical, so Phase 1's CONF-03 cascade is unaffected. The full Phase 2 test surface (59 tests) and the full repository suite (645 tests) both pass with no regressions.
 
-These two gaps are grouped under a single root cause: **the panel always posts the complete, fallback-resolved snapshot of every setting on every save, and the store's rendering layer does not distinguish "raw stored value" from "value with type coercion applied for safe browser transport."** A closure plan addressing both (raw-value exposure in `all_for_ui()` + string-typed IDs, or dirty-key-only posting) would likely resolve both CR-01 and CR-02 together.
+All four roadmap success criteria are now VERIFIED. All four requirement IDs (PANEL-01..04) are SATISFIED. The phase goal — "The owner can view and edit the safe tunables from a web form on the existing admin app, with server-side validation gating every write and secrets never exposed" — is achieved in the current codebase.
 
-This looks like unfinished remediation rather than an intentional deviation — 02-REVIEW.md already prescribes concrete fixes for both. No override is suggested; these are exactly the kind of data-corrupting defects the escalation gate exists to catch before the next phase builds on top of this panel.
+Four non-blocking WARNING-level robustness/consistency findings from the original code review (WR-01, WR-02, WR-04, WR-06) remain open but were out of scope for this gap-closure plan and do not affect any roadmap success criterion. They may be worth a future hardening pass but are not escalation-worthy for this phase.
 
 ---
 
-*Verified: 2026-07-21T18:00:00Z*
+*Verified: 2026-07-21T19:30:00Z*
 *Verifier: Claude (gsd-verifier)*
