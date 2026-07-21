@@ -43,11 +43,11 @@ Requirements for the Settings Panel milestone. Each maps to a roadmap phase.
 - [ ] **PANEL-01**: A `require_owner` dependency in `app/deps.py` gates the panel to
       `session.discord_id == config.DISCORD_USER_ID`, returning 403 otherwise, and **fails
       closed** when `DISCORD_USER_ID` is unset (the `0` default must never authorize).
-- [ ] **PANEL-02**: `GET /admin/settings` renders a form grouped by feature from
+- [x] **PANEL-02**: `GET /admin/settings` renders a form grouped by feature from
       `settings.all_for_ui()`, each field typed (channel/role IDs as validated number inputs,
       intervals as numbers, TZ as a select, toggles as checkboxes, prompts as text). Secrets
       never appear.
-- [ ] **PANEL-03**: `POST /admin/settings` validates every field server-side via `settings.set`,
+- [x] **PANEL-03**: `POST /admin/settings` validates every field server-side via `settings.set`,
       writes the table, and re-renders with a success/error banner. An invalid value is rejected
       before any write, so the bot never reads a bad value.
 - [ ] **PANEL-04**: A saved change is read by the bot on its next relevant use (reaction gate,
@@ -87,8 +87,8 @@ Explicitly excluded. Documented to prevent scope creep.
 | CONF-03 | Phase 1 | Pending |
 | CONC-01 | Phase 1 | Pending |
 | PANEL-01 | Phase 2 | Pending |
-| PANEL-02 | Phase 2 | Pending |
-| PANEL-03 | Phase 2 | Pending |
+| PANEL-02 | Phase 2 | Complete |
+| PANEL-03 | Phase 2 | Complete |
 | PANEL-04 | Phase 2 | Pending |
 
 **Coverage:**
