@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
 status: planning
-last_updated: "2026-07-21T15:11:22.674Z"
-last_activity: 2026-07-21
+stopped_at: Phase 3 context gathered
+last_updated: "2026-07-21T16:04:52.520Z"
+last_activity: 2026-07-21 — ROADMAP.md created for v2.0 (Phases 3-10), 23/23 requirements mapped
 progress:
   total_phases: 8
   completed_phases: 0
@@ -58,10 +59,13 @@ Recent decisions affecting current work:
 - Shared sqlite remains the only cross-process channel; v2.0 adds a reverse-direction cache
   (bot→app, e.g. `discord_names`) and a forward-direction `action_queue` (app→bot) rather than
   any new IPC/socket/HTTP endpoint
+
 - Tiered access = owner > Manager role > editor; tier-assignment writes are owner-gated only,
   never a generic manager-or-higher check (self-elevation/lockout guard)
+
 - Every panel-initiated Discord write (gallery/reviews approve, meeting re-publish) routes
   through the bot process via the action queue — no bot credentials added to the FastAPI app
+
 - Roadmap ordering: tiered access first (Phase 3) → settings/name-resolution (Phase 4) →
   sqlite hardening + action queue (Phase 5, before any write-heavy module) → Reminders
   (Phase 6, standalone CRUD) → Gallery+Reviews together (Phase 7, shared publish-race fix) →
@@ -77,9 +81,11 @@ None yet.
 - **[Research gap, Phase 4]** Discord-credential scope for name resolution (read-only,
   bot-gateway-cache-push, not admin-app REST calls) needs explicit sign-off during Phase 4
   planning before writing code (Pitfall 4).
+
 - **[Research gap, Phase 7]** Gallery/Reviews pending-state schema is unverified — confirm
   during Phase 7 planning whether a queryable pending state already exists or a denormalized
   flag/table is needed.
+
 - **[Research gap, Phase 9]** Meetings re-publish idempotency has no existing precedent in
   this codebase (editing an already-posted forum message from a second trigger path) — work
   out the retry-safe design during Phase 9 planning.
@@ -93,6 +99,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-21T15:11:22.674Z
-Stopped at: v2.0 ROADMAP.md created (Phases 3-10), REQUIREMENTS.md traceability updated
-Resume file: None
+Last session: 2026-07-21T16:04:52.511Z
+Stopped at: Phase 3 context gathered
+Resume file: .planning/phases/03-dashboard-shell-tiered-access/03-CONTEXT.md
