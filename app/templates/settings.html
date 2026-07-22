@@ -48,11 +48,8 @@
               </div>
               <div class="resolved-name resolved-name--muted"
                    x-show="!names[values[setting.key]] && values[setting.key]">
-                <span class="raw-id" x-text="values[setting.key]"></span>
                 {% if names_fresh %}<span class="name-unavailable" x-show="namesFresh">Name unavailable · no encontrado</span>{% endif %}
               </div>
-              <div class="raw-id-line" x-show="values[setting.key]"
-                   x-text="values[setting.key]"></div>
               <input type="text" inputmode="numeric" pattern="\d{17,20}"
                      placeholder="123456789012345678"
                      x-model="values[setting.key]" />
