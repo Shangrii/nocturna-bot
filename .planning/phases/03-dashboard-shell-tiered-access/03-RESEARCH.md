@@ -623,7 +623,18 @@ a legacy pattern outside this repo's own Phase 2 work.
 verified directly against this repository's source files (`Read`/`Grep`) or via `pip show` /
 `python --version`, which are authoritative for this codebase and environment.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Resolved during Phase 3 planning (2026-07-21) and the plan-checker revision pass:
+> - **Q1 (schema key casing):** RESOLVED — keep the CONTEXT.md literal lowercase keys
+>   `manager_roles`/`editor_roles` verbatim (Plan 03-02), NOT UPPER_SNAKE.
+> - **Q2 (access groupName legend):** RESOLVED — add `access: 'Acceso / Access'` to settings.html
+>   groupNames (Plan 03-02, Task 2).
+> - **Q3 (presence.py `_is_editor`):** RESOLVED — leave `cogs/presence.py` untouched this phase
+>   (cosmetic, not an access boundary); possible fast-follow.
+> - **Q4 (Settings 403 rendering):** RESOLVED — route the owner-gated `/admin/settings` 403
+>   through the in-shell `forbidden.html` (Plan 03-07, Task 1), per D-16 + Pitfall 2; require_owner
+>   stays unchanged, only its HTML 403 rendering on the Settings route is unified.
 
 1. **Schema key casing: `manager_roles`/`editor_roles` (CONTEXT.md literal) vs. `MANAGER_ROLE_IDS`/`EDITOR_ROLE_IDS` (repo convention)**
    - What we know: Every existing `_SCHEMA` key is `UPPER_SNAKE_CASE` matching a `.env` name;
