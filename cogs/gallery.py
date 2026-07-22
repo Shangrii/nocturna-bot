@@ -203,6 +203,16 @@ class GalleryCog(commands.Cog):
             return
 
         count = result.get("count", len(entries)) if isinstance(result, dict) else len(entries)
+        # D-11: activity_log row for the Overview "recent activity" list — additive, never
+        # aborts the publish (mirrors cogs/presence.py::_store's try/except idiom).
+        try:
+            await asyncio.to_thread(
+                db.log_activity, "gallery_published",
+                f"Foto publicada en la galería (msg {message.id}) / "
+                f"Gallery photo published (msg {message.id})")
+        except Exception:
+            log.exception("gallery: no pude registrar la actividad de publicación (msg %s)",
+                          message.id)
         try:
             await message.add_reaction("🟢")                # persistent published marker (D-05)
             await message.add_reaction("🌙")                # visible unpublish control (05-05 UX):
@@ -243,6 +253,16 @@ class GalleryCog(commands.Cog):
                 await self._surface_failure(message, "quitar")
                 return
             count = result.get("count", 0) if isinstance(result, dict) else 0
+            # D-11: activity_log row for the Overview "recent activity" list — additive,
+            # never aborts the removal (mirrors cogs/presence.py::_store's try/except idiom).
+            try:
+                await asyncio.to_thread(
+                    db.log_activity, "gallery_removed",
+                    f"Foto quitada de la galería (msg {message.id}) / "
+                    f"Gallery photo removed (msg {message.id})")
+            except Exception:
+                log.exception("gallery: no pude registrar la actividad de remoción (msg %s)",
+                              message.id)
             try:
                 await message.remove_reaction("🟢", self.bot.user)  # back to pending (D-09)
                 await self._remove_own_reaction(message, "🌙")  # clear the visible control

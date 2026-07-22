@@ -25,7 +25,7 @@ from discord import app_commands
 from discord.ext import commands, voice_recv
 
 import config
-from core import summarizer, transcription
+from core import db, summarizer, transcription
 from core.dave_voice import DaveVoiceRecorder
 
 log = logging.getLogger(__name__)
@@ -278,6 +278,15 @@ class MeetingCog(
                 created = await forum.create_thread(name=title[:100], embed=embed, file=_md_file())
                 if session.text_channel and session.text_channel.id != created.thread.id:
                     await session.text_channel.send(f"📋 Acta publicada en el foro: {created.thread.mention}")
+                # D-11: activity_log row for the Overview "recent activity" list — additive,
+                # never aborts the post (mirrors cogs/presence.py::_store's try/except idiom).
+                try:
+                    await asyncio.to_thread(
+                        db.log_activity, "meeting_posted",
+                        f"Acta de reunión publicada: {title} / Meeting minutes posted: {title}")
+                except Exception:
+                    log.exception("meeting: no pude registrar la actividad de publicación (%s)",
+                                  title)
                 return
             except discord.HTTPException as e:
                 log.error("No se pudo publicar el acta en el foro: %s", e)
