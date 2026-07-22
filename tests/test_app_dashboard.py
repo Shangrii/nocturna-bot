@@ -192,3 +192,16 @@ def test_manager_cannot_edit_mapping(client):
         assert resp.status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+# ── Regression (03, WR-02): an ANONYMOUS browser hit to the owner-only Settings route
+# must render the login gate, NOT the in-shell dashboard forbidden page. require_owner 403s
+# on a missing session just as it does for a logged-in non-owner, so the exception handler's
+# in-shell Settings-403 branch must fire ONLY when a session exists — otherwise it exposes
+# the dashboard chrome (forbidden.html) to unauthenticated callers.
+def test_anonymous_settings_403_renders_login_not_shell(client):
+    resp = client.get("/admin/settings", headers={"accept": "text/html"})
+    assert resp.status_code == 403
+    # forbidden.html (the in-shell tier page) is the ONLY template that emits this string;
+    # its absence proves the anonymous caller got login.html instead of the dashboard shell.
+    assert "requiere acceso" not in resp.text

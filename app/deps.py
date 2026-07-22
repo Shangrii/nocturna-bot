@@ -144,8 +144,15 @@ async def _resolve_roles(request: Request) -> dict:
 
     role_ids = await auth._fetch_member_roles(discord_id)
     if role_ids is None:
-        request.session.clear()
-        raise HTTPException(status_code=403, detail=_FORBIDDEN_COPY)
+        # A non-member / transient 404 clears the session and 403s — EXCEPT for the owner,
+        # who is never locked out (D-04). The owner's tier does not depend on any live guild
+        # role, so a 404 here must not deny them; treat it as "no roles" and fall through.
+        # This mirrors the OAuth callback's own `_fetch_member_roles(...) or set()` on the
+        # identical read (WR-01: the two paths must agree on a 404 owner).
+        if not is_owner:
+            request.session.clear()
+            raise HTTPException(status_code=403, detail=_FORBIDDEN_COPY)
+        role_ids = set()
 
     manager_ids = {str(r) for r in settings.get("manager_roles")}
     editor_ids = {str(r) for r in settings.get("editor_roles")}

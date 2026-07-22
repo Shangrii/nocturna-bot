@@ -359,7 +359,14 @@ async def _auth_html_or_json(request: Request, exc: StarletteHTTPException):
             {"required_tier": exc.required_tier, "roles": _NO_TIER_ROLES},
             status_code=exc.status_code)
 
-    if exc.status_code == 403 and request.url.path == "/admin/settings" and accept_html:
+    if (exc.status_code == 403 and request.url.path == "/admin/settings" and accept_html
+            and request.session.get("discord_id")):
+        # In-shell owner-tier dead end for an AUTHENTICATED non-owner (e.g. a Manager who
+        # clicked the locked Settings nav item). An anonymous visitor (no session) has no
+        # dashboard context and must fall through to the login.html branch instead of being
+        # shown the shell chrome (WR-02): require_owner returns 403 for a missing session too,
+        # so the session-presence guard distinguishes "logged in but not owner" from "not
+        # logged in at all".
         return templates.TemplateResponse(
             request, "forbidden.html",
             {"required_tier": "owner", "roles": _NO_TIER_ROLES},

@@ -504,3 +504,48 @@ def test_require_owner_403_without_session(monkeypatch):
         asyncio.run(deps.require_owner(req))
 
     assert ei.value.status_code == 403
+
+
+# ── Regression (03, WR-01): the owner is NEVER locked out (D-04), even when the live
+# bot-token role read 404s (non-member / transient failure). `_resolve_roles` must honor
+# `is_owner` before treating a `None` role read as a session-clearing 403 — the code review
+# found it denied the owner in that case, contradicting its own docstring and diverging from
+# the OAuth callback's `_fetch_member_roles(...) or set()` on the identical read.
+def test_resolve_roles_owner_not_locked_out_on_404(monkeypatch):
+    from app import deps
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 555)
+    monkeypatch.setattr(auth, "_fetch_member_roles", lambda _id: _async_none())
+    monkeypatch.setattr(deps.settings, "get", lambda key: [])
+
+    req = _FakeRequest()
+    req.session = {"discord_id": "555"}  # the owner
+
+    roles = asyncio.run(deps._resolve_roles(req))
+
+    assert roles["is_owner"] is True
+    assert roles["is_manager"] is False
+    assert roles["is_editor"] is False
+    assert req.session.get("discord_id") == "555"  # session NOT cleared
+
+
+def test_resolve_roles_non_owner_403_on_404(monkeypatch):
+    from app import deps
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 555)
+    monkeypatch.setattr(auth, "_fetch_member_roles", lambda _id: _async_none())
+    monkeypatch.setattr(deps.settings, "get", lambda key: [])
+
+    req = _FakeRequest()
+    req.session = {"discord_id": "999"}  # a non-owner whose role read 404s
+
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(deps._resolve_roles(req))
+
+    assert ei.value.status_code == 403
+    assert req.session == {}  # session cleared for a genuinely unauthorized caller
+
+
+async def _async_none():
+    """Awaitable resolving to None — stands in for a 404 member-roles read."""
+    return None
