@@ -137,7 +137,21 @@ Plans:
   1. The v1 settings panel appears as a section of the shell with no loss of functionality.
   2. Channel/role fields show a readable name (#channel, @role) with the raw ID shown beneath, resolved via a bot-pushed name cache in the shared sqlite (not a cold Discord REST call from the app).
 
-**Plans**: TBD
+**Plans**: 4 plans (3 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Wave-0: discord_names sqlite triad (contract) + RED test scaffolds for migration & resolution [Wave 1]
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 04-02-PLAN.md — Bot-side name cache: cogs/discord_names.py push loop + mapping helpers + bot.py wiring [Wave 2]
+- [ ] 04-03-PLAN.md — App-side migration: settings.html into the shell + name resolution (route/template/css) [Wave 2]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 04-04-PLAN.md — Human-verify checkpoint: visual fidelity + name resolution + owner-gate + no-loss save [Wave 3]
 **UI hint**: yes
 
 ### Phase 5: sqlite Hardening + Action Queue Infrastructure
