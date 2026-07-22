@@ -164,7 +164,22 @@ Plans:
   1. Panel-initiated actions (approve, sync, re-publish) travel through a queue table that the bot dispatches, with each action's status (pending/complete/failed) visible in the panel.
   2. Concurrent panel writes and bot reads/writes against the shared sqlite complete without raising "database is locked" under realistic concurrent load (busy_timeout + retry/backoff proven under test).
 
-**Plans**: TBD
+**Plans**: 5 plans (3 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — DB hardening (busy_timeout, D-11) + core/action_queue.py state machine + RED contract tests [Wave 1]
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 05-02-PLAN.md — ActionQueueCog 1.5s dispatch loop + noop proof action + bot.py registration [Wave 2]
+- [ ] 05-03-PLAN.md — Manager-gated /api/actions routes + Overview inline-status proof card (Alpine short-poll, D-07 offline) [Wave 2]
+- [ ] 05-04-PLAN.md — D-12 concurrent-load go/no-go gate (zero unhandled "database is locked") [Wave 2]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 05-05-PLAN.md — Human-verify checkpoint: live inline auto-refresh + Retry + bot-offline/reconnect durability [Wave 3]
 
 ### Phase 6: Reminders CRUD
 
@@ -247,7 +262,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 2. Owner Settings Panel | v1.0 | 5/5 | Complete | 2026-07-21 |
 | 3. Dashboard Shell + Tiered Access | v2.0 | 8/8 | Complete   | 2026-07-22 |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
-| 5. sqlite Hardening + Action Queue | v2.0 | 0/TBD | Not started | - |
+| 5. sqlite Hardening + Action Queue | v2.0 | 0/5 | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/TBD | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 0/TBD | Not started | - |

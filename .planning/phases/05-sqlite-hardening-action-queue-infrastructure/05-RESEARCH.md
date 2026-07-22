@@ -777,14 +777,14 @@ no deprecation or version-gap risk at SQLite 3.45.3 / Python 3.12.8.
 | A6 | `"noop"` proof-action name/shape, and keeping it permanently registered rather than removing it after Phase 5 | Code Examples | Low risk — purely a naming/scope choice; a future contributor could rename or remove it without breaking anything downstream, since Phases 6-9 register their own kinds independently |
 | A7 | Two new routes belong directly in `app/main.py` rather than starting `app/routers/` now | Recommended Project Structure | If Phase 6 planners strongly prefer starting the routers package immediately, this is a small, mechanical relocation — no logic changes, just an import/mount-point move |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the manual Retry (D-02) mint a fresh row or mutate the failed row in place?**
    - What we know: CONTEXT.md D-02 says Retry "re-enqueues" the action; D-03's keep-last-N
      purge implies terminal rows are expected to roll off naturally.
    - What's unclear: whether the panel's inline widget needs to keep polling the SAME id
      across a retry, or can switch to a new id returned by the retry endpoint.
-   - Recommendation: mint a fresh row (implemented above) — the panel's JS receives the new
+   - RESOLVED: mint a fresh row (implemented above) — the panel's JS receives the new
      `id` in the retry response and simply redirects its poll target, which is a small,
      already-necessary bit of client logic (Alpine already needs to hold the id in state).
 
@@ -794,7 +794,7 @@ no deprecation or version-gap risk at SQLite 3.45.3 / Python 3.12.8.
      [CITED, MEDIUM confidence per PITFALLS.md's own sourcing].
    - What's unclear: the actual value that proves sufficient under THIS project's real
      future write volume (Phase 6-9 approval-queue bursts), which doesn't exist yet.
-   - Recommendation: ship the values in this research (8000ms / 3 attempts / 60s stale
+   - RESOLVED: ship the values in this research (8000ms / 3 attempts / 60s stale
      threshold), treat the D-12 test as the mechanism to catch inadequacy empirically, and
      explicitly note in code comments that Phase 6-9 planners should re-run/extend this test
      against their own real write patterns before considering the values permanently settled.
