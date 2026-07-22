@@ -1,0 +1,97 @@
+{% extends "_dashboard_base.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+{#- x-data MUST be single-quoted: `seed | tojson` emits double-quoted JSON, and Jinja
+    escapes ' -> ', so a single-quoted attribute can never be broken by the data
+    (same rationale as settings.html's settingsApp binding). -#}
+{% set seed = {
+  "online": online,
+  "latency_ms": latency_ms,
+  "uptime": uptime,
+  "member_count": member_count,
+  "last_sync": last_sync,
+  "activity": activity,
+} %}
+<div x-data='overviewApp({{ seed | tojson }})' x-init="poll()" x-cloak>
+
+  <div class="ph">
+    <div>
+      <div class="ttl">Overview</div>
+      <div class="sub">Estado del bot y actividad reciente · Bot status and recent activity</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <!-- Primary visual anchor: bot-status tile (leftmost, success/danger accent) -->
+    <div class="stat" :style="'--acc: ' + (data.online ? 'var(--color-success)' : 'var(--color-danger)')">
+      <div class="k">Bot</div>
+      <div class="v" x-text="data.online ? 'En línea · Online' : 'Desconectado · Offline'"></div>
+      <div class="d" x-text="statusDetail()"></div>
+    </div>
+    <div class="stat" style="--acc: var(--accent-jinxxy)">
+      <div class="k">Última sync Jinxxy · Last Jinxxy sync</div>
+      <div class="v" x-text="(data.last_sync && data.last_sync.when) ? data.last_sync.when : '—'"></div>
+      <div class="d" x-text="syncDetail()"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-hdr"><h3>Actividad reciente · Recent activity</h3></div>
+    <template x-if="data.activity && data.activity.length">
+      <table>
+        <tr><th>Evento · Event</th><th>Cuándo · When</th></tr>
+        <template x-for="row in data.activity" :key="row.when + row.message">
+          <tr>
+            <td x-text="row.message"></td>
+            <td style="color: var(--color-text-faint)" x-text="row.when"></td>
+          </tr>
+        </template>
+      </table>
+    </template>
+    <template x-if="!data.activity || !data.activity.length">
+      <div class="empty">
+        <div class="h">Sin actividad reciente · No recent activity</div>
+        <div>Aparecerá aquí en cuanto el bot registre un evento. · It will appear here once the bot logs an event.</div>
+      </div>
+    </template>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function overviewApp(seed) {
+    return {
+      data: seed,
+      poll() {
+        // D-12: refresh every 30s; keep last-known-good state on any failure.
+        setInterval(() => this.refresh(), 30000);
+      },
+      async refresh() {
+        try {
+          const r = await fetch('/api/overview/status');
+          const json = await r.json().catch(() => null);
+          if (json) this.data = json;
+        } catch (e) {
+          // Network error — keep showing the last-known-good state.
+        }
+      },
+      statusDetail() {
+        if (!this.data.online) return '—';
+        const parts = [];
+        if (this.data.uptime) parts.push(this.data.uptime);
+        if (this.data.member_count !== null && this.data.member_count !== undefined) {
+          parts.push(this.data.member_count + ' miembros · members');
+        }
+        return parts.length ? parts.join(' · ') : '—';
+      },
+      syncDetail() {
+        if (!this.data.last_sync || this.data.last_sync.products === null || this.data.last_sync.products === undefined) {
+          return '—';
+        }
+        return this.data.last_sync.products + ' productos · products';
+      },
+    };
+  }
+</script>
+{% endblock %}
