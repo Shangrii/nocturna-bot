@@ -1,4 +1,5 @@
-"""Discord OAuth2 login + hard bot-token role gate + first-login draft (Fase 10, 10-08).
+"""Discord OAuth2 login + hard bot-token role gate + first-login draft (Fase 10, 10-08;
+generalized to a 3-tier owner/Manager/editor resolver in Phase 3, 03-05).
 
 This module is the authentication trust boundary of the editor admin app. It does three
 things, in this order, and nothing else:
@@ -8,17 +9,21 @@ things, in this order, and nothing else:
    performs the token exchange — we never hand-roll it (Don't-Hand-Roll).
 2. **Authorize** the user with a SERVER-SIDE call to the Discord API using the **bot
    token** (``GET /guilds/{GUILD_ID}/members/{user_id}`` with ``Authorization: Bot ...``),
-   checking the current authoritative roles for ``ROLE_MODERATOR_ID`` (the editor role,
-   D-07/D-15). The bot token NEVER reaches the browser (T-10-08-05); the OAuth user token
-   is used only to read the user's own id, never for the role read.
-3. **Provision** a first-login draft (D-09): if no ``editors.json`` entry matches the
-   ``discordId``, create an empty ``EditorPage`` (``published=false``) with a normalized,
-   collision-suffixed slug (Pitfall 5) and commit it via the reused cross-repo transport.
+   resolving the current authoritative roles against the editable ``manager_roles`` /
+   ``editor_roles`` mapping (D-08) plus the hardcoded owner id (D-04). The bot token NEVER
+   reaches the browser (T-10-08-05); the OAuth user token is used only to read the user's
+   own id, never for the role read.
+3. **Provision** a first-login draft (D-09) for any user who resolves to the editor tier:
+   if no ``editors.json`` entry matches the ``discordId``, create an empty ``EditorPage``
+   (``published=false``) with a normalized, collision-suffixed slug (Pitfall 5) and commit
+   it via the reused cross-repo transport.
 
-A session is issued ONLY after step 2 passes. On failure the callback raises 403/400 and
-sets no session. The post-login redirect is a FIXED internal path — never a client-supplied
-``next`` (open-redirect guard, Pitfall 4 / T-10-08-04). No secret, token, or OAuth code is
-ever logged or returned in an error body (T-10-08-05).
+A session is issued ONLY after step 2 passes (at least one tier resolves, D-01). On failure
+the callback raises 403/400 and sets no session. The post-login redirect is a FIXED
+internal path, chosen per-tier (owner/manager → ``/overview``, editor-only → ``/editor``) —
+never a client-supplied ``next`` (open-redirect guard, Pitfall 4 / T-10-08-04 / D-03/T-03-16).
+The session stores only ``discord_id`` (+ ``slug`` for editors) — never a cached tier (D-02).
+No secret, token, or OAuth code is ever logged or returned in an error body (T-10-08-05).
 """
 
 import asyncio
@@ -31,7 +36,7 @@ from fastapi import HTTPException
 from starlette.responses import RedirectResponse
 
 import config
-from core import github_publish
+from core import github_publish, settings
 from core.editors_model import EditorPage, normalize_slug
 
 log = logging.getLogger(__name__)
@@ -47,8 +52,15 @@ _DISCORD_API_BASE = "https://discord.com/api/"
 _OAUTH_SCOPE = "identify"
 
 # Fixed internal post-login target — NEVER a client-supplied redirect (Pitfall 4). 10-10
-# renders the editor dashboard at the app root; a returning editor lands there.
+# renders the editor dashboard at the app root; used for the post-LOGOUT redirect (the
+# post-LOGIN redirect is now tier-specific, see _REDIRECT_MANAGER_TIER/_REDIRECT_EDITOR_TIER).
 POST_LOGIN_REDIRECT = "/"
+
+# Per-tier post-login redirect targets (D-03/Pitfall 1, T-03-16) — fixed, server-chosen,
+# never derived from a client ``?next``. Owner and Manager land on the dashboard overview;
+# an editor-only identity (no owner/manager tier) lands on their own presentation section.
+_REDIRECT_MANAGER_TIER = "/overview"
+_REDIRECT_EDITOR_TIER = "/editor"
 
 # Explicit timeout on every outbound Discord call (no unbounded hangs on the role gate).
 _HTTP_TIMEOUT = httpx.Timeout(10.0)
@@ -78,25 +90,41 @@ oauth.register(
 )
 
 
-# ── authorization: the hard bot-token guild-role gate (D-07/D-15) ──────────────────
-async def has_editor_role(user_id) -> bool:
-    """True iff ``user_id`` currently holds the editor role in the guild (D-07/D-15).
+# ── authorization: the shared bot-token guild-role read (D-07/D-15) ────────────────
+async def _fetch_member_roles(user_id) -> set[str] | None:
+    """Return the LIVE guild-member role-id set for ``user_id``, or ``None`` if not a member.
 
     Reads the AUTHORITATIVE current roles from the Discord API with the **bot token**
     header — never the OAuth user token, never a token-time snapshot. A user who is not a
-    guild member (404) is a clean ``False``, not an error. Because this reads live roles,
-    it is safe to call on every login AND on every sensitive write (Pitfall 2 defense).
+    guild member (404) resolves to ``None`` (a clean "no roles", not an error). This is the
+    SINGLE shared read used by both ``has_editor_role`` and ``app.deps._resolve_roles`` —
+    callers must call it at most once per request (FastAPI ``Depends(..., use_cache=True)``
+    on the dependency side) to avoid an N+1 Discord REST read per page.
     """
     url = f"{DISCORD_API}/guilds/{config.GUILD_ID}/members/{user_id}"
     headers = {"Authorization": f"Bot {config.BOT_TOKEN}"}  # NEVER the OAuth user token
     async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
         resp = await client.get(url, headers=headers)
     if resp.status_code == 404:
-        return False  # not a member of the guild → not an editor
+        return None  # not a member of the guild
     resp.raise_for_status()
     member = resp.json()
-    role_ids = {str(r) for r in member.get("roles", [])}
-    return str(config.ROLE_MODERATOR_ID) in role_ids
+    return {str(r) for r in member.get("roles", [])}
+
+
+async def has_editor_role(user_id) -> bool:
+    """True iff ``user_id`` currently holds one of the editable ``editor_roles`` (D-08).
+
+    Thin wrapper over ``_fetch_member_roles``: a non-member (``None``) is a clean ``False``.
+    The comparison set is read fresh from the settings store on every call — an owner edit
+    to ``editor_roles`` takes effect on the very next request, with no cog/app restart
+    (mirrors the read-at-use discipline the rest of the settings store already guarantees).
+    """
+    role_ids = await _fetch_member_roles(user_id)
+    if role_ids is None:
+        return False
+    editor_ids = {str(r) for r in settings.get("editor_roles")}
+    return bool(role_ids & editor_ids)
 
 
 # ── first-login provisioning (D-09) ───────────────────────────────────────────────
@@ -193,11 +221,16 @@ async def login(request):
 
 
 async def callback(request):
-    """Handle the OAuth2 callback: verify state → identify → role-gate → session.
+    """Handle the OAuth2 callback: verify state → identify → tier-resolve → session.
 
-    Order is security-critical: the session is set ONLY after the bot-token role check and
-    first-login draft succeed, so a non-editor (403) or a bad-state request (400) leaves no
-    session behind (T-10-08-06 / T-10-08-01). The redirect target is a fixed internal path.
+    Order is security-critical: the session is set ONLY after tier resolution (and, for the
+    editor tier, the first-login draft) succeed, so a user with NO tier at all (403) or a
+    bad-state request (400) leaves no session behind (T-10-08-06 / T-10-08-01 / D-01 login
+    gate). Tier facts come from a single live bot-token role read plus the owner id — never
+    from the request. The redirect target is a FIXED internal path chosen per-tier (D-03/
+    Pitfall 1): owner or Manager → ``/overview``; editor-only → ``/editor``. The session
+    stores only ``discord_id`` (+ ``slug`` when the editor tier resolves) — never a tier
+    (D-02).
     """
     try:
         token = await _exchange_token(request)  # Authlib verifies `state` (CSRF)
@@ -209,15 +242,31 @@ async def callback(request):
     user_id = str(user["id"])
     username = user.get("username") or user.get("global_name") or user_id
 
-    if not await has_editor_role(user_id):
+    # Owner tier is independent of the editable mapping (D-04) — never locked out even if
+    # manager_roles/editor_roles is empty/misconfigured; fails closed on unset DISCORD_USER_ID.
+    is_owner = bool(config.DISCORD_USER_ID) and str(user_id) == str(config.DISCORD_USER_ID)
+    # ONE shared live role read for both the manager and editor tier checks (Pitfall 4).
+    role_ids = await _fetch_member_roles(user_id) or set()
+    manager_ids = {str(r) for r in settings.get("manager_roles")}
+    editor_ids = {str(r) for r in settings.get("editor_roles")}
+    is_manager = bool(role_ids & manager_ids)
+    is_editor = bool(role_ids & editor_ids)
+
+    if not (is_owner or is_manager or is_editor):
         raise HTTPException(status_code=403, detail=_FORBIDDEN_COPY)
 
-    entry = await ensure_draft(user_id, username)
+    # First-login draft provisioning stays on the editor path only (D-09 unchanged scope).
+    entry = await ensure_draft(user_id, username) if is_editor else None
 
-    # Session issued last, only on the fully-authorized path.
+    # Session issued last, only on the fully-authorized path — no tier is ever cached (D-02).
     request.session["discord_id"] = user_id
-    request.session["slug"] = entry["slug"]
-    return RedirectResponse(url=POST_LOGIN_REDIRECT, status_code=303)
+    if entry is not None:
+        request.session["slug"] = entry["slug"]
+
+    redirect_target = (
+        _REDIRECT_MANAGER_TIER if (is_owner or is_manager) else _REDIRECT_EDITOR_TIER
+    )
+    return RedirectResponse(url=redirect_target, status_code=303)
 
 
 async def logout(request):

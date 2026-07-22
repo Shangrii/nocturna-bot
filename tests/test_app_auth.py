@@ -83,11 +83,40 @@ class _FakeRequest:
         self.query_params = {"next": "https://evil.example/pwn"}
 
 
-# ── Task 1: has_editor_role — the bot-token role gate (D-07/D-15) ──────────────────
-def test_has_editor_role_true_only_when_role_present_and_uses_bot_token(monkeypatch):
+# ── Task 1: _fetch_member_roles — the shared bot-token role read (D-07/D-15) ───────
+def test_fetch_member_roles_returns_set_of_str_and_uses_bot_token(monkeypatch):
     monkeypatch.setattr(config, "BOT_TOKEN", "test-bot-token")
     monkeypatch.setattr(config, "GUILD_ID", 999)
-    monkeypatch.setattr(config, "ROLE_MODERATOR_ID", 42)
+    sink = []
+    monkeypatch.setattr(
+        auth.httpx, "AsyncClient",
+        _make_fake_client(200, {"roles": ["42", "7"]}, sink))
+
+    result = asyncio.run(auth._fetch_member_roles("123"))
+
+    assert result == {"42", "7"}
+    call = sink[0]
+    # The BOT token, never the OAuth user token (T-10-08-05).
+    assert call["headers"]["Authorization"] == "Bot test-bot-token"
+    assert "/guilds/999/members/123" in call["url"]
+
+
+def test_fetch_member_roles_none_when_not_a_guild_member(monkeypatch):
+    # A 404 (user not in the guild) is a clean None, not an exception.
+    sink = []
+    monkeypatch.setattr(
+        auth.httpx, "AsyncClient",
+        _make_fake_client(404, {"message": "Unknown Member"}, sink))
+    assert asyncio.run(auth._fetch_member_roles("123")) is None
+
+
+# ── Task 1: has_editor_role — thin wrapper reading the editable editor_roles (D-08) ─
+def test_has_editor_role_true_only_when_role_present_in_editor_roles(monkeypatch):
+    monkeypatch.setattr(config, "BOT_TOKEN", "test-bot-token")
+    monkeypatch.setattr(config, "GUILD_ID", 999)
+    monkeypatch.setattr(
+        auth.settings, "get",
+        lambda key: [42] if key == "editor_roles" else [])
     sink = []
     monkeypatch.setattr(
         auth.httpx, "AsyncClient",
@@ -102,7 +131,9 @@ def test_has_editor_role_true_only_when_role_present_and_uses_bot_token(monkeypa
 
 
 def test_has_editor_role_false_when_role_absent(monkeypatch):
-    monkeypatch.setattr(config, "ROLE_MODERATOR_ID", 42)
+    monkeypatch.setattr(
+        auth.settings, "get",
+        lambda key: [42] if key == "editor_roles" else [])
     sink = []
     monkeypatch.setattr(
         auth.httpx, "AsyncClient",
@@ -218,24 +249,32 @@ def test_ensure_draft_seeds_random_media_id(monkeypatch):
     assert captured["entry"]["mediaId"] == result["mediaId"]
 
 
-# ── Task 1: callback — the OAuth trust boundary (D-07/D-08/D-09, Pitfall 4) ─────────
+# ── Task 1: callback — the OAuth trust boundary (D-01/D-02/D-03/D-04, Pitfall 1/4) ──
 def _patch_callback_happy(monkeypatch, *, role: bool):
+    """``role=True`` => the mocked user holds the editor-tier role (editor_roles match);
+    owner/manager tiers are off in this helper (DISCORD_USER_ID unset, manager_roles empty)
+    so a ``role=True`` caller lands purely on the editor-only path."""
+
     async def fake_exchange(request):
         return {"access_token": "x"}
 
     async def fake_user(token):
         return {"id": "555", "username": "Aria"}
 
-    async def fake_role(uid):
-        return role
+    async def fake_fetch_roles(uid):
+        return {"42"} if role else set()
 
     async def fake_draft(uid, username):
         return {"slug": "aria", "discordId": uid, "published": False, "blocks": []}
 
     monkeypatch.setattr(auth, "_exchange_token", fake_exchange)
     monkeypatch.setattr(auth, "_fetch_user", fake_user)
-    monkeypatch.setattr(auth, "has_editor_role", fake_role)
+    monkeypatch.setattr(auth, "_fetch_member_roles", fake_fetch_roles)
     monkeypatch.setattr(auth, "ensure_draft", fake_draft)
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 0)  # not owner in these happy-path tests
+    monkeypatch.setattr(
+        auth.settings, "get",
+        lambda key: {"manager_roles": [], "editor_roles": [42]}.get(key, []))
 
 
 def test_callback_valid_editor_sets_session_and_fixed_redirect(monkeypatch):
@@ -247,8 +286,9 @@ def test_callback_valid_editor_sets_session_and_fixed_redirect(monkeypatch):
     assert req.session["discord_id"] == "555"
     assert req.session["slug"] == "aria"
     assert resp.status_code in (302, 303, 307)
-    # FIXED internal path — never the client-supplied ?next (open-redirect guard).
-    assert resp.headers["location"] == auth.POST_LOGIN_REDIRECT
+    # FIXED internal path, per-tier — never the client-supplied ?next (open-redirect guard).
+    # Editor-only (not owner, not manager) lands on /editor (D-03/Pitfall 1).
+    assert resp.headers["location"] == "/editor"
     assert "evil.example" not in resp.headers["location"]
 
 
@@ -260,9 +300,67 @@ def test_callback_non_editor_403_and_no_session(monkeypatch):
         asyncio.run(auth.callback(req))
 
     assert ei.value.status_code == 403
-    assert req.session == {}  # no session issued to a non-editor
+    assert req.session == {}  # no session issued to a user with no resolved tier
     # 403 body carries only the UI-SPEC copy — no secret/token leakage (T-10-08-05).
     assert "test-bot-token" not in str(ei.value.detail)
+
+
+def test_callback_manager_tier_redirects_to_overview_no_draft_created(monkeypatch):
+    # A Manager-tier user (no editor role) is NOT put through ensure_draft/slug — the
+    # first-login draft path stays scoped to the editor tier only.
+    async def fake_exchange(request):
+        return {"access_token": "x"}
+
+    async def fake_user(token):
+        return {"id": "555", "username": "Aria"}
+
+    async def fake_fetch_roles(uid):
+        return {"999"}  # manager role id, not in editor_roles
+
+    def fail_draft(*a, **k):
+        raise AssertionError("ensure_draft must not run for a manager-only tier")
+
+    monkeypatch.setattr(auth, "_exchange_token", fake_exchange)
+    monkeypatch.setattr(auth, "_fetch_user", fake_user)
+    monkeypatch.setattr(auth, "_fetch_member_roles", fake_fetch_roles)
+    monkeypatch.setattr(auth, "ensure_draft", fail_draft)
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 0)
+    monkeypatch.setattr(
+        auth.settings, "get",
+        lambda key: {"manager_roles": [999], "editor_roles": []}.get(key, []))
+
+    req = _FakeRequest()
+    resp = asyncio.run(auth.callback(req))
+
+    assert req.session["discord_id"] == "555"
+    assert "slug" not in req.session
+    assert resp.headers["location"] == "/overview"
+
+
+def test_callback_owner_tier_redirects_to_overview_even_without_any_role(monkeypatch):
+    # Owner tier is independent of the mapping (D-04) — resolves even with zero roles.
+    async def fake_exchange(request):
+        return {"access_token": "x"}
+
+    async def fake_user(token):
+        return {"id": "555", "username": "Aria"}
+
+    async def fake_fetch_roles(uid):
+        return set()
+
+    monkeypatch.setattr(auth, "_exchange_token", fake_exchange)
+    monkeypatch.setattr(auth, "_fetch_user", fake_user)
+    monkeypatch.setattr(auth, "_fetch_member_roles", fake_fetch_roles)
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 555)
+    monkeypatch.setattr(
+        auth.settings, "get",
+        lambda key: {"manager_roles": [], "editor_roles": []}.get(key, []))
+
+    req = _FakeRequest()
+    resp = asyncio.run(auth.callback(req))
+
+    assert req.session["discord_id"] == "555"
+    assert resp.headers["location"] == "/overview"
 
 
 def test_callback_rejects_bad_or_missing_state(monkeypatch):
