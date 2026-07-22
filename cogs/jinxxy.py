@@ -145,6 +145,26 @@ class JinxxyCog(
         # poll loop ticking.
         self._poll.cancel()
 
+    # ── D-10/D-11 sync-status + activity instrumentation ────────────────────────────
+    async def _record_sync_status(
+            self, *, ok: bool, product_count: int | None, error: str | None) -> None:
+        """Record this run's outcome for the Overview dashboard (D-10 status tile + D-11
+        "sync ran" activity row) — the single instrumentation point shared by both the
+        success and failure paths of :meth:`_run_sync`, covering both the scheduled poll
+        and the manual ``/tienda sync`` command (D-10/D-11).
+
+        A status/activity-log write failure must never change the sync outcome or raise
+        past this point (mirrors ``cogs/presence.py::_store``'s try/except idiom).
+        """
+        try:
+            await asyncio.to_thread(
+                db.set_jinxxy_sync_status, ok=ok, product_count=product_count, error=error)
+            message = ("Sync de Jinxxy ejecutado / Jinxxy sync ran" if ok else
+                       "Sync de Jinxxy falló / Jinxxy sync failed")
+            await asyncio.to_thread(db.log_activity, "jinxxy_sync", message)
+        except Exception:
+            log.exception("jinxxy: no pude registrar el estado de sync")
+
     # ── core orchestration ───────────────────────────────────────────────────────────
     async def _run_sync(self) -> dict:
         """Run ONE full store sync: enumerate → map → three-way merge → commit-on-change.
@@ -154,92 +174,110 @@ class JinxxyCog(
         ``JinxxyAPIError`` on any failure, so an outage aborts here — before ``reconcile_store``,
         before ``sync_store`` and before any ``delete_store_snapshot``. Returns the reconcile
         result (``added``/``updated``/``removed``/``changed``/``products``) for the announce step.
+
+        D-10/D-11: every run (success or failure) records its outcome via
+        :meth:`_record_sync_status` — wrapped around the whole body so a failure anywhere in
+        the sequence below still leaves a status/activity row, then re-raises unchanged so the
+        existing D-05 error handling in ``_poll``/``_on_poll_error`` and ``/tienda sync``
+        is untouched.
         """
-        # 1. /me → the store username (checkoutUrl construction, D-17) + owner display name
-        #    (the `editor` default, D-09). Raises on outage.
-        me = await asyncio.to_thread(jinxxy_api.get_me)
-        # WR-04: the username is load-bearing for EVERY checkoutUrl key. A malformed-but-2xx /me
-        # with no username would build `jinxxy.com//slug` keys and mass-rewrite the whole store, so
-        # hard-fail here — BEFORE enumeration/reconcile/commit. The raise routes through the same
-        # removal-safety abort (T-09-15): no sync_store, no snapshot delete on a bad /me.
-        store_username = me.get("username")
-        if not store_username:
-            raise jinxxy_api.JinxxyAPIError("GET /me failed: response carried no username")
-        # A missing display_name is a benign default (only the username keys the store).
-        owner_name = me.get("display_name") or ""
+        try:
+            # 1. /me → the store username (checkoutUrl construction, D-17) + owner display name
+            #    (the `editor` default, D-09). Raises on outage.
+            me = await asyncio.to_thread(jinxxy_api.get_me)
+            # WR-04: the username is load-bearing for EVERY checkoutUrl key. A malformed-but-2xx
+            # /me with no username would build `jinxxy.com//slug` keys and mass-rewrite the whole
+            # store, so hard-fail here — BEFORE enumeration/reconcile/commit. The raise routes
+            # through the same removal-safety abort (T-09-15): no sync_store, no snapshot delete
+            # on a bad /me.
+            store_username = me.get("username")
+            if not store_username:
+                raise jinxxy_api.JinxxyAPIError("GET /me failed: response carried no username")
+            # A missing display_name is a benign default (only the username keys the store).
+            owner_name = me.get("display_name") or ""
 
-        # 2. Full enumeration + per-product detail → mapped live entries keyed by checkoutUrl.
-        #    Any failure here raises (never a partial/empty list), so removals never run.
-        products = await asyncio.to_thread(jinxxy_api.list_all_products)
-        live_by_key: dict[str, dict] = {}
-        jinxxy_id_by_key: dict[str, str] = {}
-        for p in products:
-            pid = p.get("id")
-            detail = await asyncio.to_thread(jinxxy_api.get_product, pid)
-            entry = store_sync.map_product(detail, store_username, owner_name)
-            url = entry["checkoutUrl"]
-            if not store_sync.is_https_url(url):
-                log.warning("jinxxy: checkoutUrl no-https omitido (id=%s): %r", pid, url)
-                continue
-            live_by_key[url] = entry
-            jinxxy_id_by_key[url] = "" if pid is None else str(pid)
+            # 2. Full enumeration + per-product detail → mapped live entries keyed by checkoutUrl.
+            #    Any failure here raises (never a partial/empty list), so removals never run.
+            products = await asyncio.to_thread(jinxxy_api.list_all_products)
+            live_by_key: dict[str, dict] = {}
+            jinxxy_id_by_key: dict[str, str] = {}
+            for p in products:
+                pid = p.get("id")
+                detail = await asyncio.to_thread(jinxxy_api.get_product, pid)
+                entry = store_sync.map_product(detail, store_username, owner_name)
+                url = entry["checkoutUrl"]
+                if not store_sync.is_https_url(url):
+                    log.warning("jinxxy: checkoutUrl no-https omitido (id=%s): %r", pid, url)
+                    continue
+                live_by_key[url] = entry
+                jinxxy_id_by_key[url] = "" if pid is None else str(pid)
 
-        # 3. Durable snapshot (DB) + current store.json (cross-repo read), keyed by checkoutUrl.
-        #    WR-06: an entry that is a non-dict, has no/falsy checkoutUrl, or duplicates a key we
-        #    already keyed is UNKEYABLE — it can't take part in the checkoutUrl reconcile, but it
-        #    is staff work and must never be dropped. Collect those into `unkeyed` and re-graft
-        #    them onto the written products verbatim after the reconcile.
-        snapshots = {k: _snapshot_from_row(r) for k, r in db.get_store_snapshot().items()}
-        current = await asyncio.to_thread(
-            github_publish._fetch_store,
-            config.WEBSITE_REPO, config.WEBSITE_BRANCH, config.WEBSITE_STORE_JSON)
-        current_by_key: dict[str, dict] = {}
-        unkeyed: list = []
-        for p in (current.get("products") or []):
-            if isinstance(p, dict) and p.get("checkoutUrl") and p["checkoutUrl"] not in current_by_key:
-                current_by_key[p["checkoutUrl"]] = p
-            else:
-                unkeyed.append(p)                  # non-dict / no key / duplicate → carry through
+            # 3. Durable snapshot (DB) + current store.json (cross-repo read), keyed by
+            #    checkoutUrl. WR-06: an entry that is a non-dict, has no/falsy checkoutUrl, or
+            #    duplicates a key we already keyed is UNKEYABLE — it can't take part in the
+            #    checkoutUrl reconcile, but it is staff work and must never be dropped. Collect
+            #    those into `unkeyed` and re-graft them onto the written products verbatim after
+            #    the reconcile.
+            snapshots = {k: _snapshot_from_row(r) for k, r in db.get_store_snapshot().items()}
+            current = await asyncio.to_thread(
+                github_publish._fetch_store,
+                config.WEBSITE_REPO, config.WEBSITE_BRANCH, config.WEBSITE_STORE_JSON)
+            current_by_key: dict[str, dict] = {}
+            unkeyed: list = []
+            for p in (current.get("products") or []):
+                if (isinstance(p, dict) and p.get("checkoutUrl")
+                        and p["checkoutUrl"] not in current_by_key):
+                    current_by_key[p["checkoutUrl"]] = p
+                else:
+                    unkeyed.append(p)              # non-dict / no key / duplicate → carry through
 
-        # 4. Whole-store three-way reconcile (pure), then re-append the unkeyable staff entries so
-        #    a hand-added or malformed product is preserved on the next write (WR-06).
-        result = store_sync.reconcile_store(snapshots, live_by_key, current_by_key)
-        result["products"].extend(unkeyed)
+            # 4. Whole-store three-way reconcile (pure), then re-append the unkeyable staff
+            #    entries so a hand-added or malformed product is preserved on the next write
+            #    (WR-06).
+            result = store_sync.reconcile_store(snapshots, live_by_key, current_by_key)
+            result["products"].extend(unkeyed)
 
-        # 5. Commit FIRST, gated on change (D-06). This MUST precede the snapshot upsert loop: if
-        #    sync_store raises (transient GitHub transport failure), execution never reaches the
-        #    upsert below, so the durable snapshot stays behind the un-written store.json and the
-        #    change is naturally re-detected + retried on the next cycle — instead of advancing the
-        #    snapshot past a state store.json never reached and permanently masking the update as a
-        #    "Jinxxy unchanged, staff edit wins" no-op (CR-01, 09-VERIFICATION truth #5, T-09-11-01).
-        if result["changed"]:
-            await github_publish.sync_store(result["products"])
+            # 5. Commit FIRST, gated on change (D-06). This MUST precede the snapshot upsert
+            #    loop: if sync_store raises (transient GitHub transport failure), execution
+            #    never reaches the upsert below, so the durable snapshot stays behind the
+            #    un-written store.json and the change is naturally re-detected + retried on the
+            #    next cycle — instead of advancing the snapshot past a state store.json never
+            #    reached and permanently masking the update as a "Jinxxy unchanged, staff edit
+            #    wins" no-op (CR-01, 09-VERIFICATION truth #5, T-09-11-01).
+            if result["changed"]:
+                await github_publish.sync_store(result["products"])
 
-        # 6. WR-03: advance the durable snapshot to live truth on EVERY successful sync — NOT only
-        #    inside the changed branch. A no-change cycle where Jinxxy already matches a staff value
-        #    still leaves a stale snapshot; if the snapshot isn't refreshed, a LATER staff edit on
-        #    that field is misread as a both-changed conflict and reverted (breaks D-12). Runs AFTER
-        #    the commit so a failed commit never advances it (see step 5).
-        for key, entry in live_by_key.items():
-            name = entry["name"]["es"] if isinstance(entry.get("name"), dict) \
-                else entry.get("name")
-            db.upsert_store_snapshot(
-                checkout_url=key,
-                jinxxy_id=jinxxy_id_by_key.get(key, ""),
-                name=name,
-                price=entry["price"],
-                category=entry["category"],
-                nsfw=1 if entry["nsfw"] else 0,
-                date=entry["date"],
-            )
+            # 6. WR-03: advance the durable snapshot to live truth on EVERY successful sync —
+            #    NOT only inside the changed branch. A no-change cycle where Jinxxy already
+            #    matches a staff value still leaves a stale snapshot; if the snapshot isn't
+            #    refreshed, a LATER staff edit on that field is misread as a both-changed
+            #    conflict and reverted (breaks D-12). Runs AFTER the commit so a failed commit
+            #    never advances it (see step 5).
+            for key, entry in live_by_key.items():
+                name = entry["name"]["es"] if isinstance(entry.get("name"), dict) \
+                    else entry.get("name")
+                db.upsert_store_snapshot(
+                    checkout_url=key,
+                    jinxxy_id=jinxxy_id_by_key.get(key, ""),
+                    name=name,
+                    price=entry["price"],
+                    category=entry["category"],
+                    nsfw=1 if entry["nsfw"] else 0,
+                    date=entry["date"],
+                )
 
-        # 7. Snapshot removals ONLY on change (D-06), after a successful commit. `removed` is empty
-        #    on a no-change cycle, and a removal only makes sense once the commit that dropped the
-        #    product actually landed (removal-safety, T-09-11-03).
-        if result["changed"]:
-            for key in result["removed"]:
-                db.delete_store_snapshot(key)
+            # 7. Snapshot removals ONLY on change (D-06), after a successful commit. `removed`
+            #    is empty on a no-change cycle, and a removal only makes sense once the commit
+            #    that dropped the product actually landed (removal-safety, T-09-11-03).
+            if result["changed"]:
+                for key in result["removed"]:
+                    db.delete_store_snapshot(key)
+        except Exception as exc:
+            await self._record_sync_status(ok=False, product_count=None, error=str(exc))
+            raise
 
+        await self._record_sync_status(
+            ok=True, product_count=len(result.get("products") or []), error=None)
         return result
 
     # ── background poll loop (Phase-8 shape, cadence-only change) ──────────────────────
