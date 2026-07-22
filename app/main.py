@@ -287,6 +287,7 @@ async def lifespan(app: FastAPI):
         db.init_heartbeat()
         db.init_jinxxy_sync_status()
         db.init_activity_log()
+        db.init_discord_names()
     except Exception:
         log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
     log.info("editor admin app started")
@@ -492,6 +493,7 @@ _MODULE_SECTIONS = {
 # cadence (Claude's Discretion A2, per 03-07-PLAN.md's <interfaces> block) — a single
 # missed beat doesn't flap the status, but two in a row reads as offline.
 _HEARTBEAT_STALE_SECONDS = 90
+_NAMES_STALE_SECONDS = 15 * 60
 
 
 def _dashboard_asset_v() -> int:
@@ -573,6 +575,31 @@ async def _bot_online() -> bool:
     (which don't otherwise need the full status payload the Overview page reads)."""
     heartbeat = await run_in_threadpool(db.get_heartbeat)
     return _compute_online(heartbeat)
+
+
+async def _read_name_cache() -> tuple[dict, bool]:
+    """Return the cached Discord names and whether the newest snapshot is fresh."""
+    rows = await run_in_threadpool(db.get_discord_names)
+    names = {
+        row["id"]: {
+            "name": row["name"],
+            "kind": row["kind"],
+            "subtype": row["subtype"],
+            "color": row["color"],
+        }
+        for row in rows
+    }
+    if not rows:
+        return names, False
+
+    try:
+        newest = datetime.fromisoformat(max(row["synced_at"] for row in rows))
+    except (TypeError, ValueError):
+        return names, False
+    if newest.tzinfo is None:
+        newest = newest.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - newest).total_seconds()
+    return names, 0 <= age_seconds <= _NAMES_STALE_SECONDS
 
 
 @app.get("/overview", response_class=HTMLResponse)
@@ -657,13 +684,18 @@ async def settings_page(request: Request, ident: dict = Depends(require_owner)):
     (BOT_TOKEN, GITHUB_PAT, JINXXY_API_KEY, SESSION_SECRET) or structural value (DB_PATH)
     can never appear in the body because it is never in that allowlist (PANEL-02).
     """
-    try:
-        asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
-    except OSError:
-        asset_v = 0
+    names, names_fresh = await _read_name_cache()
     return templates.TemplateResponse(
         request, "settings.html",
-        {"groups": settings.all_for_ui(), "asset_v": asset_v},
+        {
+            "roles": {"is_owner": True, "is_manager": False, "is_editor": False},
+            "active_section": "settings",
+            "asset_v": _dashboard_asset_v(),
+            "bot_online": await _bot_online(),
+            "groups": settings.all_for_ui(),
+            "names": names,
+            "names_fresh": names_fresh,
+        },
     )
 
 
