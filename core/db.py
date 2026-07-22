@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -553,3 +554,139 @@ def get_presence(discord_id) -> sqlite3.Row | None:
             "SELECT discord_id, status, updated_at FROM presence WHERE discord_id = ?",
             (str(discord_id),),
         ).fetchone()
+
+
+# ── Overview data plumbing (Fase 3, SHELL-02) ──────────────────────────────────
+# Three concerns feeding the dashboard's Overview page: bot_heartbeat (bot liveness/
+# uptime/member-count/loaded-cogs), jinxxy_sync_status (last store-sync outcome, reused
+# by Phase 8's manual-sync display per D-10), and activity_log (append-only, bounded
+# recent-events feed). The bot process is the ONLY writer of these three tables (T-03-08);
+# the app process only ever SELECTs. Both processes call the matching init_*() defensively
+# (dual-process init idiom, Pitfall 6) so the app never 500s reading an empty/missing
+# table before the bot has run at least once.
+
+
+def init_heartbeat():
+    """Create the single-row ``bot_heartbeat`` table if it doesn't exist (D-09).
+
+    ``CHECK (id = 1)`` keeps it a single global row (one bot process, one heartbeat) —
+    same idiom as ``gallery_state``. ``loaded_cogs`` is stored as a JSON-encoded list.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bot_heartbeat (
+                id                 INTEGER PRIMARY KEY CHECK (id = 1),
+                last_beat_utc      TEXT NOT NULL,
+                latency_ms         REAL,
+                started_at_utc     TEXT NOT NULL,
+                guild_member_count INTEGER,
+                loaded_cogs        TEXT  -- JSON list
+            )
+        """)
+
+
+def set_heartbeat(latency_ms, started_at_utc: str, guild_member_count, loaded_cogs):
+    """Upsert the single ``bot_heartbeat`` row (called by ``cogs/heartbeat.py`` every ~45s).
+
+    ``last_beat_utc`` is stamped fresh on every call — Overview treats the bot as Online
+    iff this timestamp is recent (staleness threshold computed app-side, Plan 07).
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO bot_heartbeat
+                (id, last_beat_utc, latency_ms, started_at_utc, guild_member_count, loaded_cogs)
+            VALUES (1, ?, ?, ?, ?, ?)
+        """, (datetime.now(timezone.utc).isoformat(), latency_ms, started_at_utc,
+              guild_member_count, json.dumps(loaded_cogs)))
+
+
+def get_heartbeat() -> sqlite3.Row | None:
+    """Read the single ``bot_heartbeat`` row (None if the bot has never beaten)."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT last_beat_utc, latency_ms, started_at_utc, guild_member_count, "
+            "loaded_cogs FROM bot_heartbeat WHERE id = 1"
+        ).fetchone()
+
+
+def init_jinxxy_sync_status():
+    """Create the single-row ``jinxxy_sync_status`` table if it doesn't exist (D-10).
+
+    Deliberately its OWN table (not folded into ``bot_heartbeat``) — one-table-per-concern
+    idiom, and Phase 8's manual-sync status display reuses this exact record.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jinxxy_sync_status (
+                id             INTEGER PRIMARY KEY CHECK (id = 1),
+                last_run_utc   TEXT,
+                ok             INTEGER,
+                product_count  INTEGER,
+                error          TEXT
+            )
+        """)
+
+
+def set_jinxxy_sync_status(ok: bool, product_count: int | None, error: str | None):
+    """Upsert the single ``jinxxy_sync_status`` row (called at the end of ``_run_sync``).
+
+    Stamps ``last_run_utc`` fresh on every call — covers both the scheduled poll and the
+    manual ``/tienda sync`` command, since both funnel through ``_run_sync`` (D-10).
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO jinxxy_sync_status
+                (id, last_run_utc, ok, product_count, error)
+            VALUES (1, ?, ?, ?, ?)
+        """, (datetime.now(timezone.utc).isoformat(), 1 if ok else 0, product_count, error))
+
+
+def get_jinxxy_sync_status() -> sqlite3.Row | None:
+    """Read the single ``jinxxy_sync_status`` row (None if no sync has ever run)."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT last_run_utc, ok, product_count, error FROM jinxxy_sync_status WHERE id = 1"
+        ).fetchone()
+
+
+def init_activity_log():
+    """Create the append-only ``activity_log`` table if it doesn't exist (D-11).
+
+    ``id`` is AUTOINCREMENT so recency is orderable without a separate index.
+    """
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                message    TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+
+def log_activity(event_type: str, message: str, keep_last: int = 500):
+    """Append one activity row, then purge to the last ``keep_last`` rows (T-03-07).
+
+    Purge-on-write bounds growth the same way ``increment_view``'s dedup-cutoff idiom
+    does — every write self-limits the table instead of relying on a separate cron/sweep.
+    """
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT INTO activity_log (event_type, message, created_at) VALUES (?, ?, ?)",
+            (event_type, message, datetime.now(timezone.utc).isoformat()),
+        )
+        conn.execute("""
+            DELETE FROM activity_log WHERE id NOT IN (
+                SELECT id FROM activity_log ORDER BY id DESC LIMIT ?
+            )
+        """, (keep_last,))
+
+
+def get_recent_activity(limit: int = 10) -> list[sqlite3.Row]:
+    """Return the ``limit`` most recent activity rows, newest first."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT event_type, message, created_at FROM activity_log "
+            "ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
