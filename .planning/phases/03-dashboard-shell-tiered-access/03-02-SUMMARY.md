@@ -95,3 +95,12 @@ None - no external service configuration required.
 ---
 *Phase: 03-dashboard-shell-tiered-access*
 *Completed: 2026-07-22*
+
+## Self-Check: PASSED
+
+- FOUND: core/settings.py
+- FOUND: app/templates/settings.html
+- FOUND: .planning/phases/03-dashboard-shell-tiered-access/03-02-SUMMARY.md
+- FOUND: 916fc4f (Task 1 commit)
+- FOUND: ff90322 (Task 2 commit)
+- FOUND: 00ab330 (SUMMARY.md commit)
