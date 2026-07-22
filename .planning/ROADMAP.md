@@ -78,7 +78,7 @@ Plans:
 variant A) where all staff operate the bot by access tier: owner everything, Managers
 day-to-day operations, editors their own presentation page.
 
-- [ ] **Phase 3: Dashboard Shell + Tiered Access** - Sidebar shell across 7 modules with owner/Manager/editor tiers, editable role→tier mapping, POST-only convention
+- [x] **Phase 3: Dashboard Shell + Tiered Access** - Sidebar shell across 7 modules with owner/Manager/editor tiers, editable role→tier mapping, POST-only convention (completed 2026-07-22)
 - [ ] **Phase 4: Settings Migration + Name Resolution** - v1 panel folded into the shell; readable #channel/@role names via bot-pushed cache
 - [ ] **Phase 5: sqlite Hardening + Action Queue** - busy_timeout/retry on write paths; generic action_queue infra every write-heavy module reuses
 - [ ] **Phase 6: Reminders CRUD** - Full CRUD + pause/resume via table+modal, scheduler-race guard
@@ -123,7 +123,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 03-08-PLAN.md — Human-verify checkpoint: variant-A fidelity + owner/Manager/editor tier matrix [Wave 4]
+- [x] 03-08-PLAN.md — Human-verify checkpoint: variant-A fidelity + owner/Manager/editor tier matrix [Wave 4]
 
 **UI hint**: yes
 
@@ -231,7 +231,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|-----------|-----------------|--------|-----------|
 | 1. Config Store + Consolidation | v1.0 | 3/3 | Complete | 2026-07-21 |
 | 2. Owner Settings Panel | v1.0 | 5/5 | Complete | 2026-07-21 |
-| 3. Dashboard Shell + Tiered Access | v2.0 | 7/8 | In Progress|  |
+| 3. Dashboard Shell + Tiered Access | v2.0 | 8/8 | Complete   | 2026-07-22 |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/TBD | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
