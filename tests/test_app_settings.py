@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 import config
 from app.deps import require_owner
 from app.main import app
-from core import settings
+from core import db, settings
 
 _IDENT = {"discord_id": "555"}
 
@@ -192,3 +192,88 @@ def test_post_settings_bad_json_returns_400(client):
     )
 
     assert resp.status_code == 400
+
+
+# ── Phase 4 Wave 0: settings-shell migration + Discord name resolution ───────
+# These forward-looking assertions are intentionally RED until Plan 04-03 adds the
+# app-side cache reader and migrates settings.html into the dashboard shell. Symbols
+# introduced by that plan are imported inside test bodies so collection stays clean.
+def test_settings_page_renders_in_shell(client):
+    resp = client.get("/admin/settings")
+
+    assert resp.status_code == 200
+    assert '<aside class="side">' in resp.text
+    assert 'class="mod-hdr"' in resp.text
+
+
+def test_settings_page_resolves_name(client):
+    db.init_discord_names()
+    db.replace_discord_names([
+        ("1416329356426481717", "channel", "gallery-resolved", "text", None),
+    ])
+
+    resp = client.get("/admin/settings")
+
+    assert resp.status_code == 200
+    assert "gallery-resolved" in resp.text
+
+
+def test_settings_page_cold_cache_shows_banner_not_field_markers(client):
+    db.init_discord_names()
+
+    resp = client.get("/admin/settings")
+
+    assert resp.status_code == 200
+    assert "Sincronizando nombres · Names syncing" in resp.text
+    assert "Name unavailable · no encontrado" not in resp.text
+
+
+def test_names_map_shipped_to_alpine_is_string_keyed(client):
+    snowflake = "9007199254740993"  # 2**53 + 1: cannot round-trip as a JS number
+    db.init_discord_names()
+    db.replace_discord_names([
+        (snowflake, "channel", "precision-safe", "forum", None),
+    ])
+
+    resp = client.get("/admin/settings")
+
+    assert resp.status_code == 200
+    assert f'"{snowflake}"' in resp.text
+    assert '"9007199254740992"' not in resp.text
+
+
+def test_read_name_cache_string_keyed(client):
+    import asyncio
+
+    from app.main import _read_name_cache
+
+    snowflake = "9007199254740993"
+    db.init_discord_names()
+    db.replace_discord_names([
+        (snowflake, "role", "Manager", None, "#8b93a3"),
+    ])
+
+    names, names_fresh = asyncio.run(_read_name_cache())
+
+    assert names == {
+        snowflake: {
+            "name": "Manager",
+            "kind": "role",
+            "subtype": None,
+            "color": "#8b93a3",
+        }
+    }
+    assert names_fresh is True
+
+
+def test_read_name_cache_cold_not_fresh(client):
+    import asyncio
+
+    from app.main import _read_name_cache
+
+    db.init_discord_names()
+
+    names, names_fresh = asyncio.run(_read_name_cache())
+
+    assert names == {}
+    assert names_fresh is False

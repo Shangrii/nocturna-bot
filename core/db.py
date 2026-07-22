@@ -690,3 +690,39 @@ def get_recent_activity(limit: int = 10) -> list[sqlite3.Row]:
             "SELECT event_type, message, created_at FROM activity_log "
             "ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
+
+
+def init_discord_names():
+    """Create the bot-pushed Discord channel/role name cache if absent."""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS discord_names (
+                id        TEXT PRIMARY KEY,
+                kind      TEXT NOT NULL,
+                name      TEXT NOT NULL,
+                subtype   TEXT,
+                color     TEXT,
+                synced_at TEXT NOT NULL
+            )
+        """)
+
+
+def replace_discord_names(rows: list[tuple]):
+    """Atomically replace the complete cached channel/role snapshot."""
+    synced_at = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        conn.execute("DELETE FROM discord_names")
+        conn.executemany(
+            "INSERT INTO discord_names (id, kind, name, subtype, color, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [(str(i), kind, name, subtype, color, synced_at)
+             for i, kind, name, subtype, color in rows],
+        )
+
+
+def get_discord_names() -> list[sqlite3.Row]:
+    """Return the cached Discord names, or an empty list before the first push."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT id, kind, name, subtype, color, synced_at FROM discord_names"
+        ).fetchall()
