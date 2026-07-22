@@ -114,8 +114,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 03-04-PLAN.md — Cog event instrumentation: jinxxy sync status + gallery/reviews/meeting activity_log hooks [Wave 2]
-- [ ] 03-05-PLAN.md — 3-tier resolution: _fetch_member_roles, has_editor_role, _resolve_roles/require_manager/TierForbidden [Wave 2]
+- [x] 03-04-PLAN.md — Cog event instrumentation: jinxxy sync status + gallery/reviews/meeting activity_log hooks [Wave 2]
+- [x] 03-05-PLAN.md — 3-tier resolution: _fetch_member_roles, has_editor_role, _resolve_roles/require_manager/TierForbidden [Wave 2]
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -231,7 +231,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|-----------|-----------------|--------|-----------|
 | 1. Config Store + Consolidation | v1.0 | 3/3 | Complete | 2026-07-21 |
 | 2. Owner Settings Panel | v1.0 | 5/5 | Complete | 2026-07-21 |
-| 3. Dashboard Shell + Tiered Access | v2.0 | 4/8 | In Progress|  |
+| 3. Dashboard Shell + Tiered Access | v2.0 | 6/8 | In Progress|  |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/TBD | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
