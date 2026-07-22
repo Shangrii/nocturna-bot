@@ -14,6 +14,9 @@ def _get_conn() -> sqlite3.Connection:
     # immediately (the `with conn:` idiom is unaffected). Requires a LOCAL filesystem —
     # WAL does not work over a network share (both processes here run on the same host).
     conn.execute("PRAGMA journal_mode=WAL")
+    # INFRA-02: explicit, documented busy_timeout replaces connect()'s undocumented ~5s
+    # default. 8000ms is inside PITFALLS.md's recommended 5000-10000ms range (D-11).
+    conn.execute("PRAGMA busy_timeout=8000")
     return conn
 
 
@@ -690,6 +693,30 @@ def get_recent_activity(limit: int = 10) -> list[sqlite3.Row]:
             "SELECT event_type, message, created_at FROM activity_log "
             "ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
+
+
+def init_action_queue():
+    """Create the shared panel-to-bot action queue and status lookup index."""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS action_queue (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind            TEXT NOT NULL,
+                payload_json    TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'pending',
+                result_json     TEXT,
+                error           TEXT,
+                requested_by    TEXT NOT NULL,
+                requested_at    TEXT NOT NULL,
+                claimed_at      TEXT,
+                completed_at    TEXT,
+                attempts        INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_action_queue_status ON action_queue(status)"
+        )
 
 
 def init_discord_names():
