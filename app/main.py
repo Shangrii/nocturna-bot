@@ -37,6 +37,7 @@ import subprocess
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
@@ -51,7 +52,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import config
 from app import auth
-from app.deps import require_editor, require_owner
+from app.deps import require_editor, require_manager, require_owner, TierForbidden
 from core import db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
@@ -96,6 +97,11 @@ _SETTINGS_SAVED_COPY = "Ajustes guardados. — Settings saved."
 _SETTINGS_ERROR_COPY = (
     "Revisa los campos marcados. — Check the highlighted fields."
 )
+
+# Fallback ``roles`` dict for the dashboard-shell sidebar when rendering forbidden.html
+# from the exception handler (Phase 3, 03-07) — no tier is resolved for a denied caller
+# at this layer, so every section renders locked (see _auth_html_or_json docstring).
+_NO_TIER_ROLES = {"is_owner": False, "is_manager": False, "is_editor": False}
 
 # Slug-rejection copy, keyed by SlugRejected.reason → (HTTP status, bilingual message).
 _SLUG_REJECT = {
@@ -270,13 +276,19 @@ def validate_config() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_config()  # fail-fast on startup — never serve with empty secrets/OAuth config
-    # Ensure the presence table exists so /api/presence never 500s if the bot (which
-    # normally creates it) hasn't started yet. CREATE TABLE IF NOT EXISTS is idempotent.
+    # Ensure the presence/dashboard tables exist so their read endpoints never 500 if the
+    # bot (which normally creates them) hasn't started yet. CREATE TABLE IF NOT EXISTS is
+    # idempotent (dual-process defensive init, Pitfall 6) — the three Phase 3 Overview
+    # tables (bot_heartbeat/jinxxy_sync_status/activity_log) join the SAME try/except path
+    # as the pre-existing presence/view_counts init, not a second init path.
     try:
         db.init_presence()
         db.init_view_counts()  # view_counts/view_dedup — the counter API is served here too
+        db.init_heartbeat()
+        db.init_jinxxy_sync_status()
+        db.init_activity_log()
     except Exception:
-        log.exception("no pude inicializar las tablas de presencia/vistas")
+        log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
     log.info("editor admin app started")
     yield
 
@@ -311,15 +323,49 @@ app.add_middleware(
 
 @app.exception_handler(StarletteHTTPException)
 async def _auth_html_or_json(request: Request, exc: StarletteHTTPException):
-    """Render ``login.html`` for a browser navigation hitting a 401/403; JSON otherwise.
+    """Render the right in-shell error page for a browser navigation 401/403; JSON otherwise.
 
-    ``require_editor`` raises plain ``HTTPException(401|403)`` — without this handler a
-    browser visiting ``/`` unauthenticated (or after role loss) would see a bare JSON
-    body instead of the UI-SPEC login/403 page. Every ``fetch()`` call from the editor
-    app itself (image/save/unpublish) sends ``Accept: application/json`` and keeps
-    getting a JSON error body — this handler only changes NAVIGATION responses.
+    Three branches, checked in order (Pitfall 2 — extend, never replace/collapse):
+
+    1. A ``TierForbidden`` (raised by ``require_manager``) renders ``forbidden.html``
+       parametrized on ``exc.required_tier`` — the dashboard-shell tier-403 page (D-16).
+    2. A plain 403 landing on the owner-only Settings route (``require_owner`` itself is
+       UNCHANGED — this only unifies its HTML rendering, D-16 / Open Q4) ALSO renders
+       ``forbidden.html``, hardcoded to ``required_tier="owner"`` — so a Manager clicking
+       the locked Settings nav item sees the bilingual "needs owner access" dead end, not
+       ``login.html``'s wrong-audience editor-only copy.
+    3. Every other 401/403 navigation (the plain editor-only login gate, and 403s outside
+       the dashboard shell) falls back to the original ``login.html`` branch, unchanged.
+
+    Every ``fetch()`` call from the editor/settings/dashboard app itself sends
+    ``Accept: application/json`` and keeps getting a JSON error body — this handler only
+    changes NAVIGATION (``text/html``) responses.
+
+    ``forbidden.html`` extends ``_dashboard_base.html``, which ``{% include %}``s
+    ``_sidebar.html`` — that partial unconditionally reads ``roles.is_owner`` /
+    ``.is_manager`` to compute lock icons (D-14). Neither ``TierForbidden`` nor a bare
+    ``require_owner`` 403 hands this exception handler a resolved roles dict (re-deriving
+    one here would mean a SECOND live Discord role read just to render an error page), so
+    both ``forbidden.html`` branches below pass an all-locked ``_NO_TIER_ROLES`` default —
+    correct in spirit (a denied caller is shown every section as locked) and, more
+    importantly, prevents a ``jinja2.UndefinedError`` from turning this already-denied
+    request into an unhandled 500.
     """
-    if exc.status_code in (401, 403) and "text/html" in request.headers.get("accept", ""):
+    accept_html = "text/html" in request.headers.get("accept", "")
+
+    if isinstance(exc, TierForbidden) and accept_html:
+        return templates.TemplateResponse(
+            request, "forbidden.html",
+            {"required_tier": exc.required_tier, "roles": _NO_TIER_ROLES},
+            status_code=exc.status_code)
+
+    if exc.status_code == 403 and request.url.path == "/admin/settings" and accept_html:
+        return templates.TemplateResponse(
+            request, "forbidden.html",
+            {"required_tier": "owner", "roles": _NO_TIER_ROLES},
+            status_code=403)
+
+    if exc.status_code in (401, 403) and accept_html:
         return templates.TemplateResponse(
             request, "login.html",
             {"forbidden": exc.status_code == 403},
@@ -418,6 +464,180 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
         {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v,
          "is_owner": is_owner},
     )
+
+
+# ── Dashboard shell: 6 operational modules (require_manager) + Overview status ──────
+# Section metadata (label/icon/accent) mirrors _sidebar.html's fixed 7-section data
+# exactly (Overview is handled separately below since it renders overview.html, not
+# module_stub.html). Owner and Manager both satisfy require_manager; Settings itself
+# stays on the UNCHANGED require_owner dependency below (D-04/T-03-12).
+_MODULE_SECTIONS = {
+    "gallery": {"label": "Galería · Gallery", "icon": "🖼", "accent": "var(--accent-gallery)"},
+    "reviews": {"label": "Reseñas · Reviews", "icon": "★", "accent": "var(--accent-reviews)"},
+    "reminders": {
+        "label": "Recordatorios · Reminders", "icon": "⏰", "accent": "var(--accent-reminders)",
+    },
+    "jinxxy": {"label": "Tienda Jinxxy · Jinxxy Store", "icon": "🛍", "accent": "var(--accent-jinxxy)"},
+    "meetings": {"label": "Reuniones · Meetings", "icon": "🎙", "accent": "var(--accent-meetings)"},
+}
+
+# The bot is considered "Online" iff its last heartbeat is within 2x the ~45s write
+# cadence (Claude's Discretion A2, per 03-07-PLAN.md's <interfaces> block) — a single
+# missed beat doesn't flap the status, but two in a row reads as offline.
+_HEARTBEAT_STALE_SECONDS = 90
+
+
+def _dashboard_asset_v() -> int:
+    """Cache-buster for /static/dashboard.css, same mtime-based idiom as editor.css."""
+    try:
+        return int(os.path.getmtime(_APP_DIR / "static" / "dashboard.css"))
+    except OSError:
+        return 0
+
+
+def _compute_online(heartbeat_row) -> bool:
+    """True iff a heartbeat row exists and its last beat is within the staleness window."""
+    if heartbeat_row is None:
+        return False
+    try:
+        last_beat = datetime.fromisoformat(heartbeat_row["last_beat_utc"])
+    except (TypeError, ValueError):
+        return False
+    if last_beat.tzinfo is None:
+        last_beat = last_beat.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - last_beat).total_seconds()
+    return 0 <= age_seconds <= _HEARTBEAT_STALE_SECONDS
+
+
+def _compute_uptime(started_at_utc: str | None) -> str | None:
+    """Human ``"{h}h {m}m"`` (or ``"{m}m"``) uptime string derived from ``started_at_utc``."""
+    if not started_at_utc:
+        return None
+    try:
+        started = datetime.fromisoformat(started_at_utc)
+    except (TypeError, ValueError):
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    total_seconds = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours}h {minutes}m" if hours else f"{minutes}m"
+
+
+def _build_overview_status(heartbeat, sync, activity_rows) -> dict:
+    """Assemble the exact JSON shape ``overview.html``'s Alpine poll consumes (Plan 07
+    <interfaces>) from the three raw ``core.db`` rows — gracefully degrading to
+    null/empty fields when a table has no rows yet (Pitfall 6: never 500 on a cold DB).
+    """
+    last_sync = (
+        {
+            "when": sync["last_run_utc"],
+            "ok": bool(sync["ok"]) if sync["ok"] is not None else None,
+            "products": sync["product_count"],
+        }
+        if sync is not None
+        else {"when": None, "ok": None, "products": None}
+    )
+    activity = [
+        {"event_type": row["event_type"], "message": row["message"], "when": row["created_at"]}
+        for row in activity_rows
+    ]
+    return {
+        "online": _compute_online(heartbeat),
+        "latency_ms": heartbeat["latency_ms"] if heartbeat is not None else None,
+        "uptime": _compute_uptime(heartbeat["started_at_utc"]) if heartbeat is not None else None,
+        "member_count": heartbeat["guild_member_count"] if heartbeat is not None else None,
+        "last_sync": last_sync,
+        "activity": activity,
+    }
+
+
+async def _read_overview_status() -> dict:
+    """Read the three Overview tables off the event loop and assemble the status JSON."""
+    heartbeat = await run_in_threadpool(db.get_heartbeat)
+    sync = await run_in_threadpool(db.get_jinxxy_sync_status)
+    activity_rows = await run_in_threadpool(db.get_recent_activity, 10)
+    return _build_overview_status(heartbeat, sync, activity_rows)
+
+
+async def _bot_online() -> bool:
+    """Lightweight online check for the sidebar footer chip on the 5 module-stub pages
+    (which don't otherwise need the full status payload the Overview page reads)."""
+    heartbeat = await run_in_threadpool(db.get_heartbeat)
+    return _compute_online(heartbeat)
+
+
+@app.get("/overview", response_class=HTMLResponse)
+async def overview_page(request: Request, roles: dict = Depends(require_manager)):
+    """Overview module (SHELL-02): status-first stat tiles + recent-activity table.
+
+    ``require_manager`` admits the owner or a Manager (ACCESS-02); the ``roles`` dict is
+    passed straight into the render so ``_sidebar.html`` computes lock icons server-side
+    (D-14). The initial paint is seeded with the SAME status shape ``/api/overview/status``
+    returns (Alpine then polls that endpoint every 30s, D-12) — first paint is populated,
+    not a placeholder flash.
+    """
+    status = await _read_overview_status()
+    return templates.TemplateResponse(
+        request, "overview.html",
+        {
+            "roles": roles, "active_section": "overview",
+            "asset_v": _dashboard_asset_v(), "bot_online": status["online"],
+            **status,
+        },
+    )
+
+
+async def _module_stub_page(request: Request, section_id: str, roles: dict):
+    """Shared GET handler body for the 5 "coming soon" module routes (D-13)."""
+    info = _MODULE_SECTIONS[section_id]
+    return templates.TemplateResponse(
+        request, "module_stub.html",
+        {
+            "roles": roles, "active_section": section_id,
+            "asset_v": _dashboard_asset_v(), "bot_online": await _bot_online(),
+            "section_label": info["label"], "icon": info["icon"], "accent": info["accent"],
+        },
+    )
+
+
+@app.get("/gallery", response_class=HTMLResponse)
+async def gallery_page(request: Request, roles: dict = Depends(require_manager)):
+    return await _module_stub_page(request, "gallery", roles)
+
+
+@app.get("/reviews", response_class=HTMLResponse)
+async def reviews_page(request: Request, roles: dict = Depends(require_manager)):
+    return await _module_stub_page(request, "reviews", roles)
+
+
+@app.get("/reminders", response_class=HTMLResponse)
+async def reminders_page(request: Request, roles: dict = Depends(require_manager)):
+    return await _module_stub_page(request, "reminders", roles)
+
+
+@app.get("/jinxxy", response_class=HTMLResponse)
+async def jinxxy_page(request: Request, roles: dict = Depends(require_manager)):
+    return await _module_stub_page(request, "jinxxy", roles)
+
+
+@app.get("/meetings", response_class=HTMLResponse)
+async def meetings_page(request: Request, roles: dict = Depends(require_manager)):
+    return await _module_stub_page(request, "meetings", roles)
+
+
+@app.get("/api/overview/status")
+async def api_overview_status(roles: dict = Depends(require_manager)):
+    """Overview's 30s poll target (D-12) — live bot heartbeat + last Jinxxy sync + recent
+    activity, gated by ``require_manager`` (T-03-23: NOT public, unlike ``api_presence``).
+
+    Reads all three tables via ``run_in_threadpool`` and degrades gracefully on an empty
+    database (bot never ran): ``online=False``, null fields, ``activity=[]`` — never a 500
+    (T-03-24 / Pitfall 6). The returned shape is byte-identical to the seed the
+    ``/overview`` route embeds so Alpine's poll can just overwrite ``data`` wholesale.
+    """
+    return JSONResponse(await _read_overview_status())
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)
