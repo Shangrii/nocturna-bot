@@ -288,6 +288,23 @@ _SCHEMA: dict[str, _Setting] = {
         _validate_channel_id_or_zero,
         label="Canal de codificación · Encoding channel",
     ),
+    # ── Acceso (role→tier mapping, Fase 03 D-05/D-06) ──
+    # Literal lowercase keys (NOT UPPER_SNAKE like every other _SCHEMA entry) — a locked
+    # decision per CONTEXT.md D-05 / RESEARCH.md Pitfall 5, do not auto-correct casing.
+    # Deliberately NO fallback_key on either entry (Pitfall 3): these are an independent
+    # role→tier mapping and must never silently inherit GALLERY_STAFF_ROLE_IDS.
+    "manager_roles": _Setting(
+        "manager_roles", "access", "role_list",
+        [int(x) for x in os.getenv("MANAGER_ROLE_IDS", "1453560115423875205").split(",") if x.strip()],
+        _validate_role_id_list,
+        label="Roles con acceso de Manager · Manager-tier roles",
+    ),
+    "editor_roles": _Setting(
+        "editor_roles", "access", "role_list",
+        [int(os.getenv("ROLE_MODERATOR_ID", "1418724526308593834"))],
+        _validate_role_id_list,
+        label="Roles con acceso de Editor · Editor-tier roles",
+    ),
 }
 
 
