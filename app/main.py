@@ -627,6 +627,19 @@ async def meetings_page(request: Request, roles: dict = Depends(require_manager)
     return await _module_stub_page(request, "meetings", roles)
 
 
+@app.get("/api/overview/status")
+async def api_overview_status(roles: dict = Depends(require_manager)):
+    """Overview's 30s poll target (D-12) — live bot heartbeat + last Jinxxy sync + recent
+    activity, gated by ``require_manager`` (T-03-23: NOT public, unlike ``api_presence``).
+
+    Reads all three tables via ``run_in_threadpool`` and degrades gracefully on an empty
+    database (bot never ran): ``online=False``, null fields, ``activity=[]`` — never a 500
+    (T-03-24 / Pitfall 6). The returned shape is byte-identical to the seed the
+    ``/overview`` route embeds so Alpine's poll can just overwrite ``data`` wholesale.
+    """
+    return JSONResponse(await _read_overview_status())
+
+
 @app.get("/admin/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, ident: dict = Depends(require_owner)):
     """Owner-only settings panel (PANEL-01/02): server-render the grouped, typed tunables.

@@ -82,12 +82,14 @@ def test_overview_shows_status_tiles(client):
     from app.deps import require_manager
     from core import db as core_db
 
-    # Seed the three status sources the Overview tiles read (Plan 07's core.db helpers —
-    # not yet implemented at Wave 0, so these calls are expected to raise AttributeError).
+    # Seed the three status sources the Overview tiles read (Plan 03's core.db helpers,
+    # landed in Plan 03-03 — see that plan's SUMMARY for the exact signatures below).
     core_db.init_heartbeat()
-    core_db.set_heartbeat(member_count=42, latency_ms=50)
+    core_db.set_heartbeat(
+        latency_ms=50, started_at_utc="2026-07-22T00:00:00+00:00",
+        guild_member_count=42, loaded_cogs=["heartbeat"])
     core_db.init_jinxxy_sync_status()
-    core_db.set_jinxxy_sync_status(ok=True, product_count=10)
+    core_db.set_jinxxy_sync_status(ok=True, product_count=10, error=None)
     core_db.init_activity_log()
     core_db.log_activity("gallery", "Photo approved")
 
