@@ -27,7 +27,7 @@ from discord import app_commands
 from discord.ext import commands
 
 import config
-from core import github_publish
+from core import db, github_publish
 
 log = logging.getLogger(__name__)
 
@@ -337,6 +337,16 @@ class ReviewsCog(commands.Cog):
             await self._surface_failure(message, "publicar la reseña")
             return
 
+        # D-11: activity_log row for the Overview "recent activity" list — additive, never
+        # aborts the publish (mirrors cogs/presence.py::_store's try/except idiom).
+        try:
+            await asyncio.to_thread(
+                db.log_activity, "review_published",
+                f"Reseña publicada (msg {message.id}) / Review published (msg {message.id})")
+        except Exception:
+            log.exception("reviews: no pude registrar la actividad de publicación (msg %s)",
+                          message.id)
+
         try:
             await message.add_reaction("🟢")                # persistent published marker
             await message.add_reaction("🌙")                # visible unpublish control
@@ -381,6 +391,15 @@ class ReviewsCog(commands.Cog):
                               message.id)
                 await self._surface_failure(message, "quitar la reseña")
                 return
+            # D-11: activity_log row for the Overview "recent activity" list — additive,
+            # never aborts the removal (mirrors cogs/presence.py::_store's try/except idiom).
+            try:
+                await asyncio.to_thread(
+                    db.log_activity, "review_removed",
+                    f"Reseña quitada (msg {message.id}) / Review removed (msg {message.id})")
+            except Exception:
+                log.exception("reviews: no pude registrar la actividad de remoción (msg %s)",
+                              message.id)
             try:
                 await message.remove_reaction("🟢", self.bot.user)  # back to pending
                 await self._remove_own_reaction(message, "🌙")  # clear the visible control
