@@ -1,0 +1,15 @@
+{% extends "_dashboard_base.html" %}
+{% block title %}403{% endblock %}
+{% block content %}
+{#- In-shell 403 (D-16): sidebar chrome stays visible, reinforcing "you can see the
+    section exists, you just can't use it." Parametrized on required_tier — NOT a
+    reuse of login.html's editor-only _FORBIDDEN_COPY (Pitfall 2, T-03-19). -#}
+<div class="forbidden-body">
+  <p class="label">403 — Sin acceso · No access</p>
+  <p class="forbidden">
+    Esta sección requiere acceso de {{ required_tier }} · This section needs {{ required_tier }} access
+    <br /><br />
+    Contacta al propietario si crees que esto es un error. · Contact the owner if you believe this is a mistake.
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "_dashboard_base.html" %}
+{% block title %}{{ section_label | default('Módulo') }}{% endblock %}
+{% block content %}
+<div class="mod-hdr" style="--acc: {{ accent | default('var(--color-primary)') }}">
+  <span class="i">{{ icon | default('•') }}</span>
+  <div>
+    <div class="t">{{ section_label | default('Módulo') }}</div>
+    {% if section_description %}<div class="s">{{ section_description }}</div>{% endif %}
+  </div>
+</div>
+<div class="empty">
+  <div class="h">Próximamente · Coming soon</div>
+  <div>Este módulo llega en una fase futura del dashboard. Vuelve pronto. · This module ships in a later dashboard phase. Check back soon.</div>
+</div>
+{% endblock %}
