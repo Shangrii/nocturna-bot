@@ -37,6 +37,7 @@ import subprocess
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
@@ -51,7 +52,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import config
 from app import auth
-from app.deps import require_editor, require_owner
+from app.deps import require_editor, require_manager, require_owner, TierForbidden
 from core import db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
@@ -270,13 +271,19 @@ def validate_config() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_config()  # fail-fast on startup — never serve with empty secrets/OAuth config
-    # Ensure the presence table exists so /api/presence never 500s if the bot (which
-    # normally creates it) hasn't started yet. CREATE TABLE IF NOT EXISTS is idempotent.
+    # Ensure the presence/dashboard tables exist so their read endpoints never 500 if the
+    # bot (which normally creates them) hasn't started yet. CREATE TABLE IF NOT EXISTS is
+    # idempotent (dual-process defensive init, Pitfall 6) — the three Phase 3 Overview
+    # tables (bot_heartbeat/jinxxy_sync_status/activity_log) join the SAME try/except path
+    # as the pre-existing presence/view_counts init, not a second init path.
     try:
         db.init_presence()
         db.init_view_counts()  # view_counts/view_dedup — the counter API is served here too
+        db.init_heartbeat()
+        db.init_jinxxy_sync_status()
+        db.init_activity_log()
     except Exception:
-        log.exception("no pude inicializar las tablas de presencia/vistas")
+        log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
     log.info("editor admin app started")
     yield
 
@@ -311,15 +318,39 @@ app.add_middleware(
 
 @app.exception_handler(StarletteHTTPException)
 async def _auth_html_or_json(request: Request, exc: StarletteHTTPException):
-    """Render ``login.html`` for a browser navigation hitting a 401/403; JSON otherwise.
+    """Render the right in-shell error page for a browser navigation 401/403; JSON otherwise.
 
-    ``require_editor`` raises plain ``HTTPException(401|403)`` — without this handler a
-    browser visiting ``/`` unauthenticated (or after role loss) would see a bare JSON
-    body instead of the UI-SPEC login/403 page. Every ``fetch()`` call from the editor
-    app itself (image/save/unpublish) sends ``Accept: application/json`` and keeps
-    getting a JSON error body — this handler only changes NAVIGATION responses.
+    Three branches, checked in order (Pitfall 2 — extend, never replace/collapse):
+
+    1. A ``TierForbidden`` (raised by ``require_manager``) renders ``forbidden.html``
+       parametrized on ``exc.required_tier`` — the dashboard-shell tier-403 page (D-16).
+    2. A plain 403 landing on the owner-only Settings route (``require_owner`` itself is
+       UNCHANGED — this only unifies its HTML rendering, D-16 / Open Q4) ALSO renders
+       ``forbidden.html``, hardcoded to ``required_tier="owner"`` — so a Manager clicking
+       the locked Settings nav item sees the bilingual "needs owner access" dead end, not
+       ``login.html``'s wrong-audience editor-only copy.
+    3. Every other 401/403 navigation (the plain editor-only login gate, and 403s outside
+       the dashboard shell) falls back to the original ``login.html`` branch, unchanged.
+
+    Every ``fetch()`` call from the editor/settings/dashboard app itself sends
+    ``Accept: application/json`` and keeps getting a JSON error body — this handler only
+    changes NAVIGATION (``text/html``) responses.
     """
-    if exc.status_code in (401, 403) and "text/html" in request.headers.get("accept", ""):
+    accept_html = "text/html" in request.headers.get("accept", "")
+
+    if isinstance(exc, TierForbidden) and accept_html:
+        return templates.TemplateResponse(
+            request, "forbidden.html",
+            {"required_tier": exc.required_tier},
+            status_code=exc.status_code)
+
+    if exc.status_code == 403 and request.url.path == "/admin/settings" and accept_html:
+        return templates.TemplateResponse(
+            request, "forbidden.html",
+            {"required_tier": "owner"},
+            status_code=403)
+
+    if exc.status_code in (401, 403) and accept_html:
         return templates.TemplateResponse(
             request, "login.html",
             {"forbidden": exc.status_code == 403},
