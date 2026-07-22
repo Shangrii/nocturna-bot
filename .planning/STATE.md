@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
-status: executing
-stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-07-22T01:10:21.529Z"
+status: ready_to_plan
+stopped_at: Phase 03 complete (8/8) — ready to discuss Phase 4
+last_updated: 2026-07-22T07:38:16.083Z
 last_activity: 2026-07-22 -- Phase 03 execution started
 progress:
   total_phases: 8
   completed_phases: 0
   total_plans: 8
-  completed_plans: 0
+  completed_plans: 8
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ See: .planning/PROJECT.md (updated 2026-07-21)
 **Core value:** The whole staff operates the bot from one web dashboard according to their
 access level — owner everything, Managers day-to-day operations, editors their own
 presentation pages — with no secrets exposed and no bad value able to break a cog.
-**Current focus:** Phase 03 — Dashboard Shell + Tiered Access
+**Current focus:** Phase 4 — settings migration + name resolution
 
 ## Current Position
 
-Phase: 03 (Dashboard Shell + Tiered Access) — EXECUTING
-Plan: 1 of 8
-Status: Executing Phase 03
-Last activity: 2026-07-22 -- Phase 03 execution started
+Phase: 4
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-22
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -38,7 +38,7 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity:**
 
-- Total plans completed: 8
+- Total plans completed: 16
 - Average duration: —
 - Total execution time: —
 
@@ -48,6 +48,7 @@ Progress: [░░░░░░░░░░] 0%
 |-------|-------|-------|----------|
 | 01 | 3 | - | - |
 | 02 | 5 | - | - |
+| 03 | 8 | - | - |
 
 ## Accumulated Context
 
