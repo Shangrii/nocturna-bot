@@ -135,3 +135,13 @@ None - no external service configuration required.
 ---
 *Phase: 03-dashboard-shell-tiered-access*
 *Completed: 2026-07-22*
+
+## Self-Check: PASSED
+
+- FOUND: app/auth.py
+- FOUND: app/deps.py
+- FOUND: tests/test_app_auth.py
+- FOUND: .planning/phases/03-dashboard-shell-tiered-access/03-05-SUMMARY.md
+- FOUND: 6cc9c5b (Task 1 commit)
+- FOUND: 00ca5d0 (Task 2 commit)
+- FOUND: 9b39817 (SUMMARY.md commit)
