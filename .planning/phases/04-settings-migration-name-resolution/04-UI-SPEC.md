@@ -141,6 +141,9 @@ Supplementary detail beyond the template fields, for planner/executor use (sourc
 D-01–D-09 + Phase 3's locked dashboard tokens).
 
 ### Settings page chrome (SETT-01 migration)
+- **Primary visual anchor (focal point):** the `.mod-hdr` icon+title (`⚙` "Ajustes · Settings")
+  draws the eye first; secondary focus is the resolved-name preview row inside each Access field.
+  This inherits Phase 3's already-approved shell hierarchy — no new visual language is introduced.
 - `settings.html` becomes `{% extends "_dashboard_base.html" %}` — drop its bespoke `<header>`
   entirely; the shared topbar (`_dashboard_base.html` lines 18-23) already provides
   "Volver al editor" and "Salir" links.
