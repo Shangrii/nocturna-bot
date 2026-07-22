@@ -297,6 +297,77 @@ def test_validate_only_rejects_unknown_key(monkeypatch, tmp_path):
         settings.validate_only("NOT_A_REAL_KEY", "x")
 
 
+# ── D-05/D-06 (Phase 3, 03-01): manager_roles/editor_roles tier-mapping schema cases ──
+# EXPECTED RED until Plan 02 adds the two "access"-group _Setting entries to _SCHEMA —
+# every lookup below raises KeyError via settings._SCHEMA[key] until then. Mirrors the
+# GALLERY_STAFF_ROLE_IDS role_list tests above (round-trip, validation, no-fallback), but
+# for the two independent tier-mapping keys (D-06: no fallback_key between them or to any
+# other role_list key).
+def test_manager_roles_seed_includes_manager_role_id(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.seed_defaults()
+    assert 1453560115423875205 in settings.get("manager_roles")
+
+
+def test_editor_roles_seed_includes_moderator_role_id(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.seed_defaults()
+    assert config.ROLE_MODERATOR_ID in settings.get("editor_roles")
+
+
+def test_manager_roles_round_trip(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.set("manager_roles", [111, 222])
+    assert settings.get("manager_roles") == [111, 222]
+
+
+def test_editor_roles_round_trip(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.set("editor_roles", [333, 444])
+    assert settings.get("editor_roles") == [333, 444]
+
+
+def test_manager_roles_rejects_invalid_role_id(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    with pytest.raises(settings.SettingRejected):
+        settings.set("manager_roles", "not-a-role-id")
+    # nothing was written → get falls back to the seeded default, never the rejected value
+    assert settings.get("manager_roles") != "not-a-role-id"
+
+
+def test_editor_roles_rejects_invalid_role_id(monkeypatch, tmp_path):
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    with pytest.raises(settings.SettingRejected):
+        settings.set("editor_roles", "also-not-a-role-id")
+    assert settings.get("editor_roles") != "also-not-a-role-id"
+
+
+def test_manager_roles_empty_does_not_fall_back_to_gallery_staff(monkeypatch, tmp_path):
+    """D-06/Pitfall 3 no-fallback guarantee: an empty manager_roles list stays empty,
+    never silently resolving to GALLERY_STAFF_ROLE_IDS the way the reviews/reminders/
+    jinxxy staff-role lists cascade (CONF-03 is deliberately NOT wired for this key)."""
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.set("GALLERY_STAFF_ROLE_IDS", [999])
+    settings.set("manager_roles", [])
+    assert settings.get("manager_roles") == []
+
+
+def test_editor_roles_empty_does_not_fall_back_to_gallery_staff(monkeypatch, tmp_path):
+    """Same no-fallback guarantee for editor_roles (D-06)."""
+    _use_tmp_db(monkeypatch, tmp_path)
+    db.init_settings()
+    settings.set("GALLERY_STAFF_ROLE_IDS", [999])
+    settings.set("editor_roles", [])
+    assert settings.get("editor_roles") == []
+
+
 # ── CONC-01: a held read + a concurrent write do not collide with "database is locked" ──
 def test_wal_concurrent_read_write(monkeypatch, tmp_path):
     _use_tmp_db(monkeypatch, tmp_path)
