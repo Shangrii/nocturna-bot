@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Nocturna · {% block title %}Dashboard{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Inter 400 + 600 only — no 700, per UI-SPEC Typography (closed weight set) -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="/static/dashboard.css?v={{ asset_v | default(0) }}" />
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="wordmark">Nocturna</h1>
+    <span class="spacer"></span>
+    <a class="btn ghost" href="/editor">Volver al editor · Back to editor</a>
+    <a class="btn ghost" href="/logout">Salir · Sign out</a>
+  </header>
+
+  <div class="shell">
+    {% include "_sidebar.html" %}
+    <main class="main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% block scripts %}{% endblock %}
+  <script defer src="/static/alpine.min.js"></script>
+</body>
+</html>

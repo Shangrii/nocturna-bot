@@ -1,0 +1,39 @@
+{#- Data-driven 7-section nav (SHELL-01). Lock state is computed server-side from the
+    `roles` dict passed into every render — never client-side JS/Alpine (D-14, T-03-18).
+    Locked items still link to their real route; the forbidden page (Plan 07) is the
+    graceful dead end (D-16), not a disabled/no-op link. -#}
+{% set sections = [
+  {"id": "overview",  "label": "Overview",                     "icon": "⌂", "accent": "var(--color-primary)",    "route": "/overview",       "tier": "manager"},
+  {"id": "gallery",   "label": "Galería · Gallery",             "icon": "🖼", "accent": "var(--accent-gallery)",   "route": "/gallery",        "tier": "manager"},
+  {"id": "reviews",   "label": "Reseñas · Reviews",             "icon": "★", "accent": "var(--accent-reviews)",   "route": "/reviews",        "tier": "manager"},
+  {"id": "reminders", "label": "Recordatorios · Reminders",     "icon": "⏰", "accent": "var(--accent-reminders)", "route": "/reminders",      "tier": "manager"},
+  {"id": "jinxxy",    "label": "Tienda Jinxxy · Jinxxy Store",  "icon": "🛍", "accent": "var(--accent-jinxxy)",    "route": "/jinxxy",         "tier": "manager"},
+  {"id": "meetings",  "label": "Reuniones · Meetings",          "icon": "🎙", "accent": "var(--accent-meetings)",  "route": "/meetings",       "tier": "manager"},
+  {"id": "settings",  "label": "Ajustes · Settings",            "icon": "⚙", "accent": "var(--accent-settings)",  "route": "/admin/settings", "tier": "owner"},
+] %}
+<aside class="side">
+  {% for section in sections %}
+  {% set unlocked = (section.tier == "owner" and roles.is_owner) or (section.tier == "manager" and (roles.is_owner or roles.is_manager)) %}
+  <a class="nav-item {{ 'on' if active_section == section.id else '' }}"
+     style="--acc: {{ section.accent }}"
+     href="{{ section.route }}">
+    <span class="ico">{{ section.icon }}</span>
+    <span>{{ section.label }}</span>
+    {% if not unlocked %}<span class="lock" title="Requiere más acceso · Requires more access">🔒</span>{% endif %}
+  </a>
+  {% endfor %}
+
+  {% if roles.is_editor %}
+  <div class="editor-link">
+    <a class="nav-item" href="/editor">
+      <span class="ico">✎</span>
+      <span>Editor</span>
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="foot">
+    <span class="st {{ 'live' if bot_online else '' }}"></span>
+    <span>Bot en línea · v{{ bot_version | default('1') }}</span>
+  </div>
+</aside>
