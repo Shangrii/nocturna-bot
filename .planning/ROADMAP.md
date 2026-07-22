@@ -107,10 +107,10 @@ day-to-day operations, editors their own presentation page.
 Plans:
 **Wave 1**
 
-- [ ] 03-01-PLAN.md — RED-first test scaffolding: tests/test_app_dashboard.py (SHELL/ACCESS) + tests/test_settings.py mapping cases [Wave 1]
-- [ ] 03-02-PLAN.md — Role→tier mapping storage: manager_roles/editor_roles settings keys + Access group field [Wave 1]
-- [ ] 03-03-PLAN.md — Overview data plumbing: bot_heartbeat/jinxxy_sync_status/activity_log tables + heartbeat cog [Wave 1]
-- [ ] 03-06-PLAN.md — Variant-A shell templates + dashboard.css (base, sidebar, overview, module stub, forbidden) [Wave 1]
+- [x] 03-01-PLAN.md — RED-first test scaffolding: tests/test_app_dashboard.py (SHELL/ACCESS) + tests/test_settings.py mapping cases [Wave 1]
+- [x] 03-02-PLAN.md — Role→tier mapping storage: manager_roles/editor_roles settings keys + Access group field [Wave 1]
+- [x] 03-03-PLAN.md — Overview data plumbing: bot_heartbeat/jinxxy_sync_status/activity_log tables + heartbeat cog [Wave 1]
+- [x] 03-06-PLAN.md — Variant-A shell templates + dashboard.css (base, sidebar, overview, module stub, forbidden) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -231,7 +231,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|-----------|-----------------|--------|-----------|
 | 1. Config Store + Consolidation | v1.0 | 3/3 | Complete | 2026-07-21 |
 | 2. Owner Settings Panel | v1.0 | 5/5 | Complete | 2026-07-21 |
-| 3. Dashboard Shell + Tiered Access | v2.0 | 0/8 | Not started | - |
+| 3. Dashboard Shell + Tiered Access | v2.0 | 4/8 | In Progress|  |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/TBD | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
