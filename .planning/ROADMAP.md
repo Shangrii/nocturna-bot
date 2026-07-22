@@ -119,7 +119,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 03-07-PLAN.md — Dashboard routes + wiring: 6 section routes, /api/overview/status, lifespan init, TierForbidden handler [Wave 3]
+- [x] 03-07-PLAN.md — Dashboard routes + wiring: 6 section routes, /api/overview/status, lifespan init, TierForbidden handler [Wave 3]
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -231,7 +231,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|-----------|-----------------|--------|-----------|
 | 1. Config Store + Consolidation | v1.0 | 3/3 | Complete | 2026-07-21 |
 | 2. Owner Settings Panel | v1.0 | 5/5 | Complete | 2026-07-21 |
-| 3. Dashboard Shell + Tiered Access | v2.0 | 6/8 | In Progress|  |
+| 3. Dashboard Shell + Tiered Access | v2.0 | 7/8 | In Progress|  |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/TBD | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
