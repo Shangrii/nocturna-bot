@@ -143,13 +143,23 @@ def test_manager_operational_access_settings_403(client):
 
 
 # ── ACCESS-03: editor-only identity is locked out of the whole dashboard ───────────
-def test_editor_only_locked_out_of_dashboard(client):
+def test_editor_only_locked_out_of_dashboard(client, monkeypatch):
     from fastapi import HTTPException
 
     from app.deps import require_editor, require_manager
 
     async def _forbid_manager():
         raise HTTPException(status_code=403, detail="needs manager access")
+
+    # /editor (require_editor, unrelated to this plan) fetches the live editors.json
+    # entry over the network — mock it the same way tests/test_app_editor.py does so
+    # this test stays isolated from GitHub, matching that file's established precedent.
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "3", "published": True, "name": "Aria",
+                "avatar": "", "tagline": "", "links": [], "blocks": []}
+
+    import app.main as main
+    monkeypatch.setattr(main, "_fetch_current_entry", fake_current)
 
     app.dependency_overrides[require_manager] = _forbid_manager
     app.dependency_overrides[require_editor] = lambda: {"discord_id": "3", "slug": "aria"}
