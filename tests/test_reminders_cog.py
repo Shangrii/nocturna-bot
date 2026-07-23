@@ -508,7 +508,8 @@ def _row(**over):
     base = dict(id=1, name="Junta", frequency="weekly", weekday=0, day_of_month=None,
                 run_date=None, hour=9, minute=0, channel_id=42,
                 message="Recuerden la junta", mentions="", reactions="",
-                next_fire_utc=NOW.isoformat(), created_by=STAFF_UID, created_at="")
+                next_fire_utc=NOW.isoformat(), created_by=STAFF_UID, created_at="",
+                version=1, paused=0)
     base.update(over)
     return base
 
@@ -549,7 +550,7 @@ def test_due_oneoff_delivers_once_then_deletes(cog, monkeypatch):
     cog._deliver = AsyncMock()
     asyncio.run(cog._process_due(NOW))
     cog._deliver.assert_awaited_once()
-    delete.assert_called_once_with(1)                      # D-16 auto-delete
+    delete.assert_called_once_with(1, expected_version=1)  # D-16 guarded auto-delete
     setnf.assert_not_called()                              # never advanced
 
 
@@ -576,10 +577,60 @@ def test_due_skip_oneoff_beyond_grace_is_deleted(cog, monkeypatch):
     cog._deliver = AsyncMock()
     asyncio.run(cog._process_due(NOW))
     cog._deliver.assert_not_awaited()
-    delete.assert_called_once_with(1)                      # a skipped one-off is expired
+    delete.assert_called_once_with(1, expected_version=1)  # a skipped one-off is expired
 
 
 # ── per-reminder isolation (T-08-05 / Pitfall 1) ───────────────────────────────────
+def test_process_due_writeback_uses_expected_version(cog, monkeypatch):
+    setnf, delete = _patch_db(monkeypatch, [
+        _row(id=1, version=7),
+        _row(id=2, version=8, frequency="oneoff", run_date="2026-07-08", weekday=None),
+    ])
+    cog._deliver = AsyncMock()
+
+    asyncio.run(cog._process_due(NOW))
+
+    recurring_call = setnf.call_args
+    assert recurring_call.args[0] == 1
+    assert recurring_call.kwargs == {"expected_version": 7}
+    delete.assert_called_once_with(2, expected_version=8)
+
+
+def test_process_due_stale_writeback_logs_and_continues(cog, monkeypatch):
+    setnf, _ = _patch_db(monkeypatch, [
+        _row(id=1, version=3),
+        _row(id=2, version=4),
+    ])
+    setnf.side_effect = [False, True]
+    cog._deliver = AsyncMock()
+    info = MagicMock()
+    monkeypatch.setattr(reminders.log, "info", info)
+
+    asyncio.run(cog._process_due(NOW))
+
+    assert cog._deliver.await_count == 2
+    assert setnf.call_count == 2
+    assert setnf.call_args_list[0].kwargs == {"expected_version": 3}
+    assert setnf.call_args_list[1].kwargs == {"expected_version": 4}
+    info.assert_called_once()
+    assert info.call_args.args[1] == 1
+
+
+def test_process_due_skips_paused(cog, monkeypatch):
+    rows = [_row(id=1, paused=1), _row(id=2, paused=0)]
+    due = MagicMock(side_effect=lambda iso: [r for r in rows if r["paused"] == 0])
+    monkeypatch.setattr(reminders.db, "due_reminders", due)
+    monkeypatch.setattr(reminders.db, "set_next_fire", MagicMock(return_value=True))
+    monkeypatch.setattr(reminders.db, "delete_reminder", MagicMock(return_value=True))
+    cog._deliver = AsyncMock()
+
+    asyncio.run(cog._process_due(NOW))
+
+    due.assert_called_once_with(NOW.isoformat())
+    cog._deliver.assert_awaited_once()
+    assert cog._deliver.await_args.args[0]["id"] == 2
+
+
 def test_one_bad_reminder_does_not_stop_others(cog, monkeypatch):
     _patch_db(monkeypatch, [_row(id=1), _row(id=2)])
 

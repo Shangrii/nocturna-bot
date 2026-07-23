@@ -611,9 +611,19 @@ class RemindersCog(
                 # moment it comes due — even a 'skip' one-off is deleted (D-16); a recurring
                 # reminder advances its cursor to the next occurrence.
                 if r["frequency"] == "oneoff":
-                    db.delete_reminder(r["id"])
+                    ok = db.delete_reminder(r["id"], expected_version=r["version"])
                 else:
-                    db.set_next_fire(r["id"], compute_next(r, now).isoformat())
+                    ok = db.set_next_fire(
+                        r["id"],
+                        compute_next(r, now).isoformat(),
+                        expected_version=r["version"],
+                    )
+                if not ok:
+                    log.info(
+                        "reminders: id=%s cambió durante el disparo (versión obsoleta) — "
+                        "se respeta el estado actual, no se sobrescribe",
+                        r["id"],
+                    )
             except Exception:
                 log.exception(
                     "reminders: fallo al disparar id=%s (los demás continúan)", r["id"])
