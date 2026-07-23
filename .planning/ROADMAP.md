@@ -186,13 +186,35 @@ Plans:
 **Goal**: A Manager can fully manage the reminder lifecycle from the panel without risking a stale-data fire or losing an edit to the scheduler.
 **Depends on**: Phase 5
 **Requirements**: REM-01, REM-02, REM-03
+**Scope expansion (owner decision 2026-07-23, CONTEXT D-05/D-06)**: also adds a new `biweekly`
+frequency to the reminder engine (panel + Discord `/recordatorio` parity). Bookkeeping follow-up:
+add REM-04 (biweekly recurrence) to REQUIREMENTS.md.
 **Success Criteria** (what must be TRUE):
 
   1. A Manager can create, edit, and delete reminders via a table + modal pattern.
   2. A Manager can pause and resume a reminder.
   3. A reminder edited or deleted from the panel never fires with stale data, and never loses the edit to the scheduler's write-back (version/re-fetch guard proven under a concurrent-edit test).
 
-**Plans**: TBD
+**Plans**: 6 plans (4 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 06-01-PLAN.md — Extract pure schedule math to core/reminder_schedule.py + biweekly + is_imminent [Wave 1]
+- [ ] 06-02-PLAN.md — DB optimistic-version guard + paused column/migration + LOCKED D-17 concurrent-edit test [Wave 1]
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 06-03-PLAN.md — Cog: biweekly Discord parity + version-guarded scheduler write-back [Wave 2]
+- [ ] 06-04-PLAN.md — App backend: app/routers/reminders.py CRUD/pause/resume/preview (Manager-gated, 409 guard) [Wave 2]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 06-05-PLAN.md — Frontend: reminders.html table+modal+confirm + dashboard.css reminders block [Wave 3]
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 06-06-PLAN.md — Human-verify checkpoint: Manager CRUD + biweekly + gate + imminent caveats [Wave 4]
 **UI hint**: yes
 
 ### Phase 7: Gallery + Reviews Approval Queues
@@ -263,7 +285,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 3. Dashboard Shell + Tiered Access | v2.0 | 8/8 | Complete   | 2026-07-22 |
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/5 | Not started | - |
-| 6. Reminders CRUD | v2.0 | 0/TBD | Not started | - |
+| 6. Reminders CRUD | v2.0 | 0/6 | Not started | - |
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/TBD | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 0/TBD | Not started | - |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/TBD | Not started | - |
