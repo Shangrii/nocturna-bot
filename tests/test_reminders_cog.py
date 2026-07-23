@@ -128,6 +128,17 @@ def test_compute_next_dispatches_weekly():
     assert reminders.compute_next(row, now) == expected
 
 
+def test_compute_next_biweekly_dispatches():
+    now = _local(2026, 7, 8, 10, 0)
+    row = {"frequency": "biweekly", "weekday": None, "day_of_month": None,
+           "run_date": "2020-01-01", "hour": 11, "minute": 0,
+           "next_fire_utc": ""}
+    expected = reminders.next_biweekly_fire(
+        now, "2020-01-01", 11, 0, config.REMINDERS_TZ
+    )
+    assert reminders.compute_next(row, now) == expected
+
+
 def test_compute_next_dispatches_monthly():
     now = _local(2027, 1, 20, 12, 0)
     row = {"frequency": "monthly", "weekday": None, "day_of_month": 15,
@@ -262,7 +273,12 @@ def _crear_interaction(user):
 
 
 def _choice(value):
-    label = {"weekly": "Semanal", "monthly": "Mensual", "oneoff": "Una vez"}[value]
+    label = {
+        "weekly": "Semanal",
+        "biweekly": "Cada 2 semanas",
+        "monthly": "Mensual",
+        "oneoff": "Una vez",
+    }[value]
     return app_commands.Choice(name=label, value=value)
 
 
@@ -377,6 +393,49 @@ def test_crear_valid_weekly_opens_modal_with_params(cog):
     assert p["channel_id"] == 77
     assert p["mentions"] == "<@&99>"
     assert p["created_by"] == STAFF_UID
+
+
+def test_crear_biweekly_past_anchor_accepted(cog):
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(
+        cog,
+        inter,
+        frecuencia=_choice("biweekly"),
+        dia_semana=None,
+        fecha="2020-01-01",
+        hora="09:00",
+    ))
+    inter.response.send_modal.assert_awaited_once()
+    inter.response.send_message.assert_not_awaited()
+    params = inter.response.send_modal.await_args.args[0].params
+    assert params["frequency"] == "biweekly"
+    assert params["run_date"] == "2020-01-01"
+
+
+def test_crear_biweekly_persists(cog, monkeypatch):
+    add = MagicMock(return_value=1)
+    monkeypatch.setattr(reminders.db, "add_reminder", add)
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_crear(
+        cog,
+        inter,
+        frecuencia=_choice("biweekly"),
+        dia_semana=None,
+        fecha="2020-01-01",
+        hora="09:00",
+    ))
+    modal = inter.response.send_modal.await_args.args[0]
+    modal.body._value = "Revisar calendario"
+    asyncio.run(modal.on_submit(_modal_interaction()))
+
+    kw = add.call_args.kwargs
+    assert kw["frequency"] == "biweekly"
+    assert kw["run_date"] == "2020-01-01"
+    expected = reminders.next_biweekly_fire(
+        datetime.now(timezone.utc), "2020-01-01", 9, 0, config.REMINDERS_TZ
+    )
+    actual = datetime.fromisoformat(kw["next_fire_utc"])
+    assert abs((actual - expected).total_seconds()) < 2
 
 
 def test_crear_emojis_routed_through_parse_emojis(cog):
@@ -817,6 +876,48 @@ def test_editar_weekly_to_monthly_without_day_rejected(cog, monkeypatch):
     asyncio.run(_run_editar(cog, inter, recordatorio="5", frecuencia=_choice("monthly")))
     inter.response.send_modal.assert_not_awaited()             # merged-schedule validation
     assert inter.response.send_message.await_args.args[0].startswith("❌")
+
+
+def test_editar_switches_to_biweekly_with_past_anchor(cog, monkeypatch):
+    stored = _row(id=5, frequency="weekly", weekday=0, run_date=None)
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(
+        cog,
+        inter,
+        recordatorio="5",
+        frecuencia=_choice("biweekly"),
+        dia_semana=None,
+        fecha="2020-01-01",
+    ))
+    inter.response.send_modal.assert_awaited_once()
+    inter.response.send_message.assert_not_awaited()
+    params = inter.response.send_modal.await_args.args[0].params
+    assert params["frequency"] == "biweekly"
+    assert params["run_date"] == "2020-01-01"
+
+
+def test_editar_switches_from_biweekly_to_weekly(cog, monkeypatch):
+    stored = _row(
+        id=5,
+        frequency="biweekly",
+        weekday=None,
+        run_date="2020-01-01",
+    )
+    monkeypatch.setattr(reminders.db, "get_reminder", MagicMock(return_value=stored))
+    inter = _crear_interaction(_user([STAFF_ROLE_ID]))
+    asyncio.run(_run_editar(
+        cog,
+        inter,
+        recordatorio="5",
+        frecuencia=_choice("weekly"),
+        dia_semana=3,
+        fecha=None,
+    ))
+    inter.response.send_modal.assert_awaited_once()
+    params = inter.response.send_modal.await_args.args[0].params
+    assert params["frequency"] == "weekly"
+    assert params["weekday"] == 3
 
 
 def test_editar_canal_persists_new_channel(cog, monkeypatch):

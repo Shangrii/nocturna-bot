@@ -23,7 +23,7 @@ from core.reminder_schedule import (
     _WEEKDAYS_ES,
     _clamp_day,
     classify_fire,
-    compute_next,
+    compute_next as _compute_next,
     is_imminent,
     next_biweekly_fire,
     next_monthly_fire,
@@ -63,6 +63,15 @@ def _is_staff(member) -> bool:
 # Discord wiring: the message modal, command group, delivery helper, and scheduler.
 
 
+def compute_next(row, now_utc: datetime) -> datetime:
+    """Dispatch biweekly rows locally while preserving the shared core behavior."""
+    if row["frequency"] == "biweekly":
+        return next_biweekly_fire(
+            now_utc, row["run_date"], row["hour"], row["minute"], config.REMINDERS_TZ
+        )
+    return _compute_next(row, now_utc)
+
+
 def _next_fire_for(params: dict, now_utc: datetime) -> datetime:
     """Compute the first ``next_fire_utc`` for a freshly-created reminder (dispatch by freq)."""
     freq = params["frequency"]
@@ -70,6 +79,9 @@ def _next_fire_for(params: dict, now_utc: datetime) -> datetime:
     if freq == "weekly":
         return next_weekly_fire(now_utc, params["weekday"], params["hour"],
                                 params["minute"], tz)
+    if freq == "biweekly":
+        return next_biweekly_fire(now_utc, params["run_date"], params["hour"],
+                                  params["minute"], tz)
     if freq == "monthly":
         return next_monthly_fire(now_utc, params["day_of_month"], params["hour"],
                                  params["minute"], tz)
@@ -204,12 +216,13 @@ class RemindersCog(
         dia_semana="Solo semanal: 0=lunes, 1=martes, 2=miércoles, 3=jueves, 4=viernes, "
                    "5=sábado, 6=domingo",
         dia_mes="Solo mensual: día del mes 1-31 (se ajusta al último día en meses cortos)",
-        fecha="Solo una vez: fecha en formato YYYY-MM-DD",
+        fecha="Cada 2 semanas (anchor) o una vez: fecha YYYY-MM-DD",
         mencion="Rol opcional a mencionar (se ping-ea en una línea sobre el mensaje)",
         emojis="Reacciones opcionales a sembrar, separadas por espacio (p. ej. '✅ ❌')",
     )
     @app_commands.choices(frecuencia=[
         app_commands.Choice(name="Semanal", value="weekly"),
+        app_commands.Choice(name="Cada 2 semanas", value="biweekly"),
         app_commands.Choice(name="Mensual", value="monthly"),
         app_commands.Choice(name="Una vez", value="oneoff"),
     ])
@@ -253,6 +266,20 @@ class RemindersCog(
                     ephemeral=True)
                 return
             weekday = dia_semana
+        elif freq == "biweekly":
+            if fecha is None:
+                await interaction.response.send_message(
+                    "❌ Para un recordatorio cada 2 semanas indica `fecha` (YYYY-MM-DD).",
+                    ephemeral=True)
+                return
+            try:
+                parse_date(fecha)
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ Fecha inválida. Usa el formato YYYY-MM-DD (p. ej. 2026-12-25).",
+                    ephemeral=True)
+                return
+            run_date = fecha
         elif freq == "monthly":
             if dia_mes is None or not valid_day_of_month(dia_mes):
                 await interaction.response.send_message(
@@ -383,12 +410,13 @@ class RemindersCog(
         hora="Nueva hora 24h HH:MM (opcional)",
         dia_semana="Semanal: 0=lunes .. 6=domingo (opcional)",
         dia_mes="Mensual: día del mes 1-31 (opcional)",
-        fecha="Una vez: fecha YYYY-MM-DD (opcional)",
+        fecha="Cada 2 semanas (anchor) o una vez: fecha YYYY-MM-DD (opcional)",
         mencion="Nuevo rol a mencionar (opcional)",
         emojis="Nuevas reacciones separadas por espacio (opcional)",
     )
     @app_commands.choices(frecuencia=[
         app_commands.Choice(name="Semanal", value="weekly"),
+        app_commands.Choice(name="Cada 2 semanas", value="biweekly"),
         app_commands.Choice(name="Mensual", value="monthly"),
         app_commands.Choice(name="Una vez", value="oneoff"),
     ])
@@ -453,6 +481,19 @@ class RemindersCog(
             if weekday is None or not valid_weekday(weekday):
                 await interaction.response.send_message(
                     "❌ Un recordatorio semanal necesita `dia_semana` (0=lunes .. 6=domingo).",
+                    ephemeral=True)
+                return
+        elif frequency == "biweekly":
+            if run_date is None:
+                await interaction.response.send_message(
+                    "❌ Un recordatorio cada 2 semanas necesita `fecha` (YYYY-MM-DD).",
+                    ephemeral=True)
+                return
+            try:
+                parse_date(run_date)
+            except (ValueError, TypeError):
+                await interaction.response.send_message(
+                    "❌ Fecha inválida. Usa el formato YYYY-MM-DD (p. ej. 2026-12-25).",
                     ephemeral=True)
                 return
         elif frequency == "monthly":
