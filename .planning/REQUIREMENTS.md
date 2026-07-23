@@ -44,6 +44,9 @@ Visual contract: `.planning/sketches/001-dashboard-shell/` (variant A won).
 - [ ] **REM-02**: A Manager can pause and resume a reminder.
 - [ ] **REM-03**: A reminder edited or deleted from the panel never fires with stale data and
       never loses the edit to the scheduler's write-back.
+- [ ] **REM-04**: A Manager can create a biweekly (every-2-weeks) reminder from both the
+      panel and Discord, with a past anchor date accepted (scope expansion, owner decision
+      2026-07-23, CONTEXT D-05/D-06).
 
 ### Jinxxy Store (JINX)
 
@@ -116,6 +119,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | REM-01 | Phase 6 | Pending |
 | REM-02 | Phase 6 | Pending |
 | REM-03 | Phase 6 | Pending |
+| REM-04 | Phase 6 | Pending |
 | GAL-01 | Phase 7 | Pending |
 | GAL-02 | Phase 7 | Pending |
 | GAL-03 | Phase 7 | Pending |
