@@ -54,6 +54,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import config
 from app import auth
 from app.deps import require_editor, require_manager, require_owner, TierForbidden
+from app.routers import reminders as reminders_router
 from core import action_queue, db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
@@ -293,6 +294,7 @@ async def lifespan(app: FastAPI):
         db.init_activity_log()
         db.init_discord_names()
         db.init_action_queue()
+        db.init_reminders()
     except Exception:
         log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
     log.info("editor admin app started")
@@ -306,6 +308,7 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+app.include_router(reminders_router.router)
 
 # Signed session cookie with secure flags (V3 / Pitfall 2 / Pitfall 8). ``secret_key`` is the
 # live ``.env`` value; if empty, ``validate_config`` refuses startup before any request lands.
@@ -629,7 +632,7 @@ async def overview_page(request: Request, roles: dict = Depends(require_manager)
 
 
 async def _module_stub_page(request: Request, section_id: str, roles: dict):
-    """Shared GET handler body for the 5 "coming soon" module routes (D-13)."""
+    """Shared GET handler body for the remaining "coming soon" module routes (D-13)."""
     info = _MODULE_SECTIONS[section_id]
     return templates.TemplateResponse(
         request, "module_stub.html",
@@ -649,11 +652,6 @@ async def gallery_page(request: Request, roles: dict = Depends(require_manager))
 @app.get("/reviews", response_class=HTMLResponse)
 async def reviews_page(request: Request, roles: dict = Depends(require_manager)):
     return await _module_stub_page(request, "reviews", roles)
-
-
-@app.get("/reminders", response_class=HTMLResponse)
-async def reminders_page(request: Request, roles: dict = Depends(require_manager)):
-    return await _module_stub_page(request, "reminders", roles)
 
 
 @app.get("/jinxxy", response_class=HTMLResponse)

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import config
 from app.deps import TierForbidden, require_manager
 from app.main import app
+from app.routers import reminders as reminders_router
 from core import db
 
 
@@ -99,7 +100,7 @@ def test_every_reminders_route_requires_manager():
     }
     routes = {
         (method, route.path): route
-        for route in app.routes
+        for route in reminders_router.router.routes
         if isinstance(route, APIRoute)
         for method in route.methods
         if (method, route.path) in expected
