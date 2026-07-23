@@ -29,6 +29,7 @@ dependency, and the plan itself names this as an accepted alternative.
 """
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -53,7 +54,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import config
 from app import auth
 from app.deps import require_editor, require_manager, require_owner, TierForbidden
-from core import db, github_publish, settings
+from core import action_queue, db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
 
@@ -64,6 +65,9 @@ templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 
 # Short session TTL (seconds) — Pitfall 2: a revoked editor's cookie must not linger.
 _SESSION_MAX_AGE = 6 * 3600
+
+# Phases 6-9 extend this allowlist per module.
+_ALLOWED_KINDS = {"noop"}
 
 # ── image upload limits (D-17 / Pitfall 3 / T-10-10-01) ────────────────────────────
 # Byte-size cap enforced BEFORE the body is read in full (streamed chunk-by-chunk).
@@ -288,6 +292,7 @@ async def lifespan(app: FastAPI):
         db.init_jinxxy_sync_status()
         db.init_activity_log()
         db.init_discord_names()
+        db.init_action_queue()
     except Exception:
         log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
     log.info("editor admin app started")
@@ -672,6 +677,38 @@ async def api_overview_status(roles: dict = Depends(require_manager)):
     ``/overview`` route embeds so Alpine's poll can just overwrite ``data`` wholesale.
     """
     return JSONResponse(await _read_overview_status())
+
+
+@app.post("/api/actions")
+async def api_enqueue_action(request: Request, roles: dict = Depends(require_manager)):
+    body = await request.json()
+    kind = body.get("kind")
+    if kind not in _ALLOWED_KINDS:
+        raise HTTPException(status_code=422, detail="unknown action kind")
+    action_id = await run_in_threadpool(
+        action_queue.enqueue, kind, body.get("payload", {}), str(roles["discord_id"]),
+    )
+    return JSONResponse({"id": action_id})
+
+
+@app.get("/api/actions/{action_id}")
+async def api_action_status(action_id: int, roles: dict = Depends(require_manager)):
+    row = await run_in_threadpool(action_queue.get_status, action_id)
+    if row is None:
+        raise HTTPException(status_code=404)
+    return JSONResponse({
+        "id": row["id"], "status": row["status"], "error": row["error"],
+        "result": json.loads(row["result_json"]) if row["result_json"] else None,
+        "bot_online": await _bot_online(),
+    })
+
+
+@app.post("/api/actions/{action_id}/retry")
+async def api_retry_action(action_id: int, roles: dict = Depends(require_manager)):
+    new_id = await run_in_threadpool(action_queue.retry, action_id, str(roles["discord_id"]))
+    if new_id is None:
+        raise HTTPException(status_code=409, detail="action is not in a failed state")
+    return JSONResponse({"id": new_id})
 
 
 @app.get("/admin/settings", response_class=HTMLResponse)
