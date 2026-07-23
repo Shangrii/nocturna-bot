@@ -1,0 +1,654 @@
+{% extends "_dashboard_base.html" %}
+{% set roles = roles | default({"is_owner": true, "is_manager": false, "is_editor": false}) %}
+{% set active_section = active_section | default("reminders") %}
+{% set bot_online = bot_online | default(false) %}
+{% set rows = rows | default([]) %}
+{% set names = names | default([]) %}
+{% block title %}Recordatorios · Reminders{% endblock %}
+{% block content %}
+{# x-data must stay single-quoted: tojson emits double-quoted JSON. #}
+<div class="reminders-page"
+     x-data='remindersApp({{ rows | tojson }}, {{ names | tojson }})'
+     x-cloak>
+  <div class="mod-hdr" style="--acc: var(--accent-reminders)">
+    <span class="i">⏰</span>
+    <div>
+      <div class="t">Recordatorios · Reminders</div>
+      <div class="s">Programa avisos para el equipo · Schedule notices for the team</div>
+    </div>
+    <button class="btn reminders-create" type="button" @click="openCreate()">
+      Nuevo recordatorio · New reminder
+    </button>
+  </div>
+
+  <section class="card reminders-card">
+    <div class="reminders-table-wrap" x-show="rows.length">
+      <table>
+        <thead>
+          <tr>
+            <th>Nombre · Name</th>
+            <th>Horario · Schedule</th>
+            <th>Canal · Channel</th>
+            <th>Próximo disparo · Next fire</th>
+            <th>Estado · Status</th>
+            <th>Acciones · Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="row in rows" :key="row.id">
+            <tr>
+              <td x-text="row.name"></td>
+              <td x-text="row.schedule_summary"></td>
+              <td>
+                <span class="channel-name"
+                      :class="row.channel_cache_miss ? 'cache-miss' : ''"
+                      :title="row.channel_cache_miss ? String(row.channel_id) : ''"
+                      x-text="row.channel_cache_miss ? '#unknown-channel' : row.channel_name"></span>
+              </td>
+              <td x-text="row.paused ? '—' : row.next_fire_relative"></td>
+              <td>
+                <span class="status-badge"
+                      :class="row.paused ? 'paused' : 'active'"
+                      x-text="row.paused ? 'Pausado · Paused' : 'Activo · Active'"></span>
+              </td>
+              <td>
+                <div class="row-actions">
+                  <button class="row-action edit" type="button"
+                          title="Editar · Edit" aria-label="Editar · Edit"
+                          @click="openEdit(row)">✎</button>
+                  <button class="row-action pause" type="button"
+                          :title="row.paused ? 'Reanudar · Resume' : 'Pausar · Pause'"
+                          :aria-label="row.paused ? 'Reanudar · Resume' : 'Pausar · Pause'"
+                          @click="row.paused ? resume(row) : pause(row)"
+                          x-text="row.paused ? '▶' : '⏸'"></button>
+                  <button class="row-action delete" type="button"
+                          title="Eliminar · Delete" aria-label="Eliminar · Delete"
+                          @click="askDelete(row)">✕</button>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="empty" x-show="!rows.length">
+      <div class="h">Sin recordatorios · No reminders yet</div>
+      <p>Crea el primero para empezar a recordar al equipo. · Create the first one to start reminding the team.</p>
+    </div>
+  </section>
+
+  <template x-if="modalOpen">
+    <div class="modal-overlay" @keydown.escape.window="closeModal()" @click.self="closeModal()">
+      <section class="reminder-modal" role="dialog" aria-modal="true"
+               aria-labelledby="reminder-modal-title">
+        <div class="modal-header">
+          <h2 id="reminder-modal-title"
+              x-text="editingId ? 'Editar recordatorio · Edit reminder' : 'Nuevo recordatorio · New reminder'"></h2>
+          <button class="modal-close" type="button" aria-label="Cerrar · Close"
+                  @click="closeModal()">✕</button>
+        </div>
+
+        <form @submit.prevent="save()">
+          <div class="modal-body">
+            <div class="field" :class="errors.name ? 'field--invalid' : ''">
+              <label class="label" for="reminder-name">Nombre · Name</label>
+              <input id="reminder-name" type="text" maxlength="80"
+                     x-model="values.name" autocomplete="off" />
+              <p class="field-error" x-show="errors.name" x-text="errors.name"></p>
+            </div>
+
+            <div class="field" :class="errors.frequency ? 'field--invalid' : ''">
+              <label class="label" for="reminder-frequency">Frecuencia · Frequency</label>
+              <select id="reminder-frequency" x-model="values.frequency"
+                      @change="scheduleChanged()">
+                <option value="weekly">Semanal · Weekly</option>
+                <option value="biweekly">Cada 2 semanas · Biweekly</option>
+                <option value="monthly">Mensual · Monthly</option>
+                <option value="oneoff">Una vez · One-off</option>
+              </select>
+              <p class="field-error" x-show="errors.frequency" x-text="errors.frequency"></p>
+            </div>
+
+            <div class="schedule-fields">
+              <template x-if="values.frequency === 'weekly'">
+                <div class="schedule-field-grid">
+                  <div class="field" :class="errors.weekday ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-weekday">Día · Day</label>
+                    <select id="reminder-weekday" x-model.number="values.weekday"
+                            @change="recomputePreview()">
+                      <option :value="0">Lunes · Monday</option>
+                      <option :value="1">Martes · Tuesday</option>
+                      <option :value="2">Miércoles · Wednesday</option>
+                      <option :value="3">Jueves · Thursday</option>
+                      <option :value="4">Viernes · Friday</option>
+                      <option :value="5">Sábado · Saturday</option>
+                      <option :value="6">Domingo · Sunday</option>
+                    </select>
+                    <p class="field-error" x-show="errors.weekday" x-text="errors.weekday"></p>
+                  </div>
+                  <div class="field" :class="errors.time ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-weekly-time">Hora · Time</label>
+                    <input id="reminder-weekly-time" type="time" x-model="values.time"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="values.frequency === 'biweekly'">
+                <div class="schedule-field-grid">
+                  <div class="field" :class="errors.run_date ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-anchor">Fecha de inicio · Anchor date</label>
+                    <input id="reminder-anchor" type="date" x-model="values.run_date"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.run_date" x-text="errors.run_date"></p>
+                  </div>
+                  <div class="field" :class="errors.time ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-biweekly-time">Hora · Time</label>
+                    <input id="reminder-biweekly-time" type="time" x-model="values.time"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="values.frequency === 'monthly'">
+                <div class="schedule-field-grid">
+                  <div class="field" :class="errors.day_of_month ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-month-day">Día del mes · Day of month</label>
+                    <input id="reminder-month-day" type="number" min="1" max="31"
+                           x-model.number="values.day_of_month"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.day_of_month" x-text="errors.day_of_month"></p>
+                  </div>
+                  <div class="field" :class="errors.time ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-monthly-time">Hora · Time</label>
+                    <input id="reminder-monthly-time" type="time" x-model="values.time"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="values.frequency === 'oneoff'">
+                <div class="schedule-field-grid">
+                  <div class="field" :class="errors.run_date ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-date">Fecha · Date</label>
+                    <input id="reminder-date" type="date" x-model="values.run_date"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.run_date" x-text="errors.run_date"></p>
+                  </div>
+                  <div class="field" :class="errors.time ? 'field--invalid' : ''">
+                    <label class="label" for="reminder-oneoff-time">Hora · Time</label>
+                    <input id="reminder-oneoff-time" type="time" x-model="values.time"
+                           @input.debounce.250ms="recomputePreview()" />
+                    <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div class="schedule-preview" x-show="preview.next_fire_utc">
+              <span class="schedule-preview-icon">⏱</span>
+              <span class="schedule-preview-label">Próximo disparo · Next fire</span>
+              <span class="schedule-preview-value"
+                    x-text="preview.summary + ' · ' + preview.next_fire_utc"></span>
+            </div>
+
+            <p class="imminent-caveat" x-show="editingId && editingImminent">
+              <span>⚠</span>
+              Tu cambio aplica desde el próximo disparo; el actual podría estar enviándose ya. · Your change applies from the next fire; the imminent one may already be sending.
+            </p>
+
+            <div class="field" :class="errors.channel_id ? 'field--invalid' : ''">
+              <label class="label">Canal · Channel</label>
+              <div class="combobox" @click.outside="channelOpen = false">
+                <template x-if="!rawChannel">
+                  <div>
+                    <input type="search" placeholder="🔍 Buscar canal · Search channel"
+                           x-model="channelSearch" @focus="channelOpen = true"
+                           @input="channelOpen = true" autocomplete="off" />
+                    <div class="combobox-list" x-show="channelOpen">
+                      <template x-for="entry in filteredNames('channel', channelSearch)"
+                                :key="'channel-' + entry.id">
+                        <button class="combobox-option" type="button"
+                                @click="selectChannel(entry)"
+                                x-text="'#' + entry.name"></button>
+                      </template>
+                      <button class="combobox-fallback" type="button"
+                              @click="rawChannel = true; channelOpen = false">
+                        Usar ID directo · Use raw ID
+                      </button>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="rawChannel">
+                  <div class="raw-id-entry">
+                    <input type="text" inputmode="numeric" pattern="\d+"
+                           placeholder="123456789012345678"
+                           x-model="values.channel_id" />
+                    <button class="btn ghost" type="button"
+                            @click="rawChannel = false; channelSearch = ''">
+                      Buscar nombre · Search names
+                    </button>
+                  </div>
+                </template>
+              </div>
+              <p class="field-error" x-show="errors.channel_id" x-text="errors.channel_id"></p>
+            </div>
+
+            <div class="field" :class="errors.message ? 'field--invalid' : ''">
+              <label class="label" for="reminder-message">Mensaje · Message</label>
+              <textarea id="reminder-message" rows="4" x-model="values.message"></textarea>
+              <p class="field-error" x-show="errors.message" x-text="errors.message"></p>
+            </div>
+
+            <div class="field"
+                 :class="(errors.mention_id || errors.mentions) ? 'field--invalid' : ''">
+              <label class="label">Rol a mencionar (opcional) · Mention role (optional)</label>
+              <div class="combobox" @click.outside="roleOpen = false">
+                <template x-if="!rawRole">
+                  <div>
+                    <input type="search" placeholder="🔍 Buscar rol · Search role"
+                           x-model="roleSearch" @focus="roleOpen = true"
+                           @input="roleOpen = true" autocomplete="off" />
+                    <div class="combobox-list" x-show="roleOpen">
+                      <button class="combobox-option" type="button"
+                              @click="clearRole()">Sin mención · No mention</button>
+                      <template x-for="entry in filteredNames('role', roleSearch)"
+                                :key="'role-' + entry.id">
+                        <button class="combobox-option" type="button"
+                                @click="selectRole(entry)"
+                                x-text="'@' + entry.name"></button>
+                      </template>
+                      <button class="combobox-fallback" type="button"
+                              @click="rawRole = true; roleOpen = false">
+                        Usar ID directo · Use raw ID
+                      </button>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="rawRole">
+                  <div class="raw-id-entry">
+                    <input type="text" inputmode="numeric" pattern="\d+"
+                           placeholder="123456789012345678"
+                           x-model="values.mention_id" />
+                    <button class="btn ghost" type="button"
+                            @click="rawRole = false; roleSearch = ''">
+                      Buscar nombre · Search names
+                    </button>
+                  </div>
+                </template>
+              </div>
+              <div class="resolved-name resolved-name--muted role-cache-miss"
+                   x-show="editingMentionMiss && values.mention_id"
+                   :title="String(values.mention_id)">#deleted</div>
+              <p class="field-error" x-show="errors.mention_id || errors.mentions"
+                 x-text="errors.mention_id || errors.mentions"></p>
+            </div>
+
+            <div class="field" :class="errors.reactions ? 'field--invalid' : ''">
+              <label class="label"
+                     x-text="`Reacciones · Reactions (${values.reactions.length}/6)`"></label>
+              <div class="chip-input">
+                <div class="role-chip-list" x-show="values.reactions.length">
+                  <template x-for="(reaction, index) in values.reactions" :key="index + '-' + reaction">
+                    <span class="reaction-chip">
+                      <span x-text="reaction"></span>
+                      <button type="button" aria-label="Quitar · Remove"
+                              @click="removeReaction(index)">×</button>
+                    </span>
+                  </template>
+                </div>
+                <div class="chip-add">
+                  <input type="text" x-model="reactionInput"
+                         :disabled="values.reactions.length >= 6"
+                         @keydown.enter.prevent="addReaction()"
+                         placeholder="👍" />
+                  <button class="btn ghost" type="button" @click="addReaction()"
+                          :disabled="values.reactions.length >= 6 || !reactionInput.trim()">
+                    Añadir · Add
+                  </button>
+                </div>
+              </div>
+              <p class="field-error" x-show="errors.reactions" x-text="errors.reactions"></p>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn ghost" type="button" @click="closeModal()">
+              Cancelar · Cancel
+            </button>
+            <button class="btn" type="submit" :disabled="saving"
+                    x-text="saving
+                      ? 'Guardando… · Saving…'
+                      : (editingId
+                        ? 'Guardar cambios · Save changes'
+                        : 'Crear recordatorio · Create reminder')"></button>
+          </div>
+        </form>
+      </section>
+    </div>
+  </template>
+
+  <template x-if="confirmDelete">
+    <div class="modal-overlay confirm-overlay"
+         @keydown.escape.window="confirmDelete = null"
+         @click.self="confirmDelete = null">
+      <section class="confirm-modal" role="alertdialog" aria-modal="true"
+               aria-labelledby="delete-reminder-title">
+        <h2 id="delete-reminder-title"
+            x-text="`¿Eliminar «${confirmDelete.name}»? · Delete &quot;${confirmDelete.name}&quot;?`"></h2>
+        <p>Se eliminará permanentemente y dejará de dispararse. · It will be permanently removed and stop firing.</p>
+        <p class="imminent-caveat" x-show="confirmDelete.imminent">
+          <span>⚠</span>
+          Este recordatorio podría estar enviándose ahora mismo; eliminarlo detiene disparos futuros. · This reminder may already be mid-send; deleting stops future occurrences.
+        </p>
+        <div class="modal-actions">
+          <button class="btn ghost" type="button" @click="confirmDelete = null">
+            Cancelar · Cancel
+          </button>
+          <button class="btn danger" type="button" :disabled="saving"
+                  @click="confirmDeleteNow()">Eliminar · Delete</button>
+        </div>
+      </section>
+    </div>
+  </template>
+
+  <div class="toast" x-show="toast" x-cloak :data-kind="toastKind" x-text="toast"
+       @click="toast=''" role="status" aria-live="polite"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function remindersApp(initialRows, names) {
+    const blankValues = () => ({
+      name: '',
+      frequency: 'weekly',
+      weekday: 0,
+      day_of_month: 1,
+      run_date: '',
+      time: '09:00',
+      channel_id: '',
+      message: '',
+      mention_id: '',
+      reactions: [],
+      version: null,
+    });
+
+    return {
+      rows: initialRows,
+      names,
+      modalOpen: false,
+      editingId: null,
+      editingImminent: false,
+      editingMentionMiss: false,
+      confirmDelete: null,
+      values: blankValues(),
+      errors: {},
+      toast: '',
+      toastKind: 'ok',
+      saving: false,
+      preview: {},
+      channelSearch: '',
+      roleSearch: '',
+      channelOpen: false,
+      roleOpen: false,
+      rawChannel: false,
+      rawRole: false,
+      reactionInput: '',
+
+      filteredNames(kind, query) {
+        const needle = String(query || '').trim().toLocaleLowerCase();
+        return this.names
+          .filter(entry => entry.kind === kind)
+          .filter(entry => !needle || String(entry.name).toLocaleLowerCase().includes(needle));
+      },
+
+      openCreate() {
+        this.editingId = null;
+        this.editingImminent = false;
+        this.editingMentionMiss = false;
+        this.values = blankValues();
+        this.errors = {};
+        this.preview = {};
+        this.channelSearch = '';
+        this.roleSearch = '';
+        this.rawChannel = false;
+        this.rawRole = false;
+        this.reactionInput = '';
+        this.modalOpen = true;
+        this.recomputePreview();
+      },
+
+      openEdit(row) {
+        this.editingId = row.id;
+        this.editingImminent = Boolean(row.imminent);
+        this.editingMentionMiss = Boolean(row.mention_cache_miss);
+        this.values = {
+          name: row.name || '',
+          frequency: row.frequency || 'weekly',
+          weekday: row.weekday ?? 0,
+          day_of_month: row.day_of_month ?? 1,
+          run_date: row.run_date || '',
+          time: row.time || '09:00',
+          channel_id: String(row.channel_id || ''),
+          message: row.message || '',
+          mention_id: row.mention_id ? String(row.mention_id) : '',
+          reactions: String(row.reactions || '').split(/\s+/).filter(Boolean).slice(0, 6),
+          version: row.version,
+        };
+        this.errors = {};
+        this.preview = {};
+        this.channelSearch = row.channel_cache_miss ? '' : (row.channel_name || '');
+        this.roleSearch = row.mention_cache_miss ? '' : (row.mention_name || '');
+        this.rawChannel = Boolean(row.channel_cache_miss);
+        this.rawRole = Boolean(row.mention_cache_miss);
+        this.reactionInput = '';
+        this.modalOpen = true;
+        this.recomputePreview();
+      },
+
+      closeModal() {
+        if (this.saving) return;
+        this.modalOpen = false;
+        this.channelOpen = false;
+        this.roleOpen = false;
+      },
+
+      selectChannel(entry) {
+        this.values.channel_id = String(entry.id);
+        this.channelSearch = '#' + entry.name;
+        this.channelOpen = false;
+        this.rawChannel = false;
+        delete this.errors.channel_id;
+      },
+
+      selectRole(entry) {
+        this.values.mention_id = String(entry.id);
+        this.roleSearch = '@' + entry.name;
+        this.roleOpen = false;
+        this.rawRole = false;
+        this.editingMentionMiss = false;
+        delete this.errors.mention_id;
+        delete this.errors.mentions;
+      },
+
+      clearRole() {
+        this.values.mention_id = '';
+        this.roleSearch = '';
+        this.roleOpen = false;
+        this.rawRole = false;
+        this.editingMentionMiss = false;
+      },
+
+      addReaction() {
+        const reaction = this.reactionInput.trim();
+        if (!reaction || this.values.reactions.length >= 6) return;
+        this.values.reactions.push(reaction);
+        this.reactionInput = '';
+      },
+
+      removeReaction(index) {
+        this.values.reactions.splice(index, 1);
+      },
+
+      scheduleChanged() {
+        this.preview = {};
+        this.recomputePreview();
+      },
+
+      schedulePayload() {
+        const payload = {
+          frequency: this.values.frequency,
+          time: this.values.time,
+        };
+        if (this.values.frequency === 'weekly') {
+          payload.weekday = this.values.weekday;
+        } else if (this.values.frequency === 'monthly') {
+          payload.day_of_month = this.values.day_of_month;
+        } else {
+          payload.run_date = this.values.run_date;
+        }
+        return payload;
+      },
+
+      serialize() {
+        return {
+          ...this.schedulePayload(),
+          name: this.values.name,
+          channel_id: this.values.channel_id,
+          message: this.values.message,
+          mention_id: this.values.mention_id,
+          reactions: this.values.reactions.join(' '),
+          ...(this.editingId ? { version: this.values.version } : {}),
+        };
+      },
+
+      async recomputePreview() {
+        try {
+          const response = await fetch('/reminders/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.schedulePayload()),
+          });
+          const data = await response.json().catch(() => ({}));
+          this.preview = response.ok ? data : {};
+        } catch (e) {
+          this.preview = {};
+        }
+      },
+
+      showConflict() {
+        this.toastKind = 'error';
+        this.toast = 'Este recordatorio cambió mientras editabas — recarga. · This reminder changed while you were editing — reload.';
+      },
+
+      async save() {
+        this.saving = true;
+        this.toast = '';
+        this.errors = {};
+        try {
+          const path = this.editingId ? `/reminders/${this.editingId}` : '/reminders';
+          const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.serialize()),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (response.ok && data.ok) {
+            const wasEdit = Boolean(this.editingId);
+            this.modalOpen = false;
+            this.toastKind = 'ok';
+            this.toast = wasEdit
+              ? 'Recordatorio guardado. · Reminder saved.'
+              : 'Recordatorio creado. · Reminder created.';
+            window.setTimeout(() => window.location.reload(), 500);
+          } else if (response.status === 409) {
+            this.showConflict();
+          } else {
+            this.toastKind = 'error';
+            this.errors = data.errors || {};
+            this.toast = 'Revisa los campos marcados. · Check the highlighted fields.';
+          }
+        } catch (e) {
+          this.toastKind = 'error';
+          this.toast = 'Error de red · Network error';
+        } finally {
+          this.saving = false;
+        }
+      },
+
+      async mutateRow(row, action) {
+        this.saving = true;
+        this.toast = '';
+        try {
+          const response = await fetch(`/reminders/${row.id}/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ version: row.version }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (response.ok && data.ok) {
+            window.location.reload();
+          } else if (response.status === 409) {
+            this.showConflict();
+          } else {
+            this.toastKind = 'error';
+            this.toast = 'Revisa los campos marcados. · Check the highlighted fields.';
+          }
+        } catch (e) {
+          this.toastKind = 'error';
+          this.toast = 'Error de red · Network error';
+        } finally {
+          this.saving = false;
+        }
+      },
+
+      pause(row) {
+        return this.mutateRow(row, 'pause');
+      },
+
+      resume(row) {
+        return this.mutateRow(row, 'resume');
+      },
+
+      askDelete(row) {
+        this.confirmDelete = row;
+      },
+
+      async confirmDeleteNow() {
+        if (!this.confirmDelete) return;
+        const row = this.confirmDelete;
+        this.saving = true;
+        this.toast = '';
+        try {
+          const response = await fetch(`/reminders/${row.id}/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ version: row.version }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (response.ok && data.ok) {
+            this.confirmDelete = null;
+            window.location.reload();
+          } else if (response.status === 409) {
+            this.confirmDelete = null;
+            this.showConflict();
+          } else {
+            this.toastKind = 'error';
+            this.toast = 'Revisa los campos marcados. · Check the highlighted fields.';
+          }
+        } catch (e) {
+          this.toastKind = 'error';
+          this.toast = 'Error de red · Network error';
+        } finally {
+          this.saving = false;
+        }
+      },
+    };
+  }
+</script>
+{% endblock %}
