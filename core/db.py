@@ -250,7 +250,7 @@ def delete_avatar(name: str) -> int:
 # clave inesperada en **fields no pueda inyectar un nombre de columna en el SQL (T-08-03).
 _REMINDER_UPDATABLE = (
     "name", "frequency", "weekday", "day_of_month", "run_date", "hour", "minute",
-    "channel_id", "message", "mentions", "reactions", "next_fire_utc",
+    "channel_id", "message", "mentions", "reactions", "next_fire_utc", "paused",
 )
 
 
@@ -282,6 +282,14 @@ def init_reminders():
                 created_at    TEXT    NOT NULL
             )
         """)
+        for col, default in [("paused", "0"), ("version", "1")]:
+            try:
+                conn.execute(
+                    f"ALTER TABLE reminders ADD COLUMN {col} "
+                    f"INTEGER NOT NULL DEFAULT {default}"
+                )
+            except sqlite3.OperationalError:
+                pass  # Ya existe
 
 
 def add_reminder(name: str, frequency: str, hour: int, minute: int, channel_id: int,
@@ -323,7 +331,12 @@ def get_reminder(reminder_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
-def update_reminder(reminder_id: int, **fields):
+def update_reminder(
+    reminder_id: int,
+    *,
+    expected_version: int | None = None,
+    **fields,
+) -> bool:
     """Actualiza SOLO las columnas pasadas en ``**fields`` para ese recordatorio.
 
     Las claves se filtran contra ``_REMINDER_UPDATABLE`` (lista blanca) antes de armar
@@ -332,38 +345,67 @@ def update_reminder(reminder_id: int, **fields):
     """
     cols = [(k, v) for k, v in fields.items() if k in _REMINDER_UPDATABLE]
     if not cols:
-        return
-    set_clause = ", ".join(k + " = ?" for k, _ in cols)
+        return True
+    set_clause = ", ".join(k + " = ?" for k, _ in cols) + ", version = version + 1"
     values = [v for _, v in cols]
+    where = "id = ?"
     values.append(reminder_id)
+    if expected_version is not None:
+        where += " AND ? = version"
+        values.append(expected_version)
     with _get_conn() as conn:
-        conn.execute(
-            "UPDATE reminders SET " + set_clause + " WHERE id = ?", values
+        cur = conn.execute(
+            f"UPDATE reminders SET {set_clause} WHERE {where}", values
         )
+        return cur.rowcount > 0
 
 
-def delete_reminder(reminder_id: int):
+def delete_reminder(
+    reminder_id: int,
+    *,
+    expected_version: int | None = None,
+) -> bool:
     """Elimina el recordatorio con ese id."""
+    where = "id = ?"
+    values = [reminder_id]
+    if expected_version is not None:
+        where += " AND ? = version"
+        values.append(expected_version)
     with _get_conn() as conn:
-        conn.execute("DELETE FROM reminders WHERE id = ?", (reminder_id,))
+        cur = conn.execute(f"DELETE FROM reminders WHERE {where}", values)
+        return cur.rowcount > 0
 
 
 def due_reminders(now_utc_iso: str) -> list[sqlite3.Row]:
     """Devuelve los recordatorios vencidos (next_fire_utc <= ahora), en orden de disparo."""
     with _get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM reminders WHERE next_fire_utc <= ? ORDER BY next_fire_utc",
+            "SELECT * FROM reminders "
+            "WHERE next_fire_utc <= ? AND paused = 0 ORDER BY next_fire_utc",
             (now_utc_iso,)
         ).fetchall()
 
 
-def set_next_fire(reminder_id: int, next_fire_utc_iso: str):
+def set_next_fire(
+    reminder_id: int,
+    next_fire_utc_iso: str,
+    *,
+    expected_version: int | None = None,
+) -> bool:
     """Avanza el cursor next_fire_utc de un recordatorio a la próxima ejecución."""
+    where = "id = ?"
+    values = [next_fire_utc_iso, reminder_id]
+    if expected_version is not None:
+        where += " AND ? = version"
+        values.append(expected_version)
     with _get_conn() as conn:
-        conn.execute(
-            "UPDATE reminders SET next_fire_utc = ? WHERE id = ?",
-            (next_fire_utc_iso, reminder_id)
+        cur = conn.execute(
+            "UPDATE reminders "
+            "SET next_fire_utc = ?, version = version + 1 "
+            f"WHERE {where}",
+            values,
         )
+        return cur.rowcount > 0
 
 
 # ── Tienda (Fase 9: snapshot de sync) ─────────────────────────────────────────
