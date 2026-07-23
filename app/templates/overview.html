@@ -56,6 +56,46 @@
     </template>
   </div>
 </div>
+
+{% if roles.is_owner or roles.is_manager %}
+<div class="card action-proof" x-data="actionProofApp()" x-cloak>
+  <div class="card-hdr action-proof-hdr">
+    <div>
+      <h3>Action queue self-test · Prueba de la cola</h3>
+      <p>Verifica la conexión entre el panel y el bot · Verify the panel-to-bot connection</p>
+    </div>
+    <button
+      class="btn"
+      type="button"
+      @click="run()"
+      :disabled="busy || isPending()"
+    >Run noop · Ejecutar noop</button>
+  </div>
+
+  <div
+    class="action-proof-status"
+    :data-state="stateKind()"
+    x-show="status !== 'idle'"
+    role="status"
+    aria-live="polite"
+  >
+    <span
+      class="action-proof-mark"
+      aria-hidden="true"
+      x-show="stateMark()"
+      x-text="stateMark()"
+    ></span>
+    <span class="action-proof-copy" x-text="statusCopy()"></span>
+    <button
+      class="btn ghost action-proof-retry"
+      type="button"
+      x-show="status === 'failed'"
+      @click="retry()"
+      :disabled="busy"
+    >Reintentar · Retry</button>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -90,6 +130,123 @@
           return '—';
         }
         return this.data.last_sync.products + ' productos · products';
+      },
+    };
+  }
+
+  function actionProofApp() {
+    return {
+      actionId: null,
+      status: 'idle',
+      error: '',
+      botOnline: true,
+      busy: false,
+      pollTimer: null,
+
+      isPending() {
+        return this.status === 'pending' || this.status === 'claimed';
+      },
+
+      stateKind() {
+        if (this.isPending() && !this.botOnline) return 'offline';
+        if (this.isPending()) return 'working';
+        if (this.status === 'done') return 'ok';
+        if (this.status === 'failed') return 'failed';
+        return 'idle';
+      },
+
+      stateMark() {
+        const marks = { working: '…', offline: '!' };
+        return marks[this.stateKind()] || '';
+      },
+
+      statusCopy() {
+        if (this.isPending() && !this.botOnline) {
+          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+        }
+        if (this.isPending()) return 'Working… · Procesando…';
+        if (this.status === 'done') return '✓ Listo · Done';
+        if (this.status === 'failed') {
+          return '✗ Falló · Failed' + (this.error ? ' · ' + this.error : '');
+        }
+        return '';
+      },
+
+      async run() {
+        this.stopPolling();
+        this.busy = true;
+        this.status = 'pending';
+        this.error = '';
+        this.botOnline = true;
+        try {
+          const response = await fetch('/api/actions', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind: 'noop', payload: { echo: 'panel' } }),
+          });
+          if (!response.ok) throw new Error('No se pudo iniciar · Could not start');
+          const body = await response.json();
+          this.actionId = body.id;
+          await this.poll();
+        } catch (error) {
+          this.status = 'failed';
+          this.error = error.message || 'Error desconocido · Unknown error';
+        } finally {
+          this.busy = false;
+        }
+      },
+
+      async poll() {
+        if (!this.actionId || !this.isPending()) return;
+        try {
+          const response = await fetch('/api/actions/' + this.actionId, {
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) throw new Error('No se pudo consultar · Could not check status');
+          const body = await response.json();
+          this.status = body.status;
+          this.error = body.error || '';
+          this.botOnline = body.bot_online;
+          if (this.isPending()) {
+            this.pollTimer = setTimeout(() => this.poll(), 1500);
+          }
+        } catch (error) {
+          this.status = 'failed';
+          this.error = error.message || 'Error desconocido · Unknown error';
+        }
+      },
+
+      async retry() {
+        if (!this.actionId || this.status !== 'failed') return;
+        this.stopPolling();
+        this.busy = true;
+        this.error = '';
+        try {
+          const response = await fetch('/api/actions/' + this.actionId + '/retry', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) throw new Error('No se pudo reintentar · Could not retry');
+          const body = await response.json();
+          this.actionId = body.id;
+          this.status = 'pending';
+          this.botOnline = true;
+          await this.poll();
+        } catch (error) {
+          this.status = 'failed';
+          this.error = error.message || 'Error desconocido · Unknown error';
+        } finally {
+          this.busy = false;
+        }
+      },
+
+      stopPolling() {
+        if (this.pollTimer) clearTimeout(this.pollTimer);
+        this.pollTimer = null;
+      },
+
+      destroy() {
+        this.stopPolling();
       },
     };
   }
