@@ -601,10 +601,14 @@ single-file sqlite store with ~5 tables total).
 retention claims; they are structural/UX discretion calls that CONTEXT.md and UI-SPEC.md already
 explicitly delegated to the planner.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `version` need to be exposed to the panel's read endpoints (table list / modal GET) at
    all, or only round-tripped internally?**
+   - **RESOLVED** — recommendation adopted: Plan 04 threads `version` as a hidden,
+     non-rendered value and returns a distinct 409 on a stale edit; Plan 05 captures that
+     hidden version in the modal's Alpine state and maps the 409 to the dedicated
+     "this reminder changed — reload" toast variant.
    - What we know: the modal's edit-save POST needs SOME way to detect "this row changed since I
      opened the modal" if the Symmetric Application recommendation (Pattern 1) is adopted.
    - What's unclear: whether the UI-SPEC's locked visual/copy contract has room for a "this
@@ -618,6 +622,9 @@ explicitly delegated to the planner.
 
 2. **Exact biweekly weekday-label derivation for `schedule_summary`'s "Cada 2 semanas · <día>
    HH:MM" format.**
+   - **RESOLVED** — implemented by Plan 01 Task 2: `schedule_summary` derives the Spanish
+     weekday via `_WEEKDAYS_ES[datetime.fromisoformat(run_date).weekday()]` to emit
+     "Cada 2 semanas · <día> HH:MM".
    - What we know: the anchor date determines the day-of-week; the format string needs the
      Spanish weekday name, which `_WEEKDAYS_ES` (in the to-be-extracted schedule module) already
      provides by index.
