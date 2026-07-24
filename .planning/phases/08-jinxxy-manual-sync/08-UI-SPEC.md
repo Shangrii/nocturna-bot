@@ -18,6 +18,12 @@ system: this phase is a pure composition of shipped Phase 3/5/6/7 primitives (`.
 `.empty`). Zero new CSS tokens; at most 2–3 new narrow class names for the product-table row
 accents, matching the "compose only" precedent PATTERNS.md set for Phase 7.
 
+**Primary visual anchor:** the last-sync status card + Sync button pairing, positioned directly
+under the section header, is the primary visual anchor and the intended first read — a Manager's
+eye should land on "did it run, is it running, what happened" before anything else. The product
+table sits below as secondary reference material (confirm-what-synced, not act-on-this); it never
+competes with the status/button pairing for top-of-page position or for accent color (see Color).
+
 ---
 
 ## Design System
@@ -49,7 +55,11 @@ Reusing the shipped token set verbatim — no new spacing value.
 | `--space-12` | 48px | Toast max-width inset |
 | `--space-16` | 64px | Modal max-height inset (not used this phase — no modal) |
 
-Exceptions: none. Phase 8 introduces no new spacing value; every new class composes the tokens above only.
+Exceptions: `12px` (`--space-3`) falls outside the standard 4/8/16/24/32/48/64 set but is an
+**inherited Phase-3 token**, already shipped in `dashboard.css`'s `:root` and already used by the
+exact `.action-proof-status` block this phase reuses verbatim — approved as a pre-existing
+exception, not introduced by Phase 8. Phase 8 itself introduces zero new spacing values; every new
+class this phase adds composes only tokens already in the table above.
 
 ---
 
@@ -91,8 +101,8 @@ All copy is Spanish-first bilingual (`Español · English`), per house style. Ev
 |---------|------|
 | Section title (mod-hdr) | "Tienda Jinxxy · Jinxxy Store" (matches shipped `_sidebar.html` label verbatim) |
 | Section subtitle (mod-hdr `.s`) | `[proposed]` "Sincroniza el catálogo con Jinxxy y revisa lo publicado · Sync the catalog with Jinxxy and review what's live" |
-| Primary CTA (Sync button, idle) | `[proposed]` "Sincronizar · Sync" |
-| Primary CTA (Sync button, busy) | `[proposed]` "Sincronizando… · Syncing…" (mirrors `reminders.html`'s `saving ? 'Guardando… · Saving…' : …` swap-label pattern) |
+| Primary CTA (Sync button, idle) | `[proposed]` "Sincronizar catálogo · Sync catalog" — verb+noun rather than a bare verb. Phase 7's row-level actions (Approve/Remove) are deliberately bare verbs because their noun is implicit in the card they sit on; this button is the page-level primary CTA (the same role `reminders.html`'s "Nuevo recordatorio · New reminder" plays), so it follows that page-level precedent and names its object. |
+| Primary CTA (Sync button, busy) | `[proposed]` "Sincronizando… · Syncing…" (mirrors `reminders.html`'s `saving ? 'Guardando… · Saving…' : …` swap-label pattern; kept short at the noun-dropped in-progress state, consistent with how the same reminders button drops "recordatorio" while saving) |
 | Status card title | `[proposed]` "Última sincronización · Last sync" |
 | Empty state heading (never synced, D-15) | "Nunca se ha sincronizado · Never synced" — **locked**, never a dash |
 | Empty state body (table area, D-15) | "Aún no hay productos sincronizados · No synced products yet" — **locked** |
@@ -122,11 +132,11 @@ binding for the planner and executor in the same way a shadcn block list would b
 | Screen region | Shipped class / pattern to reuse | Source (verbatim precedent) |
 |---|---|---|
 | Section header | `.mod-hdr` with `style="--acc: var(--accent-jinxxy)"`, `.i` icon span (🛍), `.t` title, `.s` subtitle | `reminders.html` lines 13-22 |
-| Last-sync status card | `.card` + `.card-hdr h3` | `overview.html` lines 38-39 |
+| Last-sync status card (primary visual anchor) | `.card` + `.card-hdr h3` | `overview.html` lines 38-39 |
 | In-flight / result chip | `.action-proof-status` + `.action-proof-mark` + `.action-proof-copy`, `:data-state="stateKind()"`, `role="status" aria-live="polite"` | `overview.html` lines 75-96, verbatim `actionProofApp()` state machine (`stateKind`/`stateMark`/`statusCopy`/`poll`/`retry`) |
 | "Spinner" (roadmap SC1 wording) | **No new animated spinner asset.** The house convention for "in progress" across Phase 5/6/7 is the `.action-proof-mark` text mark ("…") plus the `working` state copy — confirmed no `@keyframes`/`animation` rule exists anywhere in `dashboard.css`. Phase 8 reuses this exact idiom; do not introduce a CSS spinner for one button. | `overview.html` `stateMark()`: `{ working: '…', offline: '!' }` |
-| Sync button | `.btn` (primary blue, NOT accent-colored — see Color contract), `:disabled` bound to busy/running, label swaps per Copywriting Contract | `reminders.html` line 323-328 (label-swap-on-saving pattern) |
-| Product table | plain `table`/`thead`/`tbody` inside a `.card`, `.status-badge` for the NSFW badge | `reminders.html` lines 26-73 (table shape), `dashboard.css` `.status-badge` |
+| Sync button (part of the primary visual anchor) | `.btn` (primary blue, NOT accent-colored — see Color contract), `:disabled` bound to busy/running, label swaps per Copywriting Contract | `reminders.html` line 323-328 (label-swap-on-saving pattern) |
+| Product table (secondary reference material) | plain `table`/`thead`/`tbody` inside a `.card`, `.status-badge` for the NSFW badge | `reminders.html` lines 26-73 (table shape), `dashboard.css` `.status-badge` |
 | Empty states (never-synced card + empty table) | `.empty` + `.empty .h` | `overview.html` lines 51-56, `reminders.html` lines 75-78 |
 | Network-error toast | `.toast`, `:data-kind`, `x-show="toast"` | `gallery.html` lines 160-166 |
 | No modal, no confirm dialog | `.modal-overlay`/`.confirm-modal` explicitly **not used** — D-16 forbids a confirm on Sync; D-17 means no edit surface exists to gate | Phase-7 `.confirm-modal` exists but is out of scope here |
@@ -205,8 +215,10 @@ than confirmed live with the user. Each is low-risk (visual/copy only, does not 
 overlap-guard engineering) but should be sanity-checked by the planner or at the human-verify
 checkpoint:
 
-1. **Sync button idle/busy labels** ("Sincronizar · Sync" / "Sincronizando… · Syncing…") — not
-   given verbatim in CONTEXT.md; proposed to match the shipped label-swap idiom.
+1. **Sync button idle/busy labels** ("Sincronizar catálogo · Sync catalog" / "Sincronizando… ·
+   Syncing…") — not given verbatim in CONTEXT.md; proposed to match the page-level-CTA
+   verb+noun idiom (`reminders.html`'s "Nuevo recordatorio · New reminder") rather than Phase 7's
+   row-level bare-verb idiom (Approve/Remove), since this button is the page's sole primary CTA.
 2. **Section subtitle and card titles** — proposed wording only; CONTEXT.md fixed the
    status/error/empty copy but not these framing strings.
 3. **Product table sort order and absence of a filter** — CONTEXT.md explicitly deferred this to
