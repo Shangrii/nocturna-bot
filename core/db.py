@@ -795,3 +795,167 @@ def get_discord_names() -> list[sqlite3.Row]:
         return conn.execute(
             "SELECT id, kind, name, subtype, color, synced_at FROM discord_names"
         ).fetchall()
+
+
+# ── Gallery + reviews approval queue cache (Phase 7) ──────────────────────────
+def init_gallery_queue():
+    """Create the bot-pushed gallery approval cache if absent."""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS gallery_queue (
+                message_id   INTEGER PRIMARY KEY,
+                state        TEXT NOT NULL,
+                poster       TEXT,
+                caption      TEXT,
+                thumb_url    TEXT,
+                posted_at    TEXT,
+                message_link TEXT,
+                synced_at    TEXT NOT NULL
+            )
+        """)
+
+
+def init_reviews_queue():
+    """Create the anonymity-safe bot-pushed reviews approval cache if absent."""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reviews_queue (
+                message_id   INTEGER PRIMARY KEY,
+                state        TEXT NOT NULL,
+                author       TEXT,
+                is_anonymous INTEGER NOT NULL DEFAULT 0,
+                body         TEXT,
+                review_date  TEXT,
+                message_link TEXT,
+                synced_at    TEXT NOT NULL
+            )
+        """)
+
+
+def upsert_gallery_queue_row(
+    message_id: int,
+    state: str,
+    poster: str | None,
+    caption: str | None,
+    thumb_url: str | None,
+    posted_at: str | None,
+    message_link: str | None,
+):
+    """Refresh mutable gallery fields while preserving resolved poster/date values."""
+    synced_at = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO gallery_queue
+                (message_id, state, poster, caption, thumb_url, posted_at,
+                 message_link, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id) DO UPDATE SET
+                state=excluded.state,
+                caption=excluded.caption,
+                thumb_url=excluded.thumb_url,
+                message_link=excluded.message_link,
+                synced_at=excluded.synced_at
+            """,
+            (
+                message_id,
+                state,
+                poster,
+                caption,
+                thumb_url,
+                posted_at,
+                message_link,
+                synced_at,
+            ),
+        )
+
+
+def upsert_reviews_queue_row(
+    message_id: int,
+    state: str,
+    author: str | None,
+    is_anonymous: int,
+    body: str | None,
+    review_date: str | None,
+    message_link: str | None,
+):
+    """Refresh mutable review fields without changing the stored identity contract."""
+    synced_at = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO reviews_queue
+                (message_id, state, author, is_anonymous, body, review_date,
+                 message_link, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(message_id) DO UPDATE SET
+                state=excluded.state,
+                body=excluded.body,
+                message_link=excluded.message_link,
+                synced_at=excluded.synced_at
+            """,
+            (
+                message_id,
+                state,
+                author,
+                int(is_anonymous),
+                body,
+                review_date,
+                message_link,
+                synced_at,
+            ),
+        )
+
+
+def get_gallery_queue(state: str) -> list[sqlite3.Row]:
+    """Return gallery cache rows in one derived publication state."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM gallery_queue WHERE state = ? ORDER BY posted_at DESC",
+            (state,),
+        ).fetchall()
+
+
+def get_reviews_queue(state: str) -> list[sqlite3.Row]:
+    """Return reviews cache rows in one derived publication state."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM reviews_queue WHERE state = ? ORDER BY review_date DESC",
+            (state,),
+        ).fetchall()
+
+
+def get_gallery_queue_row(message_id: int) -> sqlite3.Row | None:
+    """Return one gallery cache row, or None when the message is not cached."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM gallery_queue WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+
+
+def get_reviews_queue_row(message_id: int) -> sqlite3.Row | None:
+    """Return one reviews cache row, or None when the message is not cached."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM reviews_queue WHERE message_id = ?",
+            (message_id,),
+        ).fetchone()
+
+
+def delete_gallery_queue_row(message_id: int):
+    """Delete exactly one gallery cache row."""
+    with _get_conn() as conn:
+        conn.execute(
+            "DELETE FROM gallery_queue WHERE message_id = ?",
+            (message_id,),
+        )
+
+
+def delete_reviews_queue_row(message_id: int):
+    """Delete exactly one reviews cache row."""
+    with _get_conn() as conn:
+        conn.execute(
+            "DELETE FROM reviews_queue WHERE message_id = ?",
+            (message_id,),
+        )
