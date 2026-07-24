@@ -4,8 +4,12 @@ import asyncio
 import json
 import logging
 
+import discord
 from discord.ext import commands, tasks
 
+import config
+from cogs.gallery import _is_published as gallery_is_published
+from cogs.reviews import _is_published as reviews_is_published
 from core import action_queue, db
 
 log = logging.getLogger(__name__)
@@ -17,7 +21,13 @@ class ActionQueueCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         db.init_action_queue()
-        self._dispatch = {"noop": self._handle_noop}  # Phases 6-9 add kinds here.
+        self._dispatch = {
+            "noop": self._handle_noop,
+            "gallery_publish": self._handle_gallery_publish,
+            "gallery_remove": self._handle_gallery_remove,
+            "review_publish": self._handle_review_publish,
+            "review_remove": self._handle_review_remove,
+        }
         self._tick.start()
 
     async def cog_unload(self):
@@ -58,6 +68,113 @@ class ActionQueueCog(commands.Cog):
         if payload.get("force_fail"):
             raise RuntimeError("noop: forced failure (test payload)")
         return {"echo": payload.get("echo")}
+
+    async def _resolve_channel(self, channel_id: int):
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            channel = await self.bot.fetch_channel(channel_id)
+        if channel is None:
+            raise RuntimeError(
+                "el canal no está disponible · channel is not available"
+            )
+        return channel
+
+    @staticmethod
+    async def _fetch_message(channel, message_id: int):
+        try:
+            return await channel.fetch_message(message_id)
+        except discord.NotFound as exc:
+            raise RuntimeError(
+                "el mensaje ya no existe · message no longer exists"
+            ) from exc
+
+    async def _handle_gallery_publish(self, payload: dict) -> dict:
+        message_id = int(payload["message_id"])
+        channel = await self._resolve_channel(config.PHOTO_CHANNEL_ID)
+        message = await self._fetch_message(channel, message_id)
+        was_published = gallery_is_published(message)
+
+        gallery_cog = self.bot.get_cog("GalleryCog")
+        if gallery_cog is None:
+            raise RuntimeError(
+                "GalleryCog no está cargado · GalleryCog is not loaded"
+            )
+        await gallery_cog._publish(message)
+
+        message = await self._fetch_message(channel, message_id)
+        is_published = gallery_is_published(message)
+        if is_published:
+            return {"already": was_published}
+        raise RuntimeError(
+            "no se pudo publicar · publish did not complete "
+            "(see ⚠️ on the Discord message)"
+        )
+
+    async def _handle_gallery_remove(self, payload: dict) -> dict:
+        message_id = int(payload["message_id"])
+        channel = await self._resolve_channel(config.PHOTO_CHANNEL_ID)
+        message = await self._fetch_message(channel, message_id)
+        was_published = gallery_is_published(message)
+
+        gallery_cog = self.bot.get_cog("GalleryCog")
+        if gallery_cog is None:
+            raise RuntimeError(
+                "GalleryCog no está cargado · GalleryCog is not loaded"
+            )
+        await gallery_cog._unpublish(message)
+
+        message = await self._fetch_message(channel, message_id)
+        is_published = gallery_is_published(message)
+        if not is_published:
+            return {"already": not was_published}
+        raise RuntimeError(
+            "no se pudo quitar · remove did not complete "
+            "(see ⚠️ on the Discord message)"
+        )
+
+    async def _handle_review_publish(self, payload: dict) -> dict:
+        message_id = int(payload["message_id"])
+        channel = await self._resolve_channel(config.REVIEWS_CHANNEL_ID)
+        message = await self._fetch_message(channel, message_id)
+        was_published = reviews_is_published(message)
+
+        reviews_cog = self.bot.get_cog("ReviewsCog")
+        if reviews_cog is None:
+            raise RuntimeError(
+                "ReviewsCog no está cargado · ReviewsCog is not loaded"
+            )
+        await reviews_cog._publish(message)
+
+        message = await self._fetch_message(channel, message_id)
+        is_published = reviews_is_published(message)
+        if is_published:
+            return {"already": was_published}
+        raise RuntimeError(
+            "no se pudo publicar · publish did not complete "
+            "(see ⚠️ on the Discord message)"
+        )
+
+    async def _handle_review_remove(self, payload: dict) -> dict:
+        message_id = int(payload["message_id"])
+        channel = await self._resolve_channel(config.REVIEWS_CHANNEL_ID)
+        message = await self._fetch_message(channel, message_id)
+        was_published = reviews_is_published(message)
+
+        reviews_cog = self.bot.get_cog("ReviewsCog")
+        if reviews_cog is None:
+            raise RuntimeError(
+                "ReviewsCog no está cargado · ReviewsCog is not loaded"
+            )
+        await reviews_cog._unpublish(message)
+
+        message = await self._fetch_message(channel, message_id)
+        is_published = reviews_is_published(message)
+        if not is_published:
+            return {"already": not was_published}
+        raise RuntimeError(
+            "no se pudo quitar · remove did not complete "
+            "(see ⚠️ on the Discord message)"
+        )
 
 
 async def setup(bot: commands.Bot):
