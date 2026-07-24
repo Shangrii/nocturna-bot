@@ -230,7 +230,25 @@ Plans:
   4. A Manager can approve a pending review and it publishes to `reviews.json`.
   5. A Manager can remove a published review from the website.
 
-**Plans**: TBD
+**Plans**: 5 plans (4 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 07-01-PLAN.md — Bot-side queue cache: core/db.py gallery_queue/reviews_queue helpers + cogs/gallery_reviews_cache.py push-cache cog (D-01/D-02, anonymity-safe)
+- [ ] 07-02-PLAN.md — Four action_queue kind handlers with pre/post 🟢-marker state check (GAL-02/03, REV-01/02, D-08/D-11)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 07-03-PLAN.md — Manager-gated app/routers/gallery.py + reviews.py (page + JSON refresh + approve/remove enqueue), app/main.py wiring
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 07-04-PLAN.md — Frontend: gallery.html + reviews.html (Pending|Published tabs, grid/cards, lightbox, inline status, confirm) + dashboard.css blocks
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 07-05-PLAN.md — Human-verify checkpoint: live queue visibility + approve/remove parity + no-double-publish + anonymity
 **UI hint**: yes
 
 ### Phase 8: Jinxxy Manual Sync
@@ -286,7 +304,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 4. Settings Migration + Name Resolution | v2.0 | 0/TBD | Not started | - |
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/5 | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/6 | Not started | - |
-| 7. Gallery + Reviews Approval Queues | v2.0 | 0/TBD | Not started | - |
+| 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 0/TBD | Not started | - |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/TBD | Not started | - |
 | 10. Editors Section Integration | v2.0 | 0/TBD | Not started | - |
