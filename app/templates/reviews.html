@@ -1,0 +1,355 @@
+{% extends "_dashboard_base.html" %}
+{% set roles = roles | default({"is_owner": true, "is_manager": false, "is_editor": false}) %}
+{% set active_section = active_section | default("reviews") %}
+{% set bot_online = bot_online | default(false) %}
+{% set pending_rows = pending_rows | default([]) %}
+{% set published_rows = published_rows | default([]) %}
+{% macro rows_json(rows) -%}
+[{%- for row in rows -%}
+{{ dict(row) | tojson }}{% if not loop.last %},{% endif %}
+{%- endfor -%}]
+{%- endmacro %}
+{% block title %}Reseñas · Reviews{% endblock %}
+{% block content %}
+<div class="queue-page"
+     style="--acc: var(--accent-reviews)"
+     x-data='queueApp("reviews", {{ rows_json(pending_rows) }}, {{ rows_json(published_rows) }})'
+     x-cloak>
+  <div class="mod-hdr">
+    <span class="i">★</span>
+    <div class="t">Reseñas · Reviews</div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Estado · Status">
+    <button class="tab"
+            :class="{ active: activeTab === 'pending' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'pending'"
+            @click="activeTab = 'pending'">
+      Pendientes · Pending
+      <span class="cnt" x-text="pending.length"></span>
+    </button>
+    <button class="tab"
+            :class="{ active: activeTab === 'published' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'published'"
+            @click="activeTab = 'published'">
+      Publicadas · Published
+    </button>
+  </div>
+
+  <div class="review-stack" x-show="activeRows().length">
+    <template x-for="row in activeRows()" :key="activeTab + '-' + row.message_id">
+      <article class="card review-card acc-bar">
+        <header class="review-card-hdr">
+          <span class="review-author"
+                x-text="row.is_anonymous ? 'Anónimo' : (row.author || '')"></span>
+          <template x-if="row.is_anonymous">
+            <span class="status-badge">Anónimo · Anonymous</span>
+          </template>
+          <template x-if="!row.is_anonymous">
+            <span class="status-badge">Con nombre · Named</span>
+          </template>
+          <span class="spacer"></span>
+          <time class="review-date"
+                :datetime="row.review_date"
+                x-text="row.review_date"></time>
+        </header>
+
+        <p class="review-body" x-text="'“' + row.body + '”'"></p>
+
+        <div class="acts" x-show="row.status === 'idle'">
+          <template x-if="activeTab === 'pending'">
+            <button class="btn sm"
+                    type="button"
+                    :disabled="row.busy"
+                    @click="run(row, 'approve')">✓ Aprobar · Approve</button>
+          </template>
+          <template x-if="activeTab === 'published'">
+            <button class="btn sm danger"
+                    type="button"
+                    :disabled="row.busy"
+                    @click="askRemove(row)">✕ Quitar · Remove</button>
+          </template>
+        </div>
+
+        <div class="action-proof-status queue-status"
+             :data-state="stateKind(row)"
+             x-show="row.status !== 'idle'"
+             role="status"
+             aria-live="polite">
+          <span class="action-proof-mark"
+                aria-hidden="true"
+                x-show="stateMark(row)"
+                x-text="stateMark(row)"></span>
+          <span class="action-proof-copy" x-text="statusCopy(row)"></span>
+          <span class="queue-status-detail"
+                x-show="row.status === 'done' && row.already && row.lastAction === 'approve'">
+            Ya estaba publicada. · Already published.
+          </span>
+          <span class="queue-status-detail"
+                x-show="row.status === 'done' && row.already && row.lastAction === 'remove'">
+            Ya estaba quitada. · Already removed.
+          </span>
+          <button class="btn sm ghost action-proof-retry"
+                  type="button"
+                  x-show="row.status === 'failed'"
+                  :disabled="row.busy"
+                  @click="retry(row)">Reintentar · Retry</button>
+        </div>
+      </article>
+    </template>
+  </div>
+
+  <div class="empty"
+       x-show="activeTab === 'pending' && !pending.length">
+    <div class="h">Sin reseñas pendientes · No pending reviews</div>
+    <div>Las nuevas reseñas del panel de recolección aparecerán aquí. · New reviews from the collection panel will appear here.</div>
+  </div>
+  <div class="empty"
+       x-show="activeTab === 'published' && !published.length">
+    <div class="h">Aún no hay reseñas publicadas · No reviews published yet</div>
+    <div>Las reseñas aprobadas aparecerán aquí. · Approved reviews will appear here.</div>
+  </div>
+
+  <template x-if="confirmRow">
+    <div class="modal-overlay confirm-overlay"
+         @keydown.escape.window="confirmRow = null"
+         @click.self="confirmRow = null">
+      <section class="confirm-modal"
+               role="alertdialog"
+               aria-modal="true"
+               aria-labelledby="remove-review-title">
+        <h2 id="remove-review-title">¿Quitar esta reseña de la web? · Remove this review from the site?</h2>
+        <p>Puede volver a aprobarse después si cambias de idea. · It can be approved again later if you change your mind.</p>
+        <div class="modal-actions">
+          <button class="btn ghost"
+                  type="button"
+                  @click="confirmRow = null">Cancelar · Cancel</button>
+          <button class="btn danger"
+                  type="button"
+                  :disabled="confirmRow.busy"
+                  @click="confirmRemove()">Quitar · Remove</button>
+        </div>
+      </section>
+    </div>
+  </template>
+
+  <div class="toast"
+       data-kind="error"
+       x-show="toast"
+       x-text="toast"
+       @click="toast = ''"
+       role="status"
+       aria-live="polite"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function queueApp(kind, initialPending, initialPublished) {
+    const stateFields = [
+      'actionId', 'status', 'error', 'botOnline', 'busy',
+      'pollTimer', 'already', 'lastAction',
+    ];
+
+    const hydrate = (raw, previous = null) => {
+      const row = {
+        ...raw,
+        actionId: null,
+        status: 'idle',
+        error: '',
+        botOnline: true,
+        busy: false,
+        pollTimer: null,
+        already: false,
+        lastAction: '',
+      };
+      if (previous) {
+        stateFields.forEach(field => { row[field] = previous[field]; });
+      }
+      return row;
+    };
+
+    return {
+      kind,
+      activeTab: 'pending',
+      pending: initialPending.map(row => hydrate(row)),
+      published: initialPublished.map(row => hydrate(row)),
+      confirmRow: null,
+      toast: '',
+      refreshTimer: null,
+
+      init() {
+        this.refreshTimer = setInterval(() => this.refresh(), 45000);
+      },
+
+      activeRows() {
+        return this.activeTab === 'pending' ? this.pending : this.published;
+      },
+
+      mergeRows(freshRows, currentRows) {
+        const current = new Map(
+          currentRows.map(row => [String(row.message_id), row])
+        );
+        return freshRows.map(row => hydrate(
+          row,
+          current.get(String(row.message_id)) || null
+        ));
+      },
+
+      async refresh() {
+        try {
+          const response = await fetch('/reviews/queue', {
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) return;
+          const body = await response.json();
+          this.pending = this.mergeRows(body.pending || [], this.pending);
+          this.published = this.mergeRows(body.published || [], this.published);
+        } catch (error) {
+          // Keep the last-known cache snapshot; list refresh failures stay quiet.
+        }
+      },
+
+      isPending(row) {
+        return row.status === 'pending' || row.status === 'claimed';
+      },
+
+      stateKind(row) {
+        if (this.isPending(row) && !row.botOnline) return 'offline';
+        if (this.isPending(row)) return 'working';
+        if (row.status === 'done') return 'ok';
+        if (row.status === 'failed') return 'failed';
+        return 'idle';
+      },
+
+      stateMark(row) {
+        const marks = { working: '…', offline: '!' };
+        return marks[this.stateKind(row)] || '';
+      },
+
+      statusCopy(row) {
+        if (this.isPending(row) && !row.botOnline) {
+          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+        }
+        if (this.isPending(row)) return 'Working… · Procesando…';
+        if (row.status === 'done') return '✓ Listo · Done';
+        if (row.status === 'failed') {
+          return '✗ Falló · Failed' + (row.error ? ' · ' + row.error : '');
+        }
+        return '';
+      },
+
+      stopPolling(row) {
+        if (row.pollTimer) clearTimeout(row.pollTimer);
+        row.pollTimer = null;
+      },
+
+      async run(row, action) {
+        this.stopPolling(row);
+        row.busy = true;
+        row.status = 'pending';
+        row.error = '';
+        row.botOnline = true;
+        row.already = false;
+        row.lastAction = action;
+        try {
+          const response = await fetch(
+            '/reviews/' + row.message_id + '/' + action,
+            {
+              method: 'POST',
+              headers: { 'Accept': 'application/json' },
+            }
+          );
+          if (!response.ok) throw new Error('No se pudo iniciar · Could not begin');
+          const body = await response.json();
+          row.actionId = body.id;
+          await this.poll(row);
+        } catch (error) {
+          row.status = 'failed';
+          row.error = error.message || 'Error desconocido · Unknown error';
+          this.toast = 'Error de red · Network error';
+        } finally {
+          row.busy = false;
+        }
+      },
+
+      async poll(row) {
+        if (!row.actionId || !this.isPending(row)) return;
+        try {
+          const response = await fetch('/api/actions/' + row.actionId, {
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) {
+            throw new Error('No se pudo consultar · Could not check status');
+          }
+          const body = await response.json();
+          row.status = body.status;
+          row.error = body.error || '';
+          row.botOnline = body.bot_online;
+          row.already = !!(body.result && body.result.already);
+          if (this.isPending(row)) {
+            row.pollTimer = setTimeout(() => this.poll(row), 1500);
+          }
+        } catch (error) {
+          row.status = 'failed';
+          row.error = error.message || 'Error desconocido · Unknown error';
+          this.toast = 'Error de red · Network error';
+        }
+      },
+
+      async retry(row) {
+        if (!row.actionId || row.status !== 'failed') return;
+        this.stopPolling(row);
+        row.busy = true;
+        row.error = '';
+        row.already = false;
+        try {
+          const response = await fetch(
+            '/api/actions/' + row.actionId + '/retry',
+            {
+              method: 'POST',
+              headers: { 'Accept': 'application/json' },
+            }
+          );
+          if (!response.ok) {
+            throw new Error('No se pudo reintentar · Could not retry');
+          }
+          const body = await response.json();
+          row.actionId = body.id;
+          row.status = 'pending';
+          row.botOnline = true;
+          await this.poll(row);
+        } catch (error) {
+          row.status = 'failed';
+          row.error = error.message || 'Error desconocido · Unknown error';
+          this.toast = 'Error de red · Network error';
+        } finally {
+          row.busy = false;
+        }
+      },
+
+      askRemove(row) {
+        this.confirmRow = row;
+      },
+
+      async confirmRemove() {
+        if (!this.confirmRow) return;
+        const row = this.confirmRow;
+        this.confirmRow = null;
+        await this.run(row, 'remove');
+      },
+
+      destroy() {
+        if (this.refreshTimer) clearInterval(this.refreshTimer);
+        [...this.pending, ...this.published].forEach(
+          row => this.stopPolling(row)
+        );
+      },
+    };
+  }
+</script>
+{% endblock %}
