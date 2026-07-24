@@ -456,7 +456,24 @@ being replaced here.
 **If this table is empty:** N/A — see above; all three items are genuine open judgment calls,
 not verification failures.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three questions were resolved during the Phase 8 planning run (2026-07-24) and are already
+> reflected in the plans. Kept here for the reasoning trail — do not re-open during execution.
+>
+> - **Q1 — RESOLVED (user decision):** persist the OAuth `username` into the session at the
+>   callback, exactly as recommended below. The user explicitly signed off on relaxing the
+>   session-minimalism note in `app/auth.py`; the alternatives (a member-name cache, or dropping
+>   the name) were considered and rejected. Implemented by `08-02-PLAN.md`.
+> - **Q2 — RESOLVED (partially against the recommendation):** `source` is inferred as `"panel"`
+>   and is NOT a payload field, as recommended. However the payload is NOT empty — it carries
+>   `actor_name`, because `_run_once` hands handlers only the payload and there is no other
+>   channel from the app to the handler for the display name Q1 requires. Implemented by
+>   `08-05-PLAN.md` / `08-06-PLAN.md`.
+> - **Q3 — RESOLVED (yes, refactor all three):** `_poll`, `/tienda sync`, and the new queue
+>   handler all route through one shared `_run_sync_guarded`, with `_announce` reduced to exactly
+>   one call site (grep-enforced, plus a regression test) to avoid the double-announce trap.
+>   Implemented by `08-03-PLAN.md`.
 
 1. **How is the Manager's Discord display name resolved for D-07's "desde el panel (Nombre)" and
    D-12's activity-log attribution?**
