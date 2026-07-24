@@ -1,10 +1,11 @@
 ---
 phase: 7
 slug: gallery-reviews-approval-queues
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-07-23
+reviewed_at: 2026-07-23
 ---
 
 # Phase 7 — UI Design Contract
