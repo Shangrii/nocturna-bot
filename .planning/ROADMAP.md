@@ -261,7 +261,31 @@ Plans:
   1. A Manager can trigger a manual sync and see the status/result of the last sync (disabled/spinner while in-flight).
   2. A manual trigger fired while the periodic poll is running does not double-sync (overlap guard proven under test).
 
-**Plans**: TBD
+**Plans**: 8 plans (5 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 08-01-PLAN.md — Widen jinxxy_sync_status via the ADD-COLUMN idiom (running/started_at/source/actor_name + D-09 counts) + core/action_queue.enqueue_deduped (D-04)
+- [ ] 08-02-PLAN.md — Persist the OAuth-verified username into the session and thread it into the roles dict (D-07/D-12 attribution source)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 08-03-PLAN.md — The overlap guard: asyncio.Lock + _run_sync_guarded + mirror writes + startup clear; _poll and /tienda sync refactored onto it, one _announce call site (D-01/D-02/D-03/D-05/D-06)
+- [ ] 08-06-PLAN.md — Manager-gated app/routers/jinxxy.py (page + status JSON + deduped enqueue POST), shared heartbeat helper, module stub removed (D-04/D-06/D-13/D-15)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 08-04-PLAN.md — Sync instrumentation: sync_error_category() + counts persistence + source/actor attribution in the activity line (D-09/D-10/D-12)
+- [ ] 08-07-PLAN.md — Frontend: jinxxy.html status card + one-click Sync button + Alpine state machine + read-only product table + empty states, narrow dashboard.css additions (D-01/D-07/D-14/D-15/D-16)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 08-05-PLAN.md — cogs/action_queue_worker.py: the single new jinxxy_sync dispatch kind, count-shaped result, D-10 category mapping (D-01/D-09/D-10/D-11)
+
+**Wave 5** *(blocked on Waves 3-4)*
+
+- [ ] 08-08-PLAN.md — Phase gate (full suite + overlap-guard proof) and human-verify checkpoint: live disabled/spinner/elapsed/attribution + collision + real store round-trip
 **UI hint**: yes
 
 ### Phase 9: Meetings Browser + Re-publish
@@ -305,6 +329,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/5 | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/6 | Not started | - |
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
-| 8. Jinxxy Manual Sync | v2.0 | 0/TBD | Not started | - |
+| 8. Jinxxy Manual Sync | v2.0 | 0/8 | Not started | - |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/TBD | Not started | - |
 | 10. Editors Section Integration | v2.0 | 0/TBD | Not started | - |
