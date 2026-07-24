@@ -84,6 +84,16 @@ def _assert_enqueued(response, expected_kind, expected_message_id):
     }
 
 
+def test_gallery_page_renders_pending_queue(client):
+    response = client.get("/gallery")
+
+    assert response.status_code == 200
+    assert "Pendientes" in response.text
+    assert 'class="gq"' in response.text
+    assert "Pending caption" in response.text
+    assert "Pending Poster" in response.text
+
+
 def test_gallery_approve_enqueues_publish_action(client):
     response = client.post(f"/gallery/{PENDING_ID}/approve")
 

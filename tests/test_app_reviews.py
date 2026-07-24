@@ -84,6 +84,18 @@ def _assert_enqueued(response, expected_kind, expected_message_id):
     }
 
 
+def test_reviews_page_renders_named_and_anonymous_cards(client):
+    response = client.get("/reviews")
+
+    assert response.status_code == 200
+    assert "Pendientes" in response.text
+    assert "review-card" in response.text
+    assert "Anónimo · Anonymous" in response.text
+    assert "Con nombre · Named" in response.text
+    assert "Anonymous pending review" in response.text
+    assert "Secret Submitter" not in response.text
+
+
 def test_review_approve_enqueues_publish_action(client):
     response = client.post(f"/reviews/{PENDING_ID}/approve")
 
