@@ -54,7 +54,9 @@ from starlette.middleware.sessions import SessionMiddleware
 import config
 from app import auth
 from app.deps import require_editor, require_manager, require_owner, TierForbidden
+from app.routers import gallery as gallery_router
 from app.routers import reminders as reminders_router
+from app.routers import reviews as reviews_router
 from core import action_queue, db, github_publish, settings
 from core.editors_model import EditorPage, resolve_slug, SlugRejected
 from core.image_optimize import optimize_to_webp
@@ -68,7 +70,13 @@ templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 _SESSION_MAX_AGE = 6 * 3600
 
 # Phases 6-9 extend this allowlist per module.
-_ALLOWED_KINDS = {"noop"}
+_ALLOWED_KINDS = {
+    "noop",
+    "gallery_publish",
+    "gallery_remove",
+    "review_publish",
+    "review_remove",
+}
 
 # ── image upload limits (D-17 / Pitfall 3 / T-10-10-01) ────────────────────────────
 # Byte-size cap enforced BEFORE the body is read in full (streamed chunk-by-chunk).
@@ -308,7 +316,9 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+app.include_router(gallery_router.router)
 app.include_router(reminders_router.router)
+app.include_router(reviews_router.router)
 
 # Signed session cookie with secure flags (V3 / Pitfall 2 / Pitfall 8). ``secret_key`` is the
 # live ``.env`` value; if empty, ``validate_config`` refuses startup before any request lands.
@@ -642,16 +652,6 @@ async def _module_stub_page(request: Request, section_id: str, roles: dict):
             "section_label": info["label"], "icon": info["icon"], "accent": info["accent"],
         },
     )
-
-
-@app.get("/gallery", response_class=HTMLResponse)
-async def gallery_page(request: Request, roles: dict = Depends(require_manager)):
-    return await _module_stub_page(request, "gallery", roles)
-
-
-@app.get("/reviews", response_class=HTMLResponse)
-async def reviews_page(request: Request, roles: dict = Depends(require_manager)):
-    return await _module_stub_page(request, "reviews", roles)
 
 
 @app.get("/jinxxy", response_class=HTMLResponse)
