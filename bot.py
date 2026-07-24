@@ -59,6 +59,7 @@ class NocturnaBot(commands.Bot):
         await self.load_extension("cogs.payments")
         await self.load_extension("cogs.heartbeat")
         await self.load_extension("cogs.discord_names")
+        await self.load_extension("cogs.gallery_reviews_cache")
         await self.load_extension("cogs.action_queue_worker")
 
         # El cog de reuniones usa dependencias pesadas (voz, whisper). Si no están
