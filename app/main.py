@@ -302,6 +302,8 @@ async def lifespan(app: FastAPI):
         db.init_activity_log()
         db.init_discord_names()
         db.init_action_queue()
+        db.init_gallery_queue()
+        db.init_reviews_queue()
         db.init_reminders()
     except Exception:
         log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
