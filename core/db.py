@@ -655,10 +655,11 @@ def get_heartbeat() -> sqlite3.Row | None:
 
 
 def init_jinxxy_sync_status():
-    """Create the single-row ``jinxxy_sync_status`` table if it doesn't exist (D-10).
+    """Create Phase 8's single-row running/last-result sync mirror.
 
     Deliberately its OWN table (not folded into ``bot_heartbeat``) — one-table-per-concern
-    idiom, and Phase 8's manual-sync status display reuses this exact record.
+    idiom. The ADD-COLUMN loop is load-bearing for already-deployed databases whose
+    ``CREATE TABLE IF NOT EXISTS`` remains on the original five-column shape.
     """
     with _get_conn() as conn:
         conn.execute("""
@@ -667,30 +668,114 @@ def init_jinxxy_sync_status():
                 last_run_utc   TEXT,
                 ok             INTEGER,
                 product_count  INTEGER,
-                error          TEXT
+                error          TEXT,
+                running        INTEGER NOT NULL DEFAULT 0,
+                started_at     TEXT,
+                source         TEXT,
+                actor_name     TEXT,
+                added_count    INTEGER,
+                updated_count  INTEGER,
+                removed_count  INTEGER
             )
         """)
+        for statement in (
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN running "
+            "INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN started_at TEXT",
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN source TEXT",
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN actor_name TEXT",
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN added_count INTEGER",
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN updated_count INTEGER",
+            "ALTER TABLE jinxxy_sync_status ADD COLUMN removed_count INTEGER",
+        ):
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError:
+                pass  # Ya existe
 
 
-def set_jinxxy_sync_status(ok: bool, product_count: int | None, error: str | None):
+def set_jinxxy_sync_status(
+    ok: bool,
+    product_count: int | None,
+    error: str | None,
+    *,
+    added_count: int | None = None,
+    updated_count: int | None = None,
+    removed_count: int | None = None,
+):
     """Upsert the single ``jinxxy_sync_status`` row (called at the end of ``_run_sync``).
 
     Stamps ``last_run_utc`` fresh on every call — covers both the scheduled poll and the
-    manual ``/tienda sync`` command, since both funnel through ``_run_sync`` (D-10).
+    manual ``/tienda sync`` command. The running mirror is deliberately left untouched.
     """
     with _get_conn() as conn:
         conn.execute("""
-            INSERT OR REPLACE INTO jinxxy_sync_status
-                (id, last_run_utc, ok, product_count, error)
-            VALUES (1, ?, ?, ?, ?)
-        """, (datetime.now(timezone.utc).isoformat(), 1 if ok else 0, product_count, error))
+            INSERT INTO jinxxy_sync_status
+                (id, last_run_utc, ok, product_count, error,
+                 added_count, updated_count, removed_count)
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                last_run_utc = excluded.last_run_utc,
+                ok = excluded.ok,
+                product_count = excluded.product_count,
+                error = excluded.error,
+                added_count = excluded.added_count,
+                updated_count = excluded.updated_count,
+                removed_count = excluded.removed_count
+        """, (
+            datetime.now(timezone.utc).isoformat(),
+            1 if ok else 0,
+            product_count,
+            error,
+            added_count,
+            updated_count,
+            removed_count,
+        ))
+
+
+def mark_jinxxy_sync_running(
+    source: str,
+    actor_name: str | None = None,
+    started_at: str | None = None,
+) -> None:
+    """Mark the Phase 8 mirror as running without changing the last-run result."""
+    if started_at is None:
+        started_at = datetime.now(timezone.utc).isoformat()
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO jinxxy_sync_status (id) VALUES (1)"
+        )
+        conn.execute(
+            "UPDATE jinxxy_sync_status "
+            "SET running = 1, started_at = ?, source = ?, actor_name = ? "
+            "WHERE id = 1",
+            (started_at, source, actor_name),
+        )
+
+
+def clear_jinxxy_sync_running() -> None:
+    """Clear the running mirror while retaining source, actor, and last-run fields."""
+    with _get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO jinxxy_sync_status (id) VALUES (1)"
+        )
+        conn.execute(
+            "UPDATE jinxxy_sync_status SET running = 0, started_at = NULL "
+            "WHERE id = 1"
+        )
 
 
 def get_jinxxy_sync_status() -> sqlite3.Row | None:
-    """Read the single ``jinxxy_sync_status`` row (None if no sync has ever run)."""
+    """Read Phase 8's sync mirror and last-run result.
+
+    D-15: "never synced" means ``row is None`` OR ``row["last_run_utc"] is None``;
+    mark/clear can create the row before a sync has ever completed.
+    """
     with _get_conn() as conn:
         return conn.execute(
-            "SELECT last_run_utc, ok, product_count, error FROM jinxxy_sync_status WHERE id = 1"
+            "SELECT last_run_utc, ok, product_count, error, running, started_at, "
+            "source, actor_name, added_count, updated_count, removed_count "
+            "FROM jinxxy_sync_status WHERE id = 1"
         ).fetchone()
 
 
