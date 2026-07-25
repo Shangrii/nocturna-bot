@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 
 import config
 from cogs.gallery import _is_published as gallery_is_published
+from cogs.jinxxy import sync_error_category
 from cogs.reviews import _is_published as reviews_is_published
 from core import action_queue, db
 
@@ -27,6 +28,7 @@ class ActionQueueCog(commands.Cog):
             "gallery_remove": self._handle_gallery_remove,
             "review_publish": self._handle_review_publish,
             "review_remove": self._handle_review_remove,
+            "jinxxy_sync": self._handle_jinxxy_sync,
         }
         self._tick.start()
 
@@ -175,6 +177,34 @@ class ActionQueueCog(commands.Cog):
             "no se pudo quitar · remove did not complete "
             "(see ⚠️ on the Discord message)"
         )
+
+    async def _handle_jinxxy_sync(self, payload: dict) -> dict:
+        # Lookup key is "Jinxxy" — the `name=` kwarg on JinxxyCog's `GroupCog` declaration,
+        # NOT the class name (unlike GalleryCog/ReviewsCog, which have no `name=` override).
+        jinxxy_cog = self.bot.get_cog("Jinxxy")
+        if jinxxy_cog is None:
+            raise RuntimeError(
+                "JinxxyCog no está cargado · JinxxyCog is not loaded"
+            )
+        # The payload carries no `source`: the trigger is inferred as "panel" by
+        # construction, since /tienda sync and the scheduled poll never touch action_queue.
+        actor_name = payload.get("actor_name") or None
+        try:
+            result = await jinxxy_cog._run_sync_guarded(source="panel", actor_name=actor_name)
+        except Exception as exc:
+            log.exception("action_queue: jinxxy_sync falló")
+            raise RuntimeError(sync_error_category(exc)) from exc
+
+        if result.get("already"):
+            return {"already": True}
+        return {
+            "already": False,
+            "changed": bool(result.get("changed")),
+            "added": len(result.get("added") or []),
+            "updated": len(result.get("updated") or []),
+            "removed": len(result.get("removed") or []),
+            "products": len(result.get("products") or []),
+        }
 
 
 async def setup(bot: commands.Bot):
