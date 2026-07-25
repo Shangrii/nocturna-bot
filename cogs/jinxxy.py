@@ -137,6 +137,10 @@ class JinxxyCog(
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         db.init_store_state()                      # repo idiom: ensure the snapshot table exists
+        self._sync_lock = asyncio.Lock()
+        db.init_jinxxy_sync_status()
+        # A restart destroys the process lock, so running is definitionally false on boot.
+        db.clear_jinxxy_sync_running()
         self._poll.start()                         # start the tasks.loop cadence — its immediate
                                                    # first tick is the sole startup reconcile (CR-01)
 
@@ -278,6 +282,37 @@ class JinxxyCog(
 
         await self._record_sync_status(
             ok=True, product_count=len(result.get("products") or []), error=None)
+        return result
+
+    async def _run_sync_guarded(
+            self, *, source: str, actor_name: str | None = None) -> dict:
+        """Single guarded entry point for every store-sync trigger.
+
+        The scheduled poll, ``/tienda sync``, and the action-queue ``jinxxy_sync`` handler must
+        call this wrapper and must never invoke :meth:`_run_sync` or :meth:`_announce` directly.
+        A ``{"already": True}`` result is a benign success (D-01), not an error; it contains none
+        of the normal result keys, so callers must inspect it with ``.get(...)``.
+        """
+        if self._sync_lock.locked():
+            log.info("jinxxy: sync ya en curso, omito el disparo (%s)", source)
+            return {"already": True}
+
+        async with self._sync_lock:
+            try:
+                await asyncio.to_thread(
+                    db.mark_jinxxy_sync_running, source, actor_name)
+            except Exception:
+                log.exception("jinxxy: no pude marcar el espejo de sync en curso")
+
+            try:
+                result = await self._run_sync()
+            finally:
+                try:
+                    await asyncio.to_thread(db.clear_jinxxy_sync_running)
+                except Exception:
+                    log.exception("jinxxy: no pude limpiar el espejo de sync en curso")
+
+        await self._announce(result)
         return result
 
     # ── background poll loop (Phase-8 shape, cadence-only change) ──────────────────────
