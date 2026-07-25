@@ -130,8 +130,9 @@ class JinxxyCog(
 ):
     """The ``/tienda`` command group + the background store-sync poll loop.
 
-    The poll loop and the (Task 2) ``/tienda sync`` command both delegate to :meth:`_run_sync`,
-    so there is exactly one sync code path — no drift between the scheduled and the manual sync.
+    Every sync trigger — the poll loop, ``/tienda sync``, and the action-queue ``jinxxy_sync``
+    handler — delegates to :meth:`_run_sync_guarded`, the only place :meth:`_run_sync` and
+    :meth:`_announce` are ever called.
     """
 
     def __init__(self, bot: commands.Bot):
@@ -318,8 +319,8 @@ class JinxxyCog(
     # ── background poll loop (Phase-8 shape, cadence-only change) ──────────────────────
     @tasks.loop(hours=config.JINXXY_POLL_HOURS)
     async def _poll(self):
-        result = await self._run_sync()
-        await self._announce(result)
+        """Run one scheduled tick; D-03 collisions are skipped and logged by the guard."""
+        await self._run_sync_guarded(source="scheduled")
 
     @_poll.before_loop
     async def _before_poll(self):
@@ -340,7 +341,7 @@ class JinxxyCog(
         name="sync",
         description="Fuerza una sincronización de la tienda con Jinxxy (staff)")
     async def sync(self, interaction: discord.Interaction):
-        """Staff-forced full sync. Staff gate FIRST (T-09-14), then the shared ``_run_sync``.
+        """Staff-forced full sync. Staff gate FIRST, then the shared guarded wrapper.
 
         On success the store changes are announced (public, store-news only) and the invoker gets
         an ephemeral summary. On failure NOTHING is announced (D-05): the error is logged and the
@@ -355,7 +356,8 @@ class JinxxyCog(
         # 2. Defer (a full sync can exceed Discord's 3s ack window).
         await interaction.response.defer(ephemeral=True)
         try:
-            result = await self._run_sync()
+            result = await self._run_sync_guarded(source="discord",
+                                                  actor_name=interaction.user.display_name)
         except Exception:
             # WR-08: broadened from `(GitHubPublishError, JinxxyAPIError)` to `Exception` so ANY
             # sync failure — including a KeyError/TypeError from `map_product` on a malformed 2xx
@@ -368,9 +370,10 @@ class JinxxyCog(
                 "No pude sincronizar ahora; revisa los logs.", ephemeral=True)
             return
 
-        # 3. Announce (silent on no change, D-06) then confirm to the invoker.
-        await self._announce(result)
-        if result["changed"]:
+        # 3. The wrapper owns announcing; confirm the outcome ephemerally to the invoker.
+        if result.get("already"):
+            summary = "Ya se está sincronizando · Sync already running"
+        elif result["changed"]:
             summary = (f"Sincronización lista: {len(result['added'])} nuevos, "
                        f"{len(result['updated'])} actualizados, "
                        f"{len(result['removed'])} quitados.")
