@@ -40,17 +40,45 @@ addition — the owner-never-locked-out guarantee (D-04) stays on the exact depe
 ``/admin/settings`` already used, no new code path.
 """
 
+from datetime import datetime, timezone
+
 from fastapi import Depends, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 import config
 from app import auth
 from app.auth import _FORBIDDEN_COPY, has_editor_role
-from core import settings
+from core import db, settings
+
+# The bot is considered "Online" iff its last heartbeat is within 2x the ~45s write
+# cadence (Claude's Discretion A2, per 03-07-PLAN.md's <interfaces> block) — a single
+# missed beat doesn't flap the status, but two in a row reads as offline.
+HEARTBEAT_STALE_SECONDS = 90
 
 _OWNER_FORBIDDEN_COPY = (
     "Solo el propietario puede acceder a esta página. — "
     "Only the owner can access this page."
 )
+
+
+def compute_bot_online(heartbeat_row) -> bool:
+    """True iff a heartbeat row exists and its last beat is within the staleness window."""
+    if heartbeat_row is None:
+        return False
+    try:
+        last_beat = datetime.fromisoformat(heartbeat_row["last_beat_utc"])
+    except (TypeError, ValueError):
+        return False
+    if last_beat.tzinfo is None:
+        last_beat = last_beat.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - last_beat).total_seconds()
+    return 0 <= age_seconds <= HEARTBEAT_STALE_SECONDS
+
+
+async def bot_online() -> bool:
+    """Read the shared heartbeat off-loop and apply the dashboard staleness rule."""
+    heartbeat = await run_in_threadpool(db.get_heartbeat)
+    return compute_bot_online(heartbeat)
 
 
 async def require_editor(request: Request) -> dict:

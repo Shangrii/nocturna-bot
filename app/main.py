@@ -53,7 +53,14 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import config
 from app import auth
-from app.deps import require_editor, require_manager, require_owner, TierForbidden
+from app.deps import (
+    TierForbidden,
+    bot_online,
+    compute_bot_online,
+    require_editor,
+    require_manager,
+    require_owner,
+)
 from app.routers import gallery as gallery_router
 from app.routers import reminders as reminders_router
 from app.routers import reviews as reviews_router
@@ -509,10 +516,6 @@ _MODULE_SECTIONS = {
     "meetings": {"label": "Reuniones · Meetings", "icon": "🎙", "accent": "var(--accent-meetings)"},
 }
 
-# The bot is considered "Online" iff its last heartbeat is within 2x the ~45s write
-# cadence (Claude's Discretion A2, per 03-07-PLAN.md's <interfaces> block) — a single
-# missed beat doesn't flap the status, but two in a row reads as offline.
-_HEARTBEAT_STALE_SECONDS = 90
 _NAMES_STALE_SECONDS = 15 * 60
 
 
@@ -522,20 +525,6 @@ def _dashboard_asset_v() -> int:
         return int(os.path.getmtime(_APP_DIR / "static" / "dashboard.css"))
     except OSError:
         return 0
-
-
-def _compute_online(heartbeat_row) -> bool:
-    """True iff a heartbeat row exists and its last beat is within the staleness window."""
-    if heartbeat_row is None:
-        return False
-    try:
-        last_beat = datetime.fromisoformat(heartbeat_row["last_beat_utc"])
-    except (TypeError, ValueError):
-        return False
-    if last_beat.tzinfo is None:
-        last_beat = last_beat.replace(tzinfo=timezone.utc)
-    age_seconds = (datetime.now(timezone.utc) - last_beat).total_seconds()
-    return 0 <= age_seconds <= _HEARTBEAT_STALE_SECONDS
 
 
 def _compute_uptime(started_at_utc: str | None) -> str | None:
@@ -573,7 +562,7 @@ def _build_overview_status(heartbeat, sync, activity_rows) -> dict:
         for row in activity_rows
     ]
     return {
-        "online": _compute_online(heartbeat),
+        "online": compute_bot_online(heartbeat),
         "latency_ms": heartbeat["latency_ms"] if heartbeat is not None else None,
         "uptime": _compute_uptime(heartbeat["started_at_utc"]) if heartbeat is not None else None,
         "member_count": heartbeat["guild_member_count"] if heartbeat is not None else None,
@@ -588,13 +577,6 @@ async def _read_overview_status() -> dict:
     sync = await run_in_threadpool(db.get_jinxxy_sync_status)
     activity_rows = await run_in_threadpool(db.get_recent_activity, 10)
     return _build_overview_status(heartbeat, sync, activity_rows)
-
-
-async def _bot_online() -> bool:
-    """Lightweight online check for the sidebar footer chip on the 5 module-stub pages
-    (which don't otherwise need the full status payload the Overview page reads)."""
-    heartbeat = await run_in_threadpool(db.get_heartbeat)
-    return _compute_online(heartbeat)
 
 
 async def _read_name_cache() -> tuple[dict, bool]:
@@ -650,7 +632,7 @@ async def _module_stub_page(request: Request, section_id: str, roles: dict):
         request, "module_stub.html",
         {
             "roles": roles, "active_section": section_id,
-            "asset_v": _dashboard_asset_v(), "bot_online": await _bot_online(),
+            "asset_v": _dashboard_asset_v(), "bot_online": await bot_online(),
             "section_label": info["label"], "icon": info["icon"], "accent": info["accent"],
         },
     )
@@ -699,7 +681,7 @@ async def api_action_status(action_id: int, roles: dict = Depends(require_manage
     return JSONResponse({
         "id": row["id"], "status": row["status"], "error": row["error"],
         "result": json.loads(row["result_json"]) if row["result_json"] else None,
-        "bot_online": await _bot_online(),
+        "bot_online": await bot_online(),
     })
 
 
@@ -728,7 +710,7 @@ async def settings_page(request: Request, ident: dict = Depends(require_owner)):
             "roles": {"is_owner": True, "is_manager": False, "is_editor": False},
             "active_section": "settings",
             "asset_v": _dashboard_asset_v(),
-            "bot_online": await _bot_online(),
+            "bot_online": await bot_online(),
             "groups": settings.all_for_ui(),
             "names": names,
             "names_fresh": names_fresh,
