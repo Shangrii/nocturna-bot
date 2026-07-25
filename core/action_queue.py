@@ -46,6 +46,33 @@ def enqueue(kind: str, payload: dict, requested_by: str) -> int:
         )
         return cur.lastrowid
 
+
+@_retry_on_locked
+def enqueue_deduped(kind: str, payload: dict, requested_by: str) -> int:
+    """D-04 dedupe-at-enqueue for actions that must not queue behind themselves.
+
+    A duplicate row would dispatch after the first action releases the in-process sync
+    lock, so the bot-side overlap guard cannot catch it. Two POSTs inside the same
+    transaction window remain theoretically possible; the bot-side D-01 ``asyncio.Lock``
+    fast path absorbs that residual as a benign "already syncing" result.
+    """
+    with db._get_conn() as conn:
+        existing = conn.execute(
+            "SELECT id FROM action_queue WHERE kind = ? "
+            "AND status IN ('pending', 'claimed') ORDER BY id LIMIT 1",
+            (kind,),
+        ).fetchone()
+        if existing is not None:
+            return existing["id"]
+        cur = conn.execute(
+            "INSERT INTO action_queue "
+            "(kind, payload_json, status, requested_by, requested_at) "
+            "VALUES (?, ?, 'pending', ?, ?)",
+            (kind, json.dumps(payload), requested_by, _now_iso()),
+        )
+        return cur.lastrowid
+
+
 @_retry_on_locked
 def recover_stale_claims() -> int:
     """D-08: a 'claimed' row older than _STALE_CLAIM_SECONDS survived a bot crash
