@@ -72,6 +72,34 @@ def _is_staff(member) -> bool:
     return bool(role_ids & set(config.JINXXY_STAFF_ROLE_IDS))
 
 
+_ERR_JINXXY = (
+    "No pude contactar con Jinxxy · Couldn't reach Jinxxy — "
+    "revisa los logs · check the logs"
+)
+_ERR_GITHUB = (
+    "No pude publicar en la web · Couldn't commit to the site — "
+    "revisa los logs · check the logs"
+)
+_ERR_GENERIC = (
+    "Falló la sincronización · Sync failed — revisa los logs · check the logs"
+)
+
+
+def sync_error_category(exc: BaseException) -> str:
+    """Return D-10's fixed, bilingual category for a sync exception.
+
+    Callers must map the exception before its text can reach
+    ``action_queue.fail(id, str(exc))`` or any render layer. Classification is
+    by exception type, never by message content, so third-party details remain
+    confined to operator logs.
+    """
+    if isinstance(exc, jinxxy_api.JinxxyAPIError):
+        return _ERR_JINXXY
+    if isinstance(exc, github_publish.GitHubPublishError):
+        return _ERR_GITHUB
+    return _ERR_GENERIC
+
+
 def _snapshot_from_row(row) -> dict:
     """Rebuild the sync-owned-shaped snapshot dict from a ``store_snapshot`` row (DB, D-12).
 
