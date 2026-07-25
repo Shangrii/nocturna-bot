@@ -11,7 +11,9 @@ import pytest
 import config
 from cogs import action_queue_worker
 from cogs.action_queue_worker import ActionQueueCog
+from cogs.jinxxy import sync_error_category
 from core import action_queue, db
+from core.jinxxy_api import JinxxyAPIError
 
 
 def _use_tmp_db(monkeypatch, tmp_path, name="action_queue_cog.db"):
@@ -360,3 +362,136 @@ async def test_gallery_publish_deleted_message_reaches_failed(
 
     assert row["status"] == "failed"
     assert "message no longer exists" in row["error"]
+
+
+# ══ Phase 08-05: jinxxy_sync dispatch ═══════════════════════════════════════════════
+
+def _build_jinxxy_bot(guarded_result=None, *, side_effect=None, cog_loaded=True):
+    """A bot fake whose ``get_cog("Jinxxy")`` resolves to a stub exposing an AsyncMock
+    ``_run_sync_guarded`` — the handler must never need a real JinxxyCog."""
+    mock = AsyncMock(return_value=guarded_result, side_effect=side_effect)
+    jinxxy_stub = SimpleNamespace(_run_sync_guarded=mock)
+    bot = SimpleNamespace(
+        get_cog=lambda name: jinxxy_stub if (cog_loaded and name == "Jinxxy") else None
+    )
+    return bot, mock
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_is_registered_in_the_dispatch_table(monkeypatch, tmp_path):
+    # _build_cog's `_tick.start` patch only takes effect on the per-instance Loop copy
+    # discord.py's tasks.loop descriptor creates in __init__, which asyncio.create_task()s
+    # unconditionally — so instantiation needs a running loop, matching every other test
+    # in this file. Kept as a plain dispatch-table assertion (no _run_once call).
+    cog = _build_cog(monkeypatch, tmp_path)
+
+    assert "jinxxy_sync" in cog._dispatch
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_dispatch_completes_with_shaped_counts(monkeypatch, tmp_path):
+    reconcile_result = {
+        "changed": True,
+        "added": ["added-1", "added-2", "added-3"],
+        "updated": ["updated-1", "updated-2"],
+        "removed": ["removed-1"],
+        "products": [
+            {"checkout_url": f"https://jinxxy.com/checkout/{i}"} for i in range(9)
+        ],
+    }
+    bot, run_sync_guarded = _build_jinxxy_bot(reconcile_result)
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue(
+        "jinxxy_sync", {"actor_name": "Nombre"}, requested_by="manager-1"
+    )
+
+    await cog._run_once()
+
+    row = action_queue.get_status(action_id)
+    assert row["status"] == "done"
+    assert json.loads(row["result_json"]) == {
+        "already": False,
+        "changed": True,
+        "added": 3,
+        "updated": 2,
+        "removed": 1,
+        "products": 9,
+    }
+    run_sync_guarded.assert_awaited_once_with(source="panel", actor_name="Nombre")
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_result_carries_no_product_payload(monkeypatch, tmp_path):
+    reconcile_result = {
+        "changed": True,
+        "added": ["added-1"],
+        "updated": [],
+        "removed": [],
+        "products": [{"checkout_url": "https://jinxxy.com/checkout/1"}],
+    }
+    bot, _ = _build_jinxxy_bot(reconcile_result)
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue(
+        "jinxxy_sync", {"actor_name": "Nombre"}, requested_by="manager-1"
+    )
+
+    await cog._run_once()
+
+    row = action_queue.get_status(action_id)
+    assert "checkout_url" not in row["result_json"]
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_collision_completes_as_moot_success(monkeypatch, tmp_path):
+    bot, _ = _build_jinxxy_bot({"already": True})
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue("jinxxy_sync", {}, requested_by="manager-1")
+
+    await cog._run_once()
+
+    row = action_queue.get_status(action_id)
+    assert row["status"] == "done"
+    assert json.loads(row["result_json"]) == {"already": True}
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_error_is_recorded_as_a_bilingual_category(monkeypatch, tmp_path):
+    boom = JinxxyAPIError("GET https://api.jinxxy.com/v1/products -> 503")
+    bot, _ = _build_jinxxy_bot(side_effect=boom)
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue("jinxxy_sync", {}, requested_by="manager-1")
+
+    row = await _run_through_retry_budget(cog, action_id)
+
+    assert row["status"] == "failed"
+    assert row["error"] == sync_error_category(boom)
+    assert "api.jinxxy.com" not in row["error"]
+    assert "503" not in row["error"]
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_without_the_cog_loaded_fails_with_bilingual_copy(
+    monkeypatch, tmp_path
+):
+    bot, _ = _build_jinxxy_bot(cog_loaded=False)
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue("jinxxy_sync", {}, requested_by="manager-1")
+
+    row = await _run_through_retry_budget(cog, action_id)
+
+    assert row["status"] == "failed"
+    assert row["error"] == sync_error_category(RuntimeError())
+    assert "no está cargado" not in row["error"]
+
+
+@pytest.mark.anyio
+async def test_jinxxy_sync_handles_a_missing_actor_name(monkeypatch, tmp_path):
+    bot, run_sync_guarded = _build_jinxxy_bot({"already": True})
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue("jinxxy_sync", {}, requested_by="manager-1")
+
+    await cog._run_once()
+
+    row = action_queue.get_status(action_id)
+    assert row["status"] == "done"
+    run_sync_guarded.assert_awaited_once_with(source="panel", actor_name=None)
