@@ -62,6 +62,7 @@ from app.deps import (
     require_owner,
 )
 from app.routers import gallery as gallery_router
+from app.routers import jinxxy as jinxxy_router
 from app.routers import reminders as reminders_router
 from app.routers import reviews as reviews_router
 from core import action_queue, db, github_publish, settings
@@ -77,6 +78,7 @@ templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 _SESSION_MAX_AGE = 6 * 3600
 
 # Phases 6-9 extend this allowlist per module.
+# jinxxy_sync stays out: generic enqueue bypasses D-04 dedupe; use POST /jinxxy/sync.
 _ALLOWED_KINDS = {
     "noop",
     "gallery_publish",
@@ -306,6 +308,7 @@ async def lifespan(app: FastAPI):
         db.init_view_counts()  # view_counts/view_dedup — the counter API is served here too
         db.init_heartbeat()
         db.init_jinxxy_sync_status()
+        db.init_store_state()
         db.init_activity_log()
         db.init_discord_names()
         db.init_action_queue()
@@ -326,6 +329,7 @@ app = FastAPI(
     openapi_url=None,
 )
 app.include_router(gallery_router.router)
+app.include_router(jinxxy_router.router)
 app.include_router(reminders_router.router)
 app.include_router(reviews_router.router)
 
@@ -636,11 +640,6 @@ async def _module_stub_page(request: Request, section_id: str, roles: dict):
             "section_label": info["label"], "icon": info["icon"], "accent": info["accent"],
         },
     )
-
-
-@app.get("/jinxxy", response_class=HTMLResponse)
-async def jinxxy_page(request: Request, roles: dict = Depends(require_manager)):
-    return await _module_stub_page(request, "jinxxy", roles)
 
 
 @app.get("/meetings", response_class=HTMLResponse)
