@@ -1,0 +1,267 @@
+{% extends "_dashboard_base.html" %}
+{% set roles = roles | default({}) %}
+{% set active_section = active_section | default("jinxxy") %}
+{% set bot_online = bot_online | default(false) %}
+{% set sync = sync | default({
+  "bot_online": bot_online,
+  "never_synced": true,
+  "running": false,
+  "started_at": none,
+  "source": none,
+  "actor_name": none,
+  "last_run_utc": none,
+  "ok": none,
+  "product_count": none,
+  "added": none,
+  "updated": none,
+  "removed": none
+}) %}
+{% set products = products | default([]) %}
+{% block title %}Tienda Jinxxy · Jinxxy Store{% endblock %}
+
+{% block content %}
+{# x-data stays single-quoted because tojson emits double-quoted JSON. #}
+<div class="jinxxy-page"
+     x-data='jinxxySyncApp({{ sync | tojson }}, {{ products | tojson }})'
+     x-cloak>
+  <div class="mod-hdr" style="--acc: var(--accent-jinxxy)">
+    <span class="i">🛍</span>
+    <div>
+      <div class="t">Tienda Jinxxy · Jinxxy Store</div>
+      <div class="s">Sincroniza el catálogo con Jinxxy y revisa lo publicado · Sync the catalog with Jinxxy and review what's live</div>
+    </div>
+  </div>
+
+  <section class="card stat" style="--acc: var(--accent-jinxxy)">
+    <div class="card-hdr">
+      <h3>Última sincronización · Last sync</h3>
+    </div>
+
+    <div class="empty" x-show="sync.never_synced">
+      <div class="h">Nunca se ha sincronizado · Never synced</div>
+    </div>
+
+    <div x-show="!sync.never_synced">
+      <div class="v" x-text="sync.last_run_utc"></div>
+      <div class="jinxxy-sync-detail" x-text="lastRunCounts()"></div>
+      <div class="jinxxy-sync-detail" x-text="sourceTag()"></div>
+    </div>
+
+    <div class="action-proof-status"
+         :data-state="stateKind()"
+         x-show="stateKind() !== 'idle'"
+         role="status"
+         aria-live="polite">
+      <span class="action-proof-mark"
+            aria-hidden="true"
+            x-show="stateMark()"
+            x-text="stateMark()"></span>
+      <span class="action-proof-copy" x-text="statusCopy()"></span>
+    </div>
+
+    <button class="btn"
+            type="button"
+            @click="runSync()"
+            :disabled="isBusy()"
+            x-text="isBusy() ? 'Sincronizando… · Syncing…' : 'Sincronizar catálogo · Sync catalog'"></button>
+
+    <div class="toast"
+         data-kind="error"
+         x-show="toast"
+         x-text="toast"
+         @click="toast = ''"
+         role="status"
+         aria-live="polite"></div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function jinxxySyncApp(sync, products) {
+    return {
+      sync,
+      products,
+      actionId: null,
+      status: 'idle',
+      error: '',
+      result: null,
+      botOnline: !!sync.bot_online,
+      toast: '',
+      now: Date.now(),
+      refreshTimer: null,
+      elapsedTimer: null,
+      pollTimer: null,
+
+      init() {
+        this.refreshTimer = setInterval(() => this.refresh(), 30000);
+        this.elapsedTimer = setInterval(() => {
+          this.now = Date.now();
+        }, 1000);
+      },
+
+      isBusy() {
+        return this.sync.running || this.isPending();
+      },
+
+      isPending() {
+        return this.status === 'pending' || this.status === 'claimed';
+      },
+
+      stateKind() {
+        if (this.sync.running) return 'working';
+        if (this.isPending() && !this.botOnline) return 'offline';
+        if (this.isPending()) return 'working';
+        if (this.status === 'done') return 'ok';
+        if (this.status === 'failed') return 'failed';
+        return 'idle';
+      },
+
+      stateMark() {
+        const marks = { working: '…', offline: '!' };
+        return marks[this.stateKind()] || '';
+      },
+
+      statusCopy() {
+        if (this.sync.running) {
+          return 'Sincronizando… ' + this.elapsed() + ' · ' + this.sourceTag();
+        }
+        if (this.isPending() && !this.botOnline) {
+          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+        }
+        if (this.isPending()) return 'Sincronizando… · Syncing…';
+        if (this.status === 'done' && this.result && this.result.already) {
+          return 'Ya se está sincronizando · Sync already running';
+        }
+        if (this.status === 'done') return this.countsCopy(this.result);
+        if (this.status === 'failed') return this.error;
+        return '';
+      },
+
+      countsCopy(values) {
+        if (!values || values.changed === false) return 'Sin cambios.';
+        const added = Number(values.added || 0);
+        const updated = Number(values.updated || 0);
+        const removed = Number(values.removed || 0);
+        if (!added && !updated && !removed) return 'Sin cambios.';
+        return added + ' nuevos · '
+          + updated + ' actualizados · '
+          + removed + ' quitados';
+      },
+
+      lastRunCounts() {
+        return this.countsCopy({
+          changed: !!(
+            Number(this.sync.added || 0)
+            || Number(this.sync.updated || 0)
+            || Number(this.sync.removed || 0)
+          ),
+          added: this.sync.added,
+          updated: this.sync.updated,
+          removed: this.sync.removed,
+        });
+      },
+
+      elapsed() {
+        if (!this.sync.started_at) return '0:00';
+        const started = Date.parse(this.sync.started_at);
+        if (Number.isNaN(started)) return '0:00';
+        const totalSeconds = Math.max(
+          0,
+          Math.floor((this.now - started) / 1000)
+        );
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        return minutes + ':' + seconds;
+      },
+
+      sourceTag() {
+        const name = this.sync.actor_name
+          ? ' (' + this.sync.actor_name + ')'
+          : '';
+        if (this.sync.source === 'panel') {
+          return 'desde el panel' + name + ' · from the panel' + name;
+        }
+        if (this.sync.source === 'discord') {
+          return 'desde Discord' + name + ' · from Discord' + name;
+        }
+        return 'programada · scheduled';
+      },
+
+      async refresh() {
+        try {
+          const response = await fetch('/jinxxy/status', {
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) return;
+          const body = await response.json().catch(() => null);
+          if (!body) return;
+          this.sync = body;
+          this.botOnline = !!body.bot_online;
+        } catch (error) {
+          // Keep the last-known-good mirror.
+        }
+      },
+
+      async runSync() {
+        if (this.isBusy()) return;
+        this.stopActionPoll();
+        this.status = 'pending';
+        this.error = '';
+        this.result = null;
+        this.botOnline = true;
+        try {
+          const response = await fetch('/jinxxy/sync', {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) throw new Error('network');
+          const body = await response.json();
+          this.actionId = body.id;
+          await this.pollAction();
+        } catch (error) {
+          this.actionId = null;
+          this.status = 'idle';
+          this.toast = 'Error de red · Network error';
+        }
+      },
+
+      async pollAction() {
+        if (!this.actionId || !this.isPending()) return;
+        try {
+          const response = await fetch('/api/actions/' + this.actionId, {
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) throw new Error('network');
+          const body = await response.json();
+          this.status = body.status;
+          this.error = body.error || '';
+          this.result = body.result || null;
+          this.botOnline = body.bot_online;
+          if (this.isPending()) {
+            this.pollTimer = setTimeout(() => this.pollAction(), 1500);
+            return;
+          }
+          await this.refresh();
+        } catch (error) {
+          this.toast = 'Error de red · Network error';
+          if (this.actionId && this.isPending()) {
+            this.pollTimer = setTimeout(() => this.pollAction(), 1500);
+          }
+        }
+      },
+
+      stopActionPoll() {
+        if (this.pollTimer) clearTimeout(this.pollTimer);
+        this.pollTimer = null;
+      },
+
+      destroy() {
+        this.stopActionPoll();
+        if (this.refreshTimer) clearInterval(this.refreshTimer);
+        if (this.elapsedTimer) clearInterval(this.elapsedTimer);
+      },
+    };
+  }
+</script>
+{% endblock %}
