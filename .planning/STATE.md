@@ -4,13 +4,13 @@ milestone: v2.0
 milestone_name: Staff Dashboard
 status: executing
 stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-07-24T15:21:46.007Z"
-last_activity: 2026-07-24 -- Phase 8 planning complete
+last_updated: "2026-07-25T08:46:40.350Z"
+last_activity: 2026-07-25 -- Phase 08 execution started
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 36
-  completed_plans: 25
+  completed_plans: 31
   percent: 25
 ---
 
@@ -23,14 +23,14 @@ See: .planning/PROJECT.md (updated 2026-07-21)
 **Core value:** The whole staff operates the bot from one web dashboard according to their
 access level — owner everything, Managers day-to-day operations, editors their own
 presentation pages — with no secrets exposed and no bad value able to break a cog.
-**Current focus:** Phase 4 — settings migration + name resolution
+**Current focus:** Phase 08 — jinxxy-manual-sync
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-24 -- Phase 8 planning complete
+Phase: 08 (jinxxy-manual-sync) — EXECUTING
+Plan: 1 of 8
+Status: Executing Phase 08
+Last activity: 2026-07-25 -- Phase 08 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
