@@ -1,6 +1,7 @@
 """Integration contracts for the Manager-gated Jinxxy sync panel routes."""
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -85,10 +86,132 @@ def _jinxxy_action_count() -> int:
         ).fetchone()[0]
 
 
+def _seed_product(
+    name: str,
+    checkout_url: str,
+    *,
+    price: str = "10.00",
+    category: str = "Avatares",
+    nsfw: int = 0,
+    date: str = "2026-07-25",
+):
+    db.upsert_store_snapshot(
+        checkout_url,
+        f"id-{name.casefold()}",
+        name,
+        price,
+        category,
+        nsfw,
+        date,
+    )
+
+
 def test_jinxxy_page_renders_for_a_manager(client):
     response = client.get("/jinxxy")
 
     assert response.status_code == 200
+
+
+def test_never_synced_empty_state(client):
+    response = client.get("/jinxxy")
+
+    assert response.status_code == 200
+    assert "Nunca se ha sincronizado · Never synced" in response.text
+    assert (
+        "Aún no hay productos sincronizados · No synced products yet"
+        in response.text
+    )
+    assert "'—'" not in response.text
+
+
+def test_product_table_columns(client):
+    _seed_product(
+        "Cahuama",
+        "https://jinxxy.com/nocturna/cahuama",
+        nsfw=1,
+    )
+    _seed_product(
+        "Dalia",
+        "https://jinxxy.com/nocturna/dalia",
+        nsfw=0,
+    )
+
+    response = client.get("/jinxxy")
+
+    assert response.status_code == 200
+    for heading in (
+        "Nombre · Name",
+        "Precio · Price",
+        "Categoría · Category",
+        "NSFW",
+        "Fecha · Date",
+    ):
+        assert heading in response.text
+    for forbidden_heading in (
+        "Imagen · Image",
+        "Descripción · Description",
+        "Editor · Editor",
+    ):
+        assert forbidden_heading not in response.text
+
+
+def test_product_rows_are_seeded_into_the_page(client):
+    products = (
+        ("Cahuama", "https://jinxxy.com/nocturna/cahuama"),
+        ("Dalia", "https://jinxxy.com/nocturna/dalia"),
+    )
+    for name, checkout_url in products:
+        _seed_product(name, checkout_url)
+
+    response = client.get("/jinxxy")
+
+    for name, checkout_url in products:
+        assert name in response.text
+        assert checkout_url in response.text
+    external_links = re.findall(
+        r'<a\b[^>]*target="_blank"[^>]*>',
+        response.text,
+    )
+    assert external_links
+    assert all('rel="noopener"' in tag for tag in external_links)
+
+
+def test_products_are_sorted_by_name_case_insensitively(client):
+    for name in ("zeta", "Alfa", "beta"):
+        _seed_product(name, f"https://jinxxy.com/nocturna/{name.casefold()}")
+
+    response = client.get("/jinxxy")
+
+    assert response.text.index("Alfa") < response.text.index("beta")
+    assert response.text.index("beta") < response.text.index("zeta")
+
+
+def test_page_has_no_confirm_dialog(client):
+    response = client.get("/jinxxy")
+
+    assert "confirm-modal" not in response.text
+    assert "modal-overlay" not in response.text
+
+
+def test_page_renders_the_sync_button_labels(client):
+    response = client.get("/jinxxy")
+
+    assert "Sincronizar catálogo · Sync catalog" in response.text
+    assert "Sincronizando… · Syncing…" in response.text
+
+
+def test_rendered_page_does_not_leak_the_raw_error_column(client):
+    secret_error = "https://api.jinxxy.com/v1/products 503"
+    db.set_jinxxy_sync_status(
+        ok=False,
+        product_count=None,
+        error=secret_error,
+    )
+
+    response = client.get("/jinxxy")
+
+    assert response.status_code == 200
+    assert secret_error not in response.text
 
 
 def test_sync_post_enqueues_jinxxy_sync(client):
