@@ -35,7 +35,10 @@ KEY = "https://jinxxy.com/nocturna/cahuama"
 
 def _member(role_ids):
     return types.SimpleNamespace(
-        roles=[types.SimpleNamespace(id=r) for r in role_ids], bot=False)
+        roles=[types.SimpleNamespace(id=r) for r in role_ids],
+        bot=False,
+        display_name="Staff Tester",
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -55,9 +58,18 @@ class _Recorder:
 @pytest.fixture
 def cog(monkeypatch):
     """A JinxxyCog with the DB table init + poll-loop start neutralized (no side effects)."""
+    startup_calls = []
     monkeypatch.setattr(jinxxy.db, "init_store_state", lambda: None)
+    monkeypatch.setattr(
+        jinxxy.db, "init_jinxxy_sync_status",
+        lambda: startup_calls.append("init_jinxxy_sync_status"))
+    monkeypatch.setattr(
+        jinxxy.db, "clear_jinxxy_sync_running",
+        lambda: startup_calls.append("clear_jinxxy_sync_running"))
     monkeypatch.setattr(jinxxy.tasks.Loop, "start", lambda self, *a, **k: None)
-    return jinxxy.JinxxyCog(bot=types.SimpleNamespace())
+    instance = jinxxy.JinxxyCog(bot=types.SimpleNamespace())
+    instance._startup_calls = startup_calls
+    return instance
 
 
 def _wire(monkeypatch, *, products, detail=DETAIL, me=None, snapshot=None,
@@ -100,6 +112,36 @@ def _wire(monkeypatch, *, products, detail=DETAIL, me=None, snapshot=None,
     return rec
 
 
+def _gated_wire(monkeypatch, *, products=None):
+    """Wire a changed sync that pauses inside sync_store until its Event gate opens."""
+    rec = _wire(monkeypatch, products=products or [{"id": "p1"}])
+    rec.started = asyncio.Event()
+    rec.gate = asyncio.Event()
+
+    async def _sync_store(prods, *a, **k):
+        rec.synced.append(list(prods))
+        rec.started.set()
+        await rec.gate.wait()
+        return {"committed": True, "commit_sha": "abc", "count": len(prods)}
+
+    monkeypatch.setattr(
+        jinxxy.github_publish, "sync_store", AsyncMock(side_effect=_sync_store))
+    rec.sync_mock = jinxxy.github_publish.sync_store
+    return rec
+
+
+def _record_mirror(monkeypatch):
+    """Replace the running-mirror writes with ordered, thread-safe-enough test records."""
+    events = []
+    monkeypatch.setattr(
+        jinxxy.db, "mark_jinxxy_sync_running",
+        lambda source, actor_name=None: events.append(("mark", source, actor_name)))
+    monkeypatch.setattr(
+        jinxxy.db, "clear_jinxxy_sync_running",
+        lambda: events.append(("clear",)))
+    return events
+
+
 def _snapshot_row(key=KEY, name="Cahuama", price="0", category="avatar-props",
                   nsfw=0, date="2026-07-01"):
     return {"checkout_url": key, "jinxxy_id": "p1", "name": name, "price": price,
@@ -111,6 +153,164 @@ def _current_entry(key=KEY, name="Cahuama", price="0", category="avatar-props",
     return {"checkoutUrl": key, "id": "cahuama", "name": {"es": name, "en": name},
             "price": price, "category": category, "editor": "Nocturna", "nsfw": nsfw,
             "date": date, "description": {"es": "", "en": ""}}
+
+
+# ══ Phase 08-03: one non-blocking guard for every sync trigger (D-01/D-03/D-06) ══
+
+def test_overlap_guard_second_trigger_returns_benign_success(cog, monkeypatch):
+    rec = _gated_wire(monkeypatch)
+    _record_mirror(monkeypatch)
+    monkeypatch.setattr(cog, "_record_sync_status", AsyncMock())
+    announce = AsyncMock()
+    monkeypatch.setattr(cog, "_announce", announce)
+
+    async def scenario():
+        first_task = asyncio.create_task(
+            cog._run_sync_guarded(source="scheduled"))
+        await rec.started.wait()
+        second = await cog._run_sync_guarded(source="panel")
+        rec.gate.set()
+        first = await first_task
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    assert second == {"already": True}
+    assert rec.sync_mock.await_count == 1
+    announce.assert_awaited_once()
+    assert {"added", "updated", "removed", "changed", "products"} <= first.keys()
+
+
+def test_overlap_guard_second_trigger_is_not_an_error(cog, monkeypatch):
+    rec = _gated_wire(monkeypatch)
+    _record_mirror(monkeypatch)
+    monkeypatch.setattr(cog, "_record_sync_status", AsyncMock())
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    async def scenario():
+        first_task = asyncio.create_task(cog._run_sync_guarded(source="discord"))
+        await rec.started.wait()
+        second = await cog._run_sync_guarded(source="panel")
+        rec.gate.set()
+        await first_task
+        return second
+
+    result = asyncio.run(scenario())
+    assert result
+    assert result == {"already": True}
+    assert rec.sync_mock.await_count == 1
+
+
+def test_poll_skips_when_a_manual_sync_holds_the_lock(cog, monkeypatch):
+    rec = _gated_wire(monkeypatch)
+    _record_mirror(monkeypatch)
+    monkeypatch.setattr(cog, "_record_sync_status", AsyncMock())
+    announce = AsyncMock()
+    monkeypatch.setattr(cog, "_announce", announce)
+
+    async def scenario():
+        manual_task = asyncio.create_task(cog._run_sync_guarded(source="panel"))
+        await rec.started.wait()
+        poll_task = asyncio.create_task(jinxxy.JinxxyCog._poll.coro(cog))
+        await asyncio.sleep(0)
+        rec.gate.set()
+        await poll_task
+        await manual_task
+
+    asyncio.run(scenario())
+    assert rec.sync_mock.await_count == 1
+    announce.assert_awaited_once()
+
+
+def test_guarded_wrapper_announces_exactly_once_per_sync(cog, monkeypatch):
+    rec = _wire(monkeypatch, products=[{"id": "p1"}])
+    _record_mirror(monkeypatch)
+    monkeypatch.setattr(cog, "_record_sync_status", AsyncMock())
+    announce = AsyncMock()
+    monkeypatch.setattr(cog, "_announce", announce)
+
+    result = asyncio.run(cog._run_sync_guarded(source="scheduled"))
+
+    assert result["changed"] is True
+    assert rec.sync_mock.await_count == 1
+    announce.assert_awaited_once_with(result)
+
+
+def test_startup_clear_resets_the_running_mirror(cog):
+    assert cog._startup_calls == [
+        "init_jinxxy_sync_status",
+        "clear_jinxxy_sync_running",
+    ]
+
+
+def test_run_sync_guarded_marks_and_clears_the_mirror(cog, monkeypatch):
+    events = _record_mirror(monkeypatch)
+    result = {
+        "changed": False,
+        "added": [],
+        "updated": [],
+        "removed": [],
+        "products": [],
+    }
+
+    async def _run_sync():
+        events.append(("run",))
+        return result
+
+    monkeypatch.setattr(cog, "_run_sync", _run_sync)
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    actual = asyncio.run(cog._run_sync_guarded(
+        source="panel", actor_name="Manager Name"))
+
+    assert actual is result
+    assert events == [
+        ("mark", "panel", "Manager Name"),
+        ("run",),
+        ("clear",),
+    ]
+
+
+def test_mirror_is_cleared_when_the_sync_raises(cog, monkeypatch):
+    boom = jinxxy.jinxxy_api.JinxxyAPIError("GET /products failed: HTTP 503")
+    _wire(monkeypatch, products=[], list_error=boom)
+    events = _record_mirror(monkeypatch)
+    monkeypatch.setattr(cog, "_record_sync_status", AsyncMock())
+    announce = AsyncMock()
+    monkeypatch.setattr(cog, "_announce", announce)
+
+    with pytest.raises(jinxxy.jinxxy_api.JinxxyAPIError):
+        asyncio.run(cog._run_sync_guarded(source="scheduled"))
+
+    assert events == [
+        ("mark", "scheduled", None),
+        ("clear",),
+    ]
+    announce.assert_not_awaited()
+
+
+def test_tienda_sync_replies_already_running_on_collision(cog, monkeypatch):
+    rec = _gated_wire(monkeypatch)
+    _record_mirror(monkeypatch)
+    monkeypatch.setattr(cog, "_record_sync_status", AsyncMock())
+    announce = AsyncMock()
+    monkeypatch.setattr(cog, "_announce", announce)
+    inter = _sync_interaction([STAFF_ROLE_ID])
+
+    async def scenario():
+        first_task = asyncio.create_task(cog._run_sync_guarded(source="panel"))
+        await rec.started.wait()
+        command_task = asyncio.create_task(_call_sync(cog, inter))
+        await asyncio.sleep(0)
+        rec.gate.set()
+        await command_task
+        await first_task
+
+    asyncio.run(scenario())
+    assert inter.followup.send.await_args.args[0] == (
+        "Ya se está sincronizando · Sync already running")
+    assert inter.followup.send.await_args.kwargs["ephemeral"] is True
+    assert rec.sync_mock.await_count == 1
+    announce.assert_awaited_once()
 
 
 # ── _is_staff (T-09-14 role gate) ──────────────────────────────────────────────────
