@@ -22,8 +22,9 @@ A session is issued ONLY after step 2 passes (at least one tier resolves, D-01).
 the callback raises 403/400 and sets no session. The post-login redirect is a FIXED
 internal path, chosen per-tier (owner/manager → ``/overview``, editor-only → ``/editor``) —
 never a client-supplied ``next`` (open-redirect guard, Pitfall 4 / T-10-08-04 / D-03/T-03-16).
-The session stores only ``discord_id`` (+ ``slug`` for editors) — never a cached tier (D-02).
-No secret, token, or OAuth code is ever logged or returned in an error body (T-10-08-05).
+The session stores ``discord_id`` and the OAuth-verified ``username`` (+ ``slug`` for
+editors) — never a cached tier (D-02). No secret, token, or OAuth code is ever logged or
+returned in an error body (T-10-08-05).
 """
 
 import asyncio
@@ -229,8 +230,8 @@ async def callback(request):
     gate). Tier facts come from a single live bot-token role read plus the owner id — never
     from the request. The redirect target is a FIXED internal path chosen per-tier (D-03/
     Pitfall 1): owner or Manager → ``/overview``; editor-only → ``/editor``. The session
-    stores only ``discord_id`` (+ ``slug`` when the editor tier resolves) — never a tier
-    (D-02).
+    stores ``discord_id`` and the OAuth-verified ``username`` (+ ``slug`` when the editor
+    tier resolves) — never a tier (D-02).
     """
     try:
         token = await _exchange_token(request)  # Authlib verifies `state` (CSRF)
@@ -259,7 +260,9 @@ async def callback(request):
     entry = await ensure_draft(user_id, username) if is_editor else None
 
     # Session issued last, only on the fully-authorized path — no tier is ever cached (D-02).
+    # User-approved Phase 8 relaxation: a display name has no authorization meaning.
     request.session["discord_id"] = user_id
+    request.session["username"] = username
     if entry is not None:
         request.session["slug"] = entry["slug"]
 

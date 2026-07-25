@@ -130,11 +130,11 @@ async def _resolve_roles(request: Request) -> dict:
       session-cached tier, D-02); a non-member (``None``) clears the session and 403s, same
       as a user who resolves to no tier at all — both are treated as "no longer authorized"
       (matches the OAuth callback's own login gate, D-01).
-    * Returns ``{"discord_id", "is_owner", "is_manager", "is_editor"}`` for downstream
-      dependencies (``require_manager``) and route handlers (sidebar lock-icon rendering) to
-      share via FastAPI's default ``Depends(..., use_cache=True)`` — collapsing repeat calls
-      within one request to this single REST read (Pitfall 4, never a hand-rolled
-      ``request.state`` cache).
+    * Returns ``{"discord_id", "username", "is_owner", "is_manager", "is_editor"}`` for
+      downstream dependencies (``require_manager``) and route handlers (sidebar lock-icon
+      rendering) to share via FastAPI's default ``Depends(..., use_cache=True)`` —
+      collapsing repeat calls within one request to this single REST read (Pitfall 4,
+      never a hand-rolled ``request.state`` cache).
     """
     discord_id = request.session.get("discord_id")
     if not discord_id:
@@ -165,6 +165,7 @@ async def _resolve_roles(request: Request) -> dict:
 
     return {
         "discord_id": discord_id,
+        "username": request.session.get("username"),
         "is_owner": is_owner,
         "is_manager": is_manager,
         "is_editor": is_editor,
