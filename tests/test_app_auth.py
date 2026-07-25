@@ -337,6 +337,59 @@ def test_callback_manager_tier_redirects_to_overview_no_draft_created(monkeypatc
     assert resp.headers["location"] == "/overview"
 
 
+def _patch_manager_callback_user(monkeypatch, user):
+    async def fake_exchange(request):
+        return {"access_token": "x"}
+
+    async def fake_user(token):
+        return user
+
+    async def fake_fetch_roles(uid):
+        return {"999"}
+
+    def fail_draft(*a, **k):
+        raise AssertionError("ensure_draft must not run for a manager-only tier")
+
+    monkeypatch.setattr(auth, "_exchange_token", fake_exchange)
+    monkeypatch.setattr(auth, "_fetch_user", fake_user)
+    monkeypatch.setattr(auth, "_fetch_member_roles", fake_fetch_roles)
+    monkeypatch.setattr(auth, "ensure_draft", fail_draft)
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 0)
+    monkeypatch.setattr(
+        auth.settings,
+        "get",
+        lambda key: {"manager_roles": [999], "editor_roles": []}.get(key, []),
+    )
+
+
+def test_callback_persists_oauth_username_in_session(monkeypatch):
+    _patch_manager_callback_user(
+        monkeypatch, {"id": "555", "username": "nocturna"}
+    )
+    req = _FakeRequest()
+    req.query_params["username"] = "spoofed-client-name"
+
+    asyncio.run(auth.callback(req))
+
+    assert req.session["discord_id"] == "555"
+    assert req.session["username"] == "nocturna"
+
+
+def test_callback_username_falls_back_to_global_name_then_id(monkeypatch):
+    cases = [
+        ({"id": "555", "global_name": "Nocturna Global"}, "Nocturna Global"),
+        ({"id": "555"}, "555"),
+    ]
+
+    for user, expected in cases:
+        _patch_manager_callback_user(monkeypatch, user)
+        req = _FakeRequest()
+
+        asyncio.run(auth.callback(req))
+
+        assert req.session["username"] == expected
+
+
 def test_callback_owner_tier_redirects_to_overview_even_without_any_role(monkeypatch):
     # Owner tier is independent of the mapping (D-04) — resolves even with zero roles.
     async def fake_exchange(request):
@@ -511,6 +564,42 @@ def test_require_owner_403_without_session(monkeypatch):
 # `is_owner` before treating a `None` role read as a session-clearing 403 — the code review
 # found it denied the owner in that case, contradicting its own docstring and diverging from
 # the OAuth callback's `_fetch_member_roles(...) or set()` on the identical read.
+def _patch_resolve_manager(monkeypatch):
+    from app import deps
+
+    async def fake_fetch_roles(_id):
+        return {"999"}
+
+    monkeypatch.setattr(config, "DISCORD_USER_ID", 0)
+    monkeypatch.setattr(auth, "_fetch_member_roles", fake_fetch_roles)
+    monkeypatch.setattr(
+        deps.settings,
+        "get",
+        lambda key: {"manager_roles": [999], "editor_roles": []}.get(key, []),
+    )
+    return deps
+
+
+def test_resolve_roles_returns_username_from_session(monkeypatch):
+    deps = _patch_resolve_manager(monkeypatch)
+    req = _FakeRequest()
+    req.session = {"discord_id": "555", "username": "nocturna"}
+
+    roles = asyncio.run(deps._resolve_roles(req))
+
+    assert roles["username"] == "nocturna"
+
+
+def test_resolve_roles_username_is_none_for_legacy_session(monkeypatch):
+    deps = _patch_resolve_manager(monkeypatch)
+    req = _FakeRequest()
+    req.session = {"discord_id": "555"}
+
+    roles = asyncio.run(deps._resolve_roles(req))
+
+    assert roles["username"] is None
+
+
 def test_resolve_roles_owner_not_locked_out_on_404(monkeypatch):
     from app import deps
 
