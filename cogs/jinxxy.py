@@ -180,7 +180,10 @@ class JinxxyCog(
 
     # ── D-10/D-11 sync-status + activity instrumentation ────────────────────────────
     async def _record_sync_status(
-            self, *, ok: bool, product_count: int | None, error: str | None) -> None:
+            self, *, ok: bool, product_count: int | None, error: str | None,
+            added_count: int | None = None, updated_count: int | None = None,
+            removed_count: int | None = None, source: str = "scheduled",
+            actor_name: str | None = None) -> None:
         """Record this run's outcome for the Overview dashboard (D-10 status tile + D-11
         "sync ran" activity row) — the single instrumentation point shared by both the
         success and failure paths of :meth:`_run_sync`, covering both the scheduled poll
@@ -191,15 +194,47 @@ class JinxxyCog(
         """
         try:
             await asyncio.to_thread(
-                db.set_jinxxy_sync_status, ok=ok, product_count=product_count, error=error)
-            message = ("Sync de Jinxxy ejecutado / Jinxxy sync ran" if ok else
-                       "Sync de Jinxxy falló / Jinxxy sync failed")
+                db.set_jinxxy_sync_status,
+                ok=ok,
+                product_count=product_count,
+                error=error,
+                added_count=added_count,
+                updated_count=updated_count,
+                removed_count=removed_count,
+            )
+            suffix_es = f" ({actor_name})" if actor_name else ""
+            suffix_en = f" ({actor_name})" if actor_name else ""
+            if source == "panel":
+                message = (
+                    f"Sync de Jinxxy desde el panel{suffix_es} · "
+                    f"Jinxxy sync from the panel{suffix_en}"
+                    if ok else
+                    f"Falló el sync de Jinxxy desde el panel{suffix_es} · "
+                    f"Jinxxy sync from the panel failed{suffix_en}"
+                )
+            elif source == "discord":
+                message = (
+                    f"Sync de Jinxxy desde Discord{suffix_es} · "
+                    f"Jinxxy sync from Discord{suffix_en}"
+                    if ok else
+                    f"Falló el sync de Jinxxy desde Discord{suffix_es} · "
+                    f"Jinxxy sync from Discord failed{suffix_en}"
+                )
+            else:
+                message = (
+                    "Sync de Jinxxy programado · Scheduled Jinxxy sync"
+                    if ok else
+                    "Falló el sync de Jinxxy programado · "
+                    "Scheduled Jinxxy sync failed"
+                )
             await asyncio.to_thread(db.log_activity, "jinxxy_sync", message)
         except Exception:
             log.exception("jinxxy: no pude registrar el estado de sync")
 
     # ── core orchestration ───────────────────────────────────────────────────────────
-    async def _run_sync(self) -> dict:
+    async def _run_sync(
+            self, *, source: str = "scheduled",
+            actor_name: str | None = None) -> dict:
         """Run ONE full store sync: enumerate → map → three-way merge → commit-on-change.
 
         Ordering IS the removal-safety guarantee (T-09-15): the live enumeration (``get_me`` +
@@ -306,11 +341,28 @@ class JinxxyCog(
                 for key in result["removed"]:
                     db.delete_store_snapshot(key)
         except Exception as exc:
-            await self._record_sync_status(ok=False, product_count=None, error=str(exc))
+            await self._record_sync_status(
+                ok=False,
+                product_count=None,
+                error=str(exc),
+                added_count=None,
+                updated_count=None,
+                removed_count=None,
+                source=source,
+                actor_name=actor_name,
+            )
             raise
 
         await self._record_sync_status(
-            ok=True, product_count=len(result.get("products") or []), error=None)
+            ok=True,
+            product_count=len(result.get("products") or []),
+            error=None,
+            added_count=len(result["added"]),
+            updated_count=len(result["updated"]),
+            removed_count=len(result["removed"]),
+            source=source,
+            actor_name=actor_name,
+        )
         return result
 
     async def _run_sync_guarded(
@@ -334,7 +386,7 @@ class JinxxyCog(
                 log.exception("jinxxy: no pude marcar el espejo de sync en curso")
 
             try:
-                result = await self._run_sync()
+                result = await self._run_sync(source=source, actor_name=actor_name)
             finally:
                 try:
                     await asyncio.to_thread(db.clear_jinxxy_sync_running)
