@@ -142,6 +142,22 @@ def _record_mirror(monkeypatch):
     return events
 
 
+def _record_status_and_activity(monkeypatch):
+    """Capture the dashboard status upsert and its paired activity-log write."""
+    records = types.SimpleNamespace(status=[], activity=[])
+    monkeypatch.setattr(
+        jinxxy.db,
+        "set_jinxxy_sync_status",
+        lambda **kwargs: records.status.append(kwargs),
+    )
+    monkeypatch.setattr(
+        jinxxy.db,
+        "log_activity",
+        lambda event_type, message: records.activity.append((event_type, message)),
+    )
+    return records
+
+
 def _snapshot_row(key=KEY, name="Cahuama", price="0", category="avatar-props",
                   nsfw=0, date="2026-07-01"):
     return {"checkout_url": key, "jinxxy_id": "p1", "name": name, "price": price,
@@ -153,6 +169,146 @@ def _current_entry(key=KEY, name="Cahuama", price="0", category="avatar-props",
     return {"checkoutUrl": key, "id": "cahuama", "name": {"es": name, "en": name},
             "price": price, "category": category, "editor": "Nocturna", "nsfw": nsfw,
             "date": date, "description": {"es": "", "en": ""}}
+
+
+# ══ Phase 08-04: typed error copy, result counts and source-aware activity ═════════
+
+def test_error_category_maps_jinxxy_api_error():
+    exc = jinxxy.jinxxy_api.JinxxyAPIError(
+        "GET https://third-party.invalid/products failed: HTTP 503")
+
+    message = jinxxy.sync_error_category(exc)
+
+    assert message == (
+        "No pude contactar con Jinxxy · Couldn't reach Jinxxy — "
+        "revisa los logs · check the logs")
+    assert "third-party.invalid" not in message
+    assert "503" not in message
+
+
+def test_error_category_maps_github_publish_error():
+    exc = jinxxy.github_publish.GitHubPublishError(
+        "POST https://api.github.invalid/repos/nocturna failed")
+
+    message = jinxxy.sync_error_category(exc)
+
+    assert message == (
+        "No pude publicar en la web · Couldn't commit to the site — "
+        "revisa los logs · check the logs")
+    assert "api.github.invalid" not in message
+
+
+def test_error_category_falls_back_to_generic():
+    message = jinxxy.sync_error_category(RuntimeError("distinctive-secret-boom"))
+
+    assert message == (
+        "Falló la sincronización · Sync failed — "
+        "revisa los logs · check the logs")
+    assert "distinctive-secret-boom" not in message
+
+
+def test_record_sync_status_persists_added_updated_removed_counts(cog, monkeypatch):
+    _wire(monkeypatch, products=[{"id": "p1"}])
+    records = _record_status_and_activity(monkeypatch)
+
+    result = asyncio.run(cog._run_sync())
+
+    assert len(records.status) == 1
+    assert records.status[0]["added_count"] == len(result["added"])
+    assert records.status[0]["updated_count"] == len(result["updated"])
+    assert records.status[0]["removed_count"] == len(result["removed"])
+
+
+def test_failed_sync_records_null_counts(cog, monkeypatch):
+    boom = jinxxy.jinxxy_api.JinxxyAPIError("HTTP 503 distinctive payload")
+    _wire(monkeypatch, products=[], list_error=boom)
+    records = _record_status_and_activity(monkeypatch)
+
+    with pytest.raises(jinxxy.jinxxy_api.JinxxyAPIError):
+        asyncio.run(cog._run_sync())
+
+    assert records.status == [{
+        "ok": False,
+        "product_count": None,
+        "error": str(boom),
+        "added_count": None,
+        "updated_count": None,
+        "removed_count": None,
+    }]
+
+
+def test_activity_line_names_the_panel_trigger_with_actor(cog, monkeypatch):
+    _wire(monkeypatch, products=[{"id": "p1"}])
+    _record_mirror(monkeypatch)
+    records = _record_status_and_activity(monkeypatch)
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    asyncio.run(cog._run_sync_guarded(source="panel", actor_name="Nombre"))
+
+    assert records.activity == [(
+        "jinxxy_sync",
+        "Sync de Jinxxy desde el panel (Nombre) · "
+        "Jinxxy sync from the panel (Nombre)",
+    )]
+
+
+def test_activity_line_names_the_scheduled_trigger(cog, monkeypatch):
+    _wire(monkeypatch, products=[{"id": "p1"}])
+    _record_mirror(monkeypatch)
+    records = _record_status_and_activity(monkeypatch)
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    asyncio.run(cog._run_sync_guarded(source="scheduled"))
+
+    assert records.activity == [(
+        "jinxxy_sync",
+        "Sync de Jinxxy programado · Scheduled Jinxxy sync",
+    )]
+
+
+def test_activity_line_names_the_discord_trigger_with_actor(cog, monkeypatch):
+    _wire(monkeypatch, products=[{"id": "p1"}])
+    _record_mirror(monkeypatch)
+    records = _record_status_and_activity(monkeypatch)
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    asyncio.run(cog._run_sync_guarded(source="discord", actor_name="Nombre"))
+
+    assert records.activity == [(
+        "jinxxy_sync",
+        "Sync de Jinxxy desde Discord (Nombre) · "
+        "Jinxxy sync from Discord (Nombre)",
+    )]
+
+
+def test_activity_line_omits_the_parenthetical_without_an_actor_name(cog, monkeypatch):
+    _wire(monkeypatch, products=[{"id": "p1"}])
+    _record_mirror(monkeypatch)
+    records = _record_status_and_activity(monkeypatch)
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    asyncio.run(cog._run_sync_guarded(source="panel", actor_name=None))
+
+    message = records.activity[0][1]
+    assert "desde el panel ·" in message
+    assert "(None)" not in message
+
+
+def test_failed_sync_activity_line_names_the_source(cog, monkeypatch):
+    boom = jinxxy.jinxxy_api.JinxxyAPIError("HTTP 503 distinctive payload")
+    _wire(monkeypatch, products=[], list_error=boom)
+    _record_mirror(monkeypatch)
+    records = _record_status_and_activity(monkeypatch)
+    monkeypatch.setattr(cog, "_announce", AsyncMock())
+
+    with pytest.raises(jinxxy.jinxxy_api.JinxxyAPIError):
+        asyncio.run(cog._run_sync_guarded(source="panel", actor_name="Nombre"))
+
+    assert records.activity == [(
+        "jinxxy_sync",
+        "Falló el sync de Jinxxy desde el panel (Nombre) · "
+        "Jinxxy sync from the panel failed (Nombre)",
+    )]
 
 
 # ══ Phase 08-03: one non-blocking guard for every sync trigger (D-01/D-03/D-06) ══
@@ -252,7 +408,7 @@ def test_run_sync_guarded_marks_and_clears_the_mirror(cog, monkeypatch):
         "products": [],
     }
 
-    async def _run_sync():
+    async def _run_sync(*, source="scheduled", actor_name=None):
         events.append(("run",))
         return result
 
