@@ -179,17 +179,19 @@ class ActionQueueCog(commands.Cog):
         )
 
     async def _handle_jinxxy_sync(self, payload: dict) -> dict:
-        # Lookup key is "Jinxxy" — the `name=` kwarg on JinxxyCog's `GroupCog` declaration,
-        # NOT the class name (unlike GalleryCog/ReviewsCog, which have no `name=` override).
-        jinxxy_cog = self.bot.get_cog("Jinxxy")
-        if jinxxy_cog is None:
-            raise RuntimeError(
-                "JinxxyCog no está cargado · JinxxyCog is not loaded"
-            )
         # The payload carries no `source`: the trigger is inferred as "panel" by
         # construction, since /tienda sync and the scheduled poll never touch action_queue.
         actor_name = payload.get("actor_name") or None
         try:
+            # Lookup key is "Jinxxy" — the `name=` kwarg on JinxxyCog's `GroupCog`
+            # declaration, NOT the class name (unlike GalleryCog/ReviewsCog, which have
+            # no `name=` override). A missing cog is mapped to a fixed D-10 category
+            # below too, so the panel never sees this internal wording.
+            jinxxy_cog = self.bot.get_cog("Jinxxy")
+            if jinxxy_cog is None:
+                raise RuntimeError(
+                    "JinxxyCog no está cargado · JinxxyCog is not loaded"
+                )
             result = await jinxxy_cog._run_sync_guarded(source="panel", actor_name=actor_name)
         except Exception as exc:
             log.exception("action_queue: jinxxy_sync falló")
