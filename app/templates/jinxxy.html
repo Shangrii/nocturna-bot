@@ -73,6 +73,48 @@
          role="status"
          aria-live="polite"></div>
   </section>
+
+  <section class="card">
+    <div class="card-hdr">
+      <h3>Catálogo sincronizado · Synced catalog</h3>
+    </div>
+
+    <table x-show="products.length">
+      <thead>
+        <tr>
+          <th>Nombre · Name</th>
+          <th>Precio · Price</th>
+          <th>Categoría · Category</th>
+          <th>NSFW</th>
+          <th>Fecha · Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="p in products" :key="p.checkout_url">
+          <tr>
+            <td>
+              <a class="jinxxy-product-link"
+                 :href="p.checkout_url"
+                 target="_blank"
+                 rel="noopener"
+                 x-text="p.name"></a>
+            </td>
+            <td x-text="p.price"></td>
+            <td x-text="p.category"></td>
+            <td>
+              <span class="status-badge"
+                    x-show="p.nsfw">NSFW</span>
+            </td>
+            <td x-text="p.date"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+
+    <div class="empty" x-show="!products.length">
+      <div class="h">Aún no hay productos sincronizados · No synced products yet</div>
+    </div>
+  </section>
 </div>
 {% endblock %}
 

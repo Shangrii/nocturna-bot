@@ -379,6 +379,29 @@ tr:last-child td { border-bottom: none; }
   color: var(--color-text-muted);
 }
 
+/* ─── Jinxxy sync status + read-only catalog ─────────────────────────── */
+.jinxxy-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.jinxxy-page > .mod-hdr,
+.jinxxy-page > .card { margin-bottom: 0; }
+.jinxxy-page > .stat {
+  display: grid;
+  gap: var(--space-4);
+}
+.jinxxy-page > .stat .card-hdr { margin-bottom: 0; }
+.jinxxy-page > .stat > .btn { justify-self: start; }
+.jinxxy-sync-detail {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.jinxxy-product-link { color: var(--color-primary); font-weight: 600; }
+.jinxxy-product-link:hover,
+.jinxxy-product-link:focus-visible { text-decoration: underline; }
+
 .row-actions {
   display: flex; align-items: center; gap: var(--space-2);
 }
