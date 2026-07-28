@@ -147,8 +147,10 @@ and the owner-only settings panel (Phase 2), verification 4/4, full suite 645 pa
 `02-SECURITY.md` produced via `/gsd:secure-phase 2`. Open advisory items: 6 code-review
 warnings in the archived `02-REVIEW.md`.
 
-Milestone v2.0 (Staff Dashboard) started 2026-07-21 — defining requirements. Visual contract:
-`.planning/sketches/001-dashboard-shell/` (variant A won).
+Milestone v2.0 (Staff Dashboard) started 2026-07-21. Visual contract:
+`.planning/sketches/001-dashboard-shell/` (variant A won). Phase 8 (Jinxxy Manual Sync)
+complete 2026-07-28 — Manager-triggered store sync with last-run status, overlap-guarded
+against the scheduled poll (JINX-01 validated); verification 7/7, full suite 852 passing.
 
 ## Evolution
 
@@ -168,4 +170,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-21 after starting milestone v2.0 (Staff Dashboard)*
+*Last updated: 2026-07-28 after completing Phase 8 (Jinxxy Manual Sync)*
