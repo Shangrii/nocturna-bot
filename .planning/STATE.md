@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
-status: executing
-stopped_at: Phase 8 UI-SPEC approved
-last_updated: "2026-07-25T08:46:40.350Z"
+status: ready_to_plan
+stopped_at: Phase 08 complete (8/8) — ready to discuss Phase 9
+last_updated: 2026-07-28T14:15:39.518Z
 last_activity: 2026-07-25 -- Phase 08 execution started
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 36
-  completed_plans: 31
+  completed_plans: 33
   percent: 25
 ---
 
@@ -23,14 +23,14 @@ See: .planning/PROJECT.md (updated 2026-07-21)
 **Core value:** The whole staff operates the bot from one web dashboard according to their
 access level — owner everything, Managers day-to-day operations, editors their own
 presentation pages — with no secrets exposed and no bad value able to break a cog.
-**Current focus:** Phase 08 — jinxxy-manual-sync
+**Current focus:** Phase 9 — meetings browser + re publish
 
 ## Current Position
 
-Phase: 08 (jinxxy-manual-sync) — EXECUTING
-Plan: 1 of 8
-Status: Executing Phase 08
-Last activity: 2026-07-25 -- Phase 08 execution started
+Phase: 9
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-28
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -38,7 +38,7 @@ Progress: [░░░░░░░░░░] 0%
 
 **Velocity:**
 
-- Total plans completed: 16
+- Total plans completed: 24
 - Average duration: —
 - Total execution time: —
 
@@ -49,6 +49,7 @@ Progress: [░░░░░░░░░░] 0%
 | 01 | 3 | - | - |
 | 02 | 5 | - | - |
 | 03 | 8 | - | - |
+| 08 | 8 | - | - |
 
 ## Accumulated Context
 

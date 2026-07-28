@@ -83,7 +83,7 @@ day-to-day operations, editors their own presentation page.
 - [ ] **Phase 5: sqlite Hardening + Action Queue** - busy_timeout/retry on write paths; generic action_queue infra every write-heavy module reuses
 - [ ] **Phase 6: Reminders CRUD** - Full CRUD + pause/resume via table+modal, scheduler-race guard
 - [ ] **Phase 7: Gallery + Reviews Approval Queues** - Approve/remove photos and reviews with reaction-flow parity, race-free
-- [ ] **Phase 8: Jinxxy Manual Sync** - Manual sync trigger + last-run status, overlap-guarded against the poll
+- [x] **Phase 8: Jinxxy Manual Sync** - Manual sync trigger + last-run status, overlap-guarded against the poll (completed 2026-07-28)
 - [ ] **Phase 9: Meetings Browser + Re-publish** - Persist meetings; browse transcripts/summaries; edit + idempotent re-publish
 - [ ] **Phase 10: Editors Section Integration** - Editors presentation app folded into the shared shell under the tier system
 
@@ -285,7 +285,7 @@ Plans:
 
 **Wave 5** *(blocked on Waves 3-4)*
 
-- [ ] 08-08-PLAN.md — Phase gate (full suite + overlap-guard proof) and human-verify checkpoint: live disabled/spinner/elapsed/attribution + collision + real store round-trip
+- [x] 08-08-PLAN.md — Phase gate (full suite + overlap-guard proof) and human-verify checkpoint: live disabled/spinner/elapsed/attribution + collision + real store round-trip
 **UI hint**: yes
 
 ### Phase 9: Meetings Browser + Re-publish
@@ -329,6 +329,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 5. sqlite Hardening + Action Queue | v2.0 | 0/5 | Not started | - |
 | 6. Reminders CRUD | v2.0 | 0/6 | Not started | - |
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
-| 8. Jinxxy Manual Sync | v2.0 | 7/8 | In Progress|  |
+| 8. Jinxxy Manual Sync | v2.0 | 8/8 | Complete   | 2026-07-28 |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/TBD | Not started | - |
 | 10. Editors Section Integration | v2.0 | 0/TBD | Not started | - |
