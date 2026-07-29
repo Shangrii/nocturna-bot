@@ -1,0 +1,279 @@
+{% extends "_dashboard_base.html" %}
+{% set roles = roles | default({}) %}
+{% set active_section = active_section | default("meetings") %}
+{% set bot_online = bot_online | default(false) %}
+{% set meeting = meeting | default({}) %}
+{% if meeting.attendees is defined %}
+{% set attendee_seed = meeting.attendees | default([], true) %}
+{% else %}
+{% set attendee_seed = meeting.attendees_json | default("[]") %}
+{% endif %}
+{% set has_forum_post = meeting.thread_id and meeting.starter_message_id %}
+{% block title %}{{ meeting.tema or "Reunión · Meeting" }}{% endblock %}
+
+{% block content %}
+<div class="jinxxy-page"
+     x-data='meetingEditor({{ meeting.id | tojson }}, {{ (meeting.summary or "") | tojson }}, {{ attendee_seed | tojson }})'
+     x-cloak>
+  <div class="mod-hdr" style="--acc: var(--accent-meetings)">
+    <span class="i">🎙</span>
+    <div>
+      <div class="t">{{ meeting.tema or "Reunión · Meeting" }}</div>
+      <div class="s">{{ meeting.started_at | default("") | replace("T", " ") }}</div>
+      <div class="role-chip-list"
+           style="margin-top: var(--space-3);"
+           x-show="attendees.length">
+        <template x-for="(attendee, index) in attendees"
+                  :key="index + '-' + attendee">
+          <span class="role-chip">
+            <span class="role-chip-name" x-text="attendee"></span>
+          </span>
+        </template>
+      </div>
+    </div>
+  </div>
+
+  <section class="card reminder-modal action-proof"
+           style="max-width: none; max-height: none; overflow: visible; box-shadow: none;">
+    <div class="card-hdr">
+      <h3>Resumen · Summary</h3>
+    </div>
+
+    {% if has_forum_post %}
+    <div class="modal-body" style="padding: 0;">
+      <div class="field">
+        <label class="label" for="meeting-summary">Resumen editable · Editable summary</label>
+        <textarea id="meeting-summary"
+                  rows="12"
+                  x-model="summaryText"
+                  :disabled="isBusy()"
+                  aria-describedby="meeting-save-status">{{ meeting.summary or "" }}</textarea>
+      </div>
+
+      <div id="meeting-save-status"
+           class="action-proof-status"
+           :data-state="stateKind()"
+           x-show="stateKind() !== 'idle'"
+           role="status"
+           aria-live="polite">
+        <span class="action-proof-mark"
+              aria-hidden="true"
+              x-text="stateMark()"></span>
+        <span class="action-proof-copy" x-text="statusCopy()"></span>
+      </div>
+
+      <button class="btn"
+              type="button"
+              style="justify-self: start;"
+              @click="saveSummary()"
+              :disabled="isBusy()"
+              x-text="isBusy() ? 'Guardando… · Saving…' : 'Guardar y republicar · Save & re-publish'"></button>
+
+      <div class="toast"
+           data-kind="error"
+           x-show="toast"
+           x-text="toast"
+           @click="toast = ''"
+           role="status"
+           aria-live="polite"></div>
+    </div>
+    {% else %}
+    <div class="settings-cache-banner" role="status">
+      <span class="settings-cache-icon" aria-hidden="true">!</span>
+      <div>
+        <div class="settings-cache-title">No se puede republicar · Cannot re-publish</div>
+        <div class="settings-cache-copy">No se puede republicar — esta reunión no tiene una publicación en el foro · Cannot re-publish — this meeting has no forum post</div>
+      </div>
+    </div>
+    <p>{{ meeting.summary or "Sin resumen · No summary" }}</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <div class="card-hdr">
+      <h3>Transcripción · Transcript</h3>
+    </div>
+
+    {% if meeting.transcript %}
+    <div class="row-actions">
+      <button class="btn ghost"
+              type="button"
+              :aria-expanded="transcriptOpen"
+              aria-controls="meeting-transcript"
+              @click="transcriptOpen = !transcriptOpen"
+              x-text="transcriptOpen ? 'Ocultar transcripción · Hide transcript' : 'Ver transcripción · Show transcript'"></button>
+      {% if meeting.thread_url %}
+      <a class="row-action edit"
+         href="{{ meeting.thread_url }}"
+         target="_blank"
+         rel="noopener">Descargar .md completo · Download full .md</a>
+      {% endif %}
+    </div>
+    <p id="meeting-transcript"
+       x-show="transcriptOpen"
+       style="margin-top: var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere;">{{ meeting.transcript }}</p>
+    {% else %}
+    <div class="settings-cache-banner" role="status">
+      <span class="settings-cache-icon" aria-hidden="true">!</span>
+      <div>
+        <div class="settings-cache-title">Transcripción no disponible · Transcript unavailable</div>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function meetingEditor(meetingId, initialSummary, initialAttendees) {
+    let attendees = initialAttendees || [];
+    if (typeof attendees === 'string') {
+      try {
+        attendees = JSON.parse(attendees);
+      } catch (error) {
+        attendees = [];
+      }
+    }
+    if (!Array.isArray(attendees)) attendees = [];
+
+    return {
+      meetingId,
+      summaryText: initialSummary,
+      attendees,
+      transcriptOpen: false,
+      actionId: null,
+      status: 'idle',
+      error: '',
+      result: null,
+      botOnline: true,
+      toast: '',
+      actionStartedAt: null,
+      now: Date.now(),
+      elapsedTimer: null,
+      pollTimer: null,
+
+      init() {
+        this.elapsedTimer = setInterval(() => {
+          this.now = Date.now();
+        }, 1000);
+      },
+
+      isBusy() {
+        return this.isPending();
+      },
+
+      isPending() {
+        return this.status === 'pending' || this.status === 'claimed';
+      },
+
+      stateKind() {
+        if (this.isPending() && !this.botOnline) return 'offline';
+        if (this.isPending()) return 'working';
+        if (this.status === 'done') return 'ok';
+        if (this.status === 'failed') return 'failed';
+        return 'idle';
+      },
+
+      stateMark() {
+        const marks = { working: '…', offline: '!', ok: '✓', failed: '!' };
+        return marks[this.stateKind()] || '';
+      },
+
+      statusCopy() {
+        if (this.isPending() && !this.botOnline) {
+          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+        }
+        if (this.isPending()) {
+          return 'Republicando… ' + this.elapsed()
+            + ' · Re-publishing… ' + this.elapsed();
+        }
+        if (this.status === 'done') {
+          return 'Publicación actualizada · Post updated';
+        }
+        if (this.status === 'failed') {
+          return 'No se pudo republicar. Inténtalo de nuevo · Failed to re-publish. Try again';
+        }
+        return '';
+      },
+
+      elapsed() {
+        if (!this.actionStartedAt) return '0:00';
+        const totalSeconds = Math.max(
+          0,
+          Math.floor((this.now - this.actionStartedAt) / 1000)
+        );
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = String(totalSeconds % 60).padStart(2, '0');
+        return minutes + ':' + seconds;
+      },
+
+      async saveSummary() {
+        if (this.isBusy()) return;
+        this.stopActionPoll();
+        this.status = 'pending';
+        this.error = '';
+        this.result = null;
+        this.botOnline = true;
+        this.toast = '';
+        this.actionStartedAt = Date.now();
+        this.now = this.actionStartedAt;
+        try {
+          const response = await fetch(
+            '/meetings/{{ meeting.id }}/republish',
+            {
+              method: 'POST',
+              headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ summary: this.summaryText }),
+            }
+          );
+          if (!response.ok) throw new Error('network');
+          const body = await response.json();
+          this.actionId = body.id;
+          await this.pollAction();
+        } catch (error) {
+          this.actionId = null;
+          this.status = 'idle';
+          this.toast = 'Error de red · Network error';
+        }
+      },
+
+      async pollAction() {
+        if (!this.actionId || !this.isPending()) return;
+        try {
+          const response = await fetch('/api/actions/' + this.actionId, {
+            headers: { 'Accept': 'application/json' },
+          });
+          if (!response.ok) throw new Error('network');
+          const body = await response.json();
+          this.status = body.status;
+          this.error = body.error || '';
+          this.result = body.result || null;
+          this.botOnline = body.bot_online;
+          if (this.isPending()) {
+            this.pollTimer = setTimeout(() => this.pollAction(), 1500);
+          }
+        } catch (error) {
+          this.toast = 'Error de red · Network error';
+          if (this.actionId && this.isPending()) {
+            this.pollTimer = setTimeout(() => this.pollAction(), 1500);
+          }
+        }
+      },
+
+      stopActionPoll() {
+        if (this.pollTimer) clearTimeout(this.pollTimer);
+        this.pollTimer = null;
+      },
+
+      destroy() {
+        this.stopActionPoll();
+        if (this.elapsedTimer) clearInterval(this.elapsedTimer);
+      },
+    };
+  }
+</script>
+{% endblock %}
