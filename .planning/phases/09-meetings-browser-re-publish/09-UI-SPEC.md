@@ -1,10 +1,11 @@
 ---
 phase: 9
 slug: meetings-browser-re-publish
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-07-29
+reviewed_at: 2026-07-29
 ---
 
 # Phase 9 — UI Design Contract
@@ -142,6 +143,9 @@ These aren't part of the token contract but resolve ambiguity the roadmap/CONTEX
    equivalent truncation — no new token, just an overflow rule). Each row is a link
    (`<tr>` wrapping an `<a>` per cell, or a `row-action`-styled "view" affordance) to
    `/meetings/{id}`. Empty state uses the `.empty` class exactly like jinxxy's "no products".
+   **Focal point:** the reverse-chronological meetings table is the primary visual anchor of
+   `/meetings` — it is the only content block on the page and the executor should not compete
+   with it (no hero, no secondary cards above the fold).
 2. **Detail page** (`/meetings/{id}`), not a modal: transcript text and an editable summary
    textarea don't fit the existing `.modal-overlay` sizing (`max-height: calc(100vh - var(--space-16))`
    sized for short forms like reminders/confirm). A dedicated page keeps parity with how jinxxy
