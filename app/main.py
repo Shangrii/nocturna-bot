@@ -63,6 +63,7 @@ from app.deps import (
 )
 from app.routers import gallery as gallery_router
 from app.routers import jinxxy as jinxxy_router
+from app.routers import meetings as meetings_router
 from app.routers import reminders as reminders_router
 from app.routers import reviews as reviews_router
 from core import action_queue, db, github_publish, settings
@@ -315,6 +316,7 @@ async def lifespan(app: FastAPI):
         db.init_gallery_queue()
         db.init_reviews_queue()
         db.init_reminders()
+        db.init_meetings()
     except Exception:
         log.exception("no pude inicializar las tablas de presencia/vistas/dashboard")
     log.info("editor admin app started")
@@ -330,6 +332,7 @@ app = FastAPI(
 )
 app.include_router(gallery_router.router)
 app.include_router(jinxxy_router.router)
+app.include_router(meetings_router.router)
 app.include_router(reminders_router.router)
 app.include_router(reviews_router.router)
 
@@ -640,11 +643,6 @@ async def _module_stub_page(request: Request, section_id: str, roles: dict):
             "section_label": info["label"], "icon": info["icon"], "accent": info["accent"],
         },
     )
-
-
-@app.get("/meetings", response_class=HTMLResponse)
-async def meetings_page(request: Request, roles: dict = Depends(require_manager)):
-    return await _module_stub_page(request, "meetings", roles)
 
 
 @app.get("/api/overview/status")
