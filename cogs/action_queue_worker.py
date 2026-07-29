@@ -29,6 +29,7 @@ class ActionQueueCog(commands.Cog):
             "review_publish": self._handle_review_publish,
             "review_remove": self._handle_review_remove,
             "jinxxy_sync": self._handle_jinxxy_sync,
+            "meeting_republish": self._handle_meeting_republish,
         }
         self._tick.start()
 
@@ -207,6 +208,18 @@ class ActionQueueCog(commands.Cog):
             "removed": len(result.get("removed") or []),
             "products": len(result.get("products") or []),
         }
+
+    async def _handle_meeting_republish(self, payload: dict) -> dict:
+        meeting_id = int(payload["meeting_id"])
+        actor_name = payload.get("actor_name") or None
+        meeting_cog = self.bot.get_cog("Meeting")
+        if meeting_cog is None:
+            raise RuntimeError(
+                "MeetingCog no está cargado · MeetingCog is not loaded"
+            )
+        return await meeting_cog._republish(
+            meeting_id, actor_name=actor_name
+        )
 
 
 async def setup(bot: commands.Bot):

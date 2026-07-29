@@ -13,6 +13,7 @@ El "toma nota" por TEXTO (comando o mención) es instantáneo.
 """
 import asyncio
 import io
+import json
 import logging
 import re
 import shutil
@@ -67,6 +68,8 @@ class MeetingSession:
         self.tema = tema
         self.recorder = DaveVoiceRecorder(out_dir)
         self.started_at = datetime.now()
+        self.ended_at: datetime | None = None
+        self.attendees: list[str] = []
         self.text_notes: list[tuple[str, str, str]] = []  # (hora, autor, texto)
 
 
@@ -82,6 +85,8 @@ class MeetingCog(
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.sessions: dict[int, MeetingSession] = {}  # guild_id -> sesión activa
+        self._backfilled = False
+        db.init_meetings()
         config.RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
     # ── /reunion grabar ──────────────────────────────────────────────────────────
@@ -154,6 +159,23 @@ class MeetingCog(
 
     async def _teardown(self, session: MeetingSession):
         """Detiene la captura, cierra los WAV y desconecta del canal de voz."""
+        bot_ids = {
+            member.id
+            for member in session.voice_channel.members
+            if member.bot
+        }
+        member_names = [
+            member.display_name
+            for member in session.voice_channel.members
+            if not member.bot
+        ]
+        speaker_names = [
+            user["name"]
+            for user_id, user in session.recorder.users.items()
+            if user_id not in bot_ids and user.get("name")
+        ]
+        session.attendees = list(dict.fromkeys(member_names + speaker_names))
+        session.ended_at = datetime.now()
         try:
             session.vc.stop_listening()
         except Exception:
@@ -276,8 +298,41 @@ class MeetingCog(
         if isinstance(forum, discord.ForumChannel):
             try:
                 created = await forum.create_thread(name=title[:100], embed=embed, file=_md_file())
+            except discord.HTTPException as e:
+                log.error("No se pudo publicar el acta en el foro: %s", e)
+            else:
+                try:
+                    await asyncio.to_thread(
+                        db.insert_meeting,
+                        tema=session.tema,
+                        started_at=session.started_at.isoformat(),
+                        ended_at=(
+                            session.ended_at.isoformat()
+                            if session.ended_at is not None
+                            else None
+                        ),
+                        attendees=session.attendees,
+                        notes=notes,
+                        transcript=transcript,
+                        summary=summary,
+                        thread_id=created.thread.id,
+                        starter_message_id=created.message.id,
+                    )
+                except Exception:
+                    log.exception(
+                        "meeting: no pude persistir el acta publicada en foro (%s)",
+                        title,
+                    )
                 if session.text_channel and session.text_channel.id != created.thread.id:
-                    await session.text_channel.send(f"📋 Acta publicada en el foro: {created.thread.mention}")
+                    try:
+                        await session.text_channel.send(
+                            f"📋 Acta publicada en el foro: {created.thread.mention}"
+                        )
+                    except discord.HTTPException:
+                        log.exception(
+                            "meeting: no pude anunciar el acta publicada (%s)",
+                            title,
+                        )
                 # D-11: activity_log row for the Overview "recent activity" list — additive,
                 # never aborts the post (mirrors cogs/presence.py::_store's try/except idiom).
                 try:
@@ -288,11 +343,199 @@ class MeetingCog(
                     log.exception("meeting: no pude registrar la actividad de publicación (%s)",
                                   title)
                 return
-            except discord.HTTPException as e:
-                log.error("No se pudo publicar el acta en el foro: %s", e)
 
         # Fallback: publicar en el canal donde se usó /parar
         await session.text_channel.send(embed=embed, file=_md_file())
+        try:
+            await asyncio.to_thread(
+                db.insert_meeting,
+                tema=session.tema,
+                started_at=session.started_at.isoformat(),
+                ended_at=(
+                    session.ended_at.isoformat()
+                    if session.ended_at is not None
+                    else None
+                ),
+                attendees=session.attendees,
+                notes=notes,
+                transcript=transcript,
+                summary=summary,
+                thread_id=None,
+                starter_message_id=None,
+            )
+        except Exception:
+            log.exception(
+                "meeting: no pude persistir el acta publicada en canal (%s)",
+                title,
+            )
+
+    async def _republish(
+        self, meeting_id: int, actor_name: str | None = None
+    ) -> dict:
+        """Edit the stored forum starter embed without replacing its transcript."""
+        row = await asyncio.to_thread(db.get_meeting, meeting_id)
+        if (
+            row is None
+            or row["thread_id"] is None
+            or row["starter_message_id"] is None
+        ):
+            raise RuntimeError(
+                "esta reunión no tiene una publicación en el foro · "
+                "no forum post to edit"
+            )
+
+        channel = self.bot.get_channel(row["thread_id"])
+        if channel is None:
+            channel = await self.bot.fetch_channel(row["thread_id"])
+        if not isinstance(channel, discord.Thread):
+            raise RuntimeError("el hilo ya no existe · thread no longer exists")
+
+        started_at = str(row["started_at"])
+        try:
+            fecha = datetime.fromisoformat(
+                started_at.replace("Z", "+00:00")
+            ).strftime("%d/%m/%Y %H:%M")
+        except ValueError:
+            fecha = started_at
+        title = f"📝 {fecha} — {row['tema']}"
+        try:
+            notes = json.loads(row["notes_json"] or "[]")
+        except (TypeError, json.JSONDecodeError):
+            notes = []
+
+        embed = discord.Embed(
+            title=title[:256],
+            description=(row["summary"] or "*Sin resumen.*")[:4096],
+            color=EMBED_COLOR,
+        )
+        if notes:
+            embed.add_field(
+                name="📝 Notas escritas",
+                value="\n".join(f"• {note}" for note in notes)[:1024],
+                inline=False,
+            )
+        embed.set_footer(text="Transcripción completa adjunta")
+
+        was_archived = channel.archived
+        if was_archived:
+            await channel.edit(archived=False)
+        try:
+            partial = channel.get_partial_message(row["starter_message_id"])
+            try:
+                await partial.edit(embed=embed)
+            except discord.NotFound as exc:
+                raise RuntimeError(
+                    "el mensaje ya no existe · message no longer exists"
+                ) from exc
+        finally:
+            if was_archived:
+                await channel.edit(archived=True)
+
+        actor = actor_name or "desconocido"
+        await asyncio.to_thread(
+            db.log_activity,
+            "meeting_republished",
+            f"Acta editada por {actor}: {row['tema']} / "
+            f"Meeting minutes edited by {actor}: {row['tema']}",
+        )
+        return {"ok": True}
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Import historical forum meetings once per process startup."""
+        if self._backfilled:
+            return
+        self._backfilled = True
+        try:
+            await self._backfill_meetings()
+        except Exception:
+            log.exception("meeting startup backfill failed")
+
+    async def _backfill_meetings(self):
+        """Best-effort import of active and archived meeting forum threads."""
+        forum = self.bot.get_channel(config.MEETINGS_FORUM_ID)
+        if forum is None:
+            forum = await self.bot.fetch_channel(config.MEETINGS_FORUM_ID)
+        if not isinstance(forum, discord.ForumChannel):
+            log.warning(
+                "meeting backfill: forum channel %s not found",
+                config.MEETINGS_FORUM_ID,
+            )
+            return
+
+        threads = list(forum.threads)
+        async for archived_thread in forum.archived_threads(limit=None):
+            threads.append(archived_thread)
+
+        imported = 0
+        for thread in threads:
+            try:
+                existing = await asyncio.to_thread(
+                    db.get_meeting_by_thread_id, thread.id
+                )
+                if existing is not None:
+                    continue
+
+                starter = getattr(thread, "starter_message", None)
+                if starter is None:
+                    try:
+                        starter = await thread.fetch_message(thread.id)
+                    except discord.HTTPException:
+                        log.exception(
+                            "meeting backfill: starter message unavailable for thread %s",
+                            thread.id,
+                        )
+
+                summary = ""
+                transcript = None
+                starter_message_id = thread.id
+                if starter is not None:
+                    starter_message_id = starter.id
+                    if starter.embeds:
+                        summary = starter.embeds[0].description or ""
+                    attachment = next(
+                        (
+                            item
+                            for item in starter.attachments
+                            if item.filename.lower().endswith(".md")
+                        ),
+                        None,
+                    )
+                    if attachment is not None:
+                        try:
+                            raw = await attachment.read()
+                            transcript = raw.decode("utf-8")
+                        except Exception:
+                            log.exception(
+                                "meeting backfill: transcript unavailable for thread %s",
+                                thread.id,
+                            )
+
+                created_at = thread.created_at
+                started_at = (
+                    created_at.isoformat()
+                    if hasattr(created_at, "isoformat")
+                    else str(created_at)
+                )
+                await asyncio.to_thread(
+                    db.insert_meeting,
+                    tema=thread.name,
+                    started_at=started_at,
+                    ended_at=None,
+                    attendees=[],
+                    notes=[],
+                    transcript=transcript,
+                    summary=summary,
+                    thread_id=thread.id,
+                    starter_message_id=starter_message_id,
+                )
+                imported += 1
+            except Exception:
+                log.exception(
+                    "meeting backfill: import failed for thread %s",
+                    getattr(thread, "id", "?"),
+                )
+        log.info("meeting backfill: imported %d meeting(s)", imported)
 
     # ── /reunion nota (texto, instantáneo) ───────────────────────────────────────
     @app_commands.command(name="nota", description="Añade una nota; si hay reunión activa, va al acta")

@@ -495,3 +495,44 @@ async def test_jinxxy_sync_handles_a_missing_actor_name(monkeypatch, tmp_path):
     row = action_queue.get_status(action_id)
     assert row["status"] == "done"
     run_sync_guarded.assert_awaited_once_with(source="panel", actor_name=None)
+
+
+# ══ Phase 09-03: meeting_republish dispatch ═════════════════════════════════════
+
+@pytest.mark.anyio
+async def test_meeting_republish_is_registered_and_delegates(monkeypatch, tmp_path):
+    republish = AsyncMock(return_value={"ok": True})
+    meeting_cog = SimpleNamespace(_republish=republish)
+    bot = SimpleNamespace(
+        get_cog=lambda name: meeting_cog if name == "Meeting" else None
+    )
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+    action_id = action_queue.enqueue(
+        "meeting_republish",
+        {"meeting_id": 42, "actor_name": "Nocturna"},
+        requested_by="manager-1",
+    )
+
+    assert "meeting_republish" in cog._dispatch
+    await cog._run_once()
+
+    row = action_queue.get_status(action_id)
+    assert row["status"] == "done"
+    assert json.loads(row["result_json"]) == {"ok": True}
+    republish.assert_awaited_once_with(42, actor_name="Nocturna")
+
+
+@pytest.mark.anyio
+async def test_meeting_republish_without_cog_raises_bilingual_error(
+    monkeypatch, tmp_path
+):
+    bot = SimpleNamespace(get_cog=lambda name: None)
+    cog = _build_cog(monkeypatch, tmp_path, bot)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        await cog._handle_meeting_republish(
+            {"meeting_id": 42, "actor_name": "Nocturna"}
+        )
+
+    assert "no está cargado" in str(exc_info.value)
+    assert "is not loaded" in str(exc_info.value)
