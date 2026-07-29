@@ -48,27 +48,28 @@ def enqueue(kind: str, payload: dict, requested_by: str) -> int:
 
 
 @_retry_on_locked
-def enqueue_deduped(kind: str, payload: dict, requested_by: str) -> int:
-    """D-04 dedupe-at-enqueue for actions that must not queue behind themselves.
+def enqueue_deduped(kind: str, payload: dict, requested_by: str,
+                    dedupe_key: str | None = None) -> int:
+    """Dedupe pending/claimed actions by kind or an entity-scoped key.
 
-    A duplicate row would dispatch after the first action releases the in-process sync
-    lock, so the bot-side overlap guard cannot catch it. Two POSTs inside the same
-    transaction window remain theoretically possible; the bot-side D-01 ``asyncio.Lock``
-    fast path absorbs that residual as a benign "already syncing" result.
+    ``dedupe_key`` defaults to ``kind`` so Jinxxy keeps its existing global singleton
+    behavior without a call-site change. Per-entity actions pass a composite key so
+    different entities never collapse into one job.
     """
+    key = dedupe_key or kind
     with db._get_conn() as conn:
         existing = conn.execute(
-            "SELECT id FROM action_queue WHERE kind = ? "
+            "SELECT id FROM action_queue WHERE dedupe_key = ? "
             "AND status IN ('pending', 'claimed') ORDER BY id LIMIT 1",
-            (kind,),
+            (key,),
         ).fetchone()
         if existing is not None:
             return existing["id"]
         cur = conn.execute(
             "INSERT INTO action_queue "
-            "(kind, payload_json, status, requested_by, requested_at) "
-            "VALUES (?, ?, 'pending', ?, ?)",
-            (kind, json.dumps(payload), requested_by, _now_iso()),
+            "(kind, payload_json, status, requested_by, requested_at, dedupe_key) "
+            "VALUES (?, ?, 'pending', ?, ?, ?)",
+            (kind, json.dumps(payload), requested_by, _now_iso(), key),
         )
         return cur.lastrowid
 

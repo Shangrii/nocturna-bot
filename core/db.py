@@ -408,6 +408,81 @@ def set_next_fire(
         return cur.rowcount > 0
 
 
+# ── Reuniones (Fase 9: historial durable) ──────────────────────────────────────
+def init_meetings():
+    """Create the durable meetings table if it doesn't exist (MEET-01)."""
+    with _get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS meetings (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                tema               TEXT    NOT NULL DEFAULT '',
+                started_at         TEXT    NOT NULL,
+                ended_at           TEXT,
+                attendees_json     TEXT    NOT NULL DEFAULT '[]',
+                notes_json         TEXT    NOT NULL DEFAULT '[]',
+                transcript         TEXT,
+                summary            TEXT    NOT NULL DEFAULT '',
+                thread_id          INTEGER,
+                starter_message_id INTEGER,
+                created_at         TEXT    NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_meetings_thread_id ON meetings(thread_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_meetings_started_at ON meetings(started_at)"
+        )
+
+
+def insert_meeting(tema, started_at, ended_at, attendees, notes, transcript, summary,
+                   thread_id=None, starter_message_id=None) -> int:
+    """Insert one meeting row and return its new id."""
+    with _get_conn() as conn:
+        cur = conn.execute("""
+            INSERT INTO meetings
+                (tema, started_at, ended_at, attendees_json, notes_json,
+                 transcript, summary, thread_id, starter_message_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (tema, started_at, ended_at, json.dumps(attendees), json.dumps(notes),
+              transcript, summary, thread_id, starter_message_id,
+              datetime.now(timezone.utc).isoformat()))
+        return cur.lastrowid
+
+
+def get_meeting(meeting_id: int) -> sqlite3.Row | None:
+    """Return one meeting row, or None when it doesn't exist."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM meetings WHERE id = ?", (meeting_id,)
+        ).fetchone()
+
+
+def list_meetings() -> list[sqlite3.Row]:
+    """Return all meetings newest first."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM meetings ORDER BY started_at DESC, id DESC"
+        ).fetchall()
+
+
+def update_meeting_summary(meeting_id: int, summary: str) -> None:
+    """Update only the persisted summary for one meeting."""
+    with _get_conn() as conn:
+        conn.execute(
+            "UPDATE meetings SET summary = ? WHERE id = ?",
+            (summary, meeting_id),
+        )
+
+
+def get_meeting_by_thread_id(thread_id: int) -> sqlite3.Row | None:
+    """Return the meeting id for an imported forum thread, or None."""
+    with _get_conn() as conn:
+        return conn.execute(
+            "SELECT id FROM meetings WHERE thread_id = ?", (thread_id,)
+        ).fetchone()
+
+
 # ── Tienda (Fase 9: snapshot de sync) ─────────────────────────────────────────
 # El cog del sync guarda, por producto, el ÚLTIMO valor sincronizado de cada campo
 # propiedad del sync (D-12). Ese snapshot durable permite la comparación de tres vías
@@ -841,8 +916,16 @@ def init_action_queue():
                 next_attempt_at TEXT
             )
         """)
+        try:
+            conn.execute("ALTER TABLE action_queue ADD COLUMN dedupe_key TEXT")
+        except sqlite3.OperationalError:
+            pass  # Ya existe
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_action_queue_status ON action_queue(status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_action_queue_dedupe_key "
+            "ON action_queue(dedupe_key)"
         )
 
 

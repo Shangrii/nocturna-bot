@@ -77,3 +77,33 @@ def test_enqueue_deduped_does_not_dedupe_across_kinds(monkeypatch, tmp_path):
     assert noop_id != sync_id
     assert _kind_count("jinxxy_sync") == 1
     assert _kind_count("noop") == 1
+
+
+def test_enqueue_deduped_scopes_meeting_republish_by_dedupe_key(
+    monkeypatch, tmp_path
+):
+    _use_tmp_db(monkeypatch, tmp_path, "meeting-keys.db")
+
+    id_same_a = action_queue.enqueue_deduped(
+        "meeting_republish",
+        {"meeting_id": 1},
+        requested_by="manager-1",
+        dedupe_key="meeting_republish:1",
+    )
+    id_same_b = action_queue.enqueue_deduped(
+        "meeting_republish",
+        {"meeting_id": 1},
+        requested_by="manager-2",
+        dedupe_key="meeting_republish:1",
+    )
+    id_diff_1 = id_same_a
+    id_diff_2 = action_queue.enqueue_deduped(
+        "meeting_republish",
+        {"meeting_id": 2},
+        requested_by="manager-2",
+        dedupe_key="meeting_republish:2",
+    )
+
+    assert id_same_a == id_same_b
+    assert id_diff_1 != id_diff_2
+    assert _kind_count("meeting_republish") == 2
