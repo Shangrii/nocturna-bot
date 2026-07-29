@@ -83,7 +83,8 @@ day-to-day operations, editors their own presentation page.
 - [ ] **Phase 5: sqlite Hardening + Action Queue** - busy_timeout/retry on write paths; generic action_queue infra every write-heavy module reuses
 - [ ] **Phase 6: Reminders CRUD** - Full CRUD + pause/resume via table+modal, scheduler-race guard
 - [ ] **Phase 7: Gallery + Reviews Approval Queues** - Approve/remove photos and reviews with reaction-flow parity, race-free
-- [x] **Phase 8: Jinxxy Manual Sync** - Manual sync trigger + last-run status, overlap-guarded against the poll (completed 2026-07-28)
+- [x] **Phase 8: Jinxxy Manual Sync** - Manual sync trigger + last-run status, overlap-guarded against the poll
+ (completed 2026-07-28)
 - [ ] **Phase 9: Meetings Browser + Re-publish** - Persist meetings; browse transcripts/summaries; edit + idempotent re-publish
 - [ ] **Phase 10: Editors Section Integration** - Editors presentation app folded into the shared shell under the tier system
 
@@ -299,7 +300,22 @@ Plans:
   2. A Manager can browse the meeting history with transcript and summary.
   3. A Manager can edit a summary and re-publish it to the forum, editing the existing post rather than duplicating it, even on a double-click/retry.
 
-**Plans**: TBD
+**Plans**: 5 plans (3 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 09-01-PLAN.md — Core storage + per-entity dedupe: meetings table + CRUD in core/db.py, backward-compatible dedupe_key column + generalized enqueue_deduped, RED-first tests (MEET-01/03) [Wave 1]
+- [ ] 09-02-PLAN.md — Frontend templates: meetings.html (reverse-chron list) + meeting_detail.html (summary editor + Alpine republish state machine + collapsible transcript + D-14/D-09 states) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 09-03-PLAN.md — Bot-side: persist on _publish both paths (D-14) + attendee snapshot + archived-safe _republish + idempotent on_ready backfill + worker meeting_republish dispatch (MEET-01/03) [Wave 2]
+- [ ] 09-04-PLAN.md — Manager-gated app/routers/meetings.py (list/detail/republish, per-meeting dedupe, no bot creds) + app/main.py wiring + stub deletion (MEET-02/03) [Wave 2]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 09-05-PLAN.md — Phase gate (full suite) + human-verify checkpoint: live no-duplicate re-publish + archived-thread edit + MANAGE_THREADS + restart persistence [Wave 3]
 **UI hint**: yes
 
 ### Phase 10: Editors Section Integration
@@ -330,5 +346,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Reminders CRUD | v2.0 | 0/6 | Not started | - |
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 8/8 | Complete   | 2026-07-28 |
-| 9. Meetings Browser + Re-publish | v2.0 | 0/TBD | Not started | - |
+| 9. Meetings Browser + Re-publish | v2.0 | 0/5 | Not started | - |
 | 10. Editors Section Integration | v2.0 | 0/TBD | Not started | - |
