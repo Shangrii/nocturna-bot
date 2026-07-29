@@ -609,10 +609,11 @@ non-deprecated surface on both the installed 2.5.2 and the pinned 2.7.1.
 
 **If this table is empty:** N/A — see entries above.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the bot's Discord role currently hold `MANAGE_THREADS` on the meetings forum
    channel?**
+   - **RESOLVED: deferred to human-verify** — adopted as a `checkpoint:human-verify` step in plan 09-05 (Task 2, step 1). Code degrades gracefully either way.
    - What we know: the code can create forum threads (requires "Create Posts"/"Send Messages"
      in a forum channel), which is a DIFFERENT permission than `MANAGE_THREADS`.
    - What's unclear: whether the bot's existing role grant on the live Discord server already
@@ -630,6 +631,7 @@ non-deprecated surface on both the installed 2.5.2 and the pinned 2.7.1.
      itself — both work; CONTEXT.md leaves this to Claude's Discretion.
    - Recommendation: snapshot at the START of `_teardown` (before `stop_listening()`/
      `disconnect()`), unioned with `recorder.users` names, as covered in Pitfall 5.
+   - **RESOLVED: recommendation adopted** — implemented verbatim in plan 09-03 (Task 2).
 
 ## Environment Availability
 
