@@ -40,7 +40,7 @@ async def meetings_page(
             "asset_v": _asset_version(),
             "bot_online": await bot_online(),
             "rows": rows,
-            "section_label": "Reuniones · Meetings",
+            "section_label": "Reuniones",
             "icon": "🎙",
             "accent": "var(--accent-meetings)",
         },
@@ -57,7 +57,7 @@ async def meeting_detail_page(
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail="reunión no encontrada · meeting not found",
+            detail="reunión no encontrada",
         )
     return templates.TemplateResponse(
         request,

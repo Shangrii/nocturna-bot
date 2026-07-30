@@ -33,10 +33,7 @@ _APP_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
 
 _FREQUENCIES = {"weekly", "biweekly", "monthly", "oneoff"}
-_CONFLICT_COPY = (
-    "Este recordatorio cambió mientras editabas — recarga la página. · "
-    "This reminder changed while you were editing — reload the page."
-)
+_CONFLICT_COPY = "Este recordatorio cambió mientras editabas — recarga la página."
 
 
 async def _read_json(request: Request) -> dict:
@@ -55,7 +52,7 @@ def _integer(raw, field: str, errors: dict[str, str]) -> int | None:
             raise ValueError
         return int(raw)
     except (TypeError, ValueError):
-        errors[field] = "Debe ser un número entero. · Must be an integer."
+        errors[field] = "Debe ser un número entero."
         return None
 
 
@@ -102,14 +99,12 @@ def _validate_schedule(
     errors: dict[str, str] = {}
     frequency = str(body.get("frequency", "")).strip().lower()
     if frequency not in _FREQUENCIES:
-        errors["frequency"] = (
-            "Elige weekly, biweekly, monthly u oneoff. · Choose a valid frequency."
-        )
+        errors["frequency"] = "Elige weekly, biweekly, monthly u oneoff."
 
     try:
         hour, minute = parse_time(body.get("time", ""))
     except (TypeError, ValueError):
-        errors["time"] = "Usa una hora válida HH:MM. · Use a valid HH:MM time."
+        errors["time"] = "Usa una hora válida HH:MM."
         hour = minute = None
 
     schedule = {
@@ -124,21 +119,19 @@ def _validate_schedule(
     if frequency == "weekly":
         weekday = _integer(body.get("weekday"), "weekday", errors)
         if weekday is not None and not valid_weekday(weekday):
-            errors["weekday"] = "Debe estar entre 0 y 6. · Must be between 0 and 6."
+            errors["weekday"] = "Debe estar entre 0 y 6."
         schedule["weekday"] = weekday
     elif frequency == "monthly":
         day = _integer(body.get("day_of_month"), "day_of_month", errors)
         if day is not None and not valid_day_of_month(day):
-            errors["day_of_month"] = "Debe estar entre 1 y 31. · Must be between 1 and 31."
+            errors["day_of_month"] = "Debe estar entre 1 y 31."
         schedule["day_of_month"] = day
     elif frequency in {"biweekly", "oneoff"}:
         run_date = str(body.get("run_date", "")).strip()
         try:
             parse_date(run_date)
         except (TypeError, ValueError):
-            errors["run_date"] = (
-                "Usa una fecha válida YYYY-MM-DD. · Use a valid YYYY-MM-DD date."
-            )
+            errors["run_date"] = "Usa una fecha válida YYYY-MM-DD."
         schedule["run_date"] = run_date or None
 
     if not errors:
@@ -148,9 +141,7 @@ def _validate_schedule(
             and reject_past_oneoff
             and next_fire <= now_utc
         ):
-            errors["run_date"] = (
-                "La fecha y hora ya pasaron. · The date and time are in the past."
-            )
+            errors["run_date"] = "La fecha y hora ya pasaron."
         else:
             schedule["next_fire_utc"] = next_fire.isoformat()
 
@@ -164,21 +155,21 @@ def _validate_record(
 
     name = str(body.get("name", "")).strip()
     if not name:
-        errors["name"] = "El nombre es obligatorio. · Name is required."
+        errors["name"] = "El nombre es obligatorio."
     elif len(name) > 80:
-        errors["name"] = "Máximo 80 caracteres. · Maximum 80 characters."
+        errors["name"] = "Máximo 80 caracteres."
 
     channel_id = _integer(body.get("channel_id"), "channel_id", errors)
     if channel_id is not None and channel_id <= 0:
-        errors["channel_id"] = "El canal no es válido. · Channel is invalid."
+        errors["channel_id"] = "El canal no es válido."
 
     message = str(body.get("message", "")).strip()
     if not message:
-        errors["message"] = "El mensaje es obligatorio. · Message is required."
+        errors["message"] = "El mensaje es obligatorio."
 
     mentions = body.get("mentions", "")
     if not isinstance(mentions, str):
-        errors["mentions"] = "La mención no es válida. · Mention is invalid."
+        errors["mentions"] = "La mención no es válida."
         mentions = ""
 
     if body.get("mention_id") not in (None, ""):
@@ -186,7 +177,7 @@ def _validate_record(
         if mention_id is not None and mention_id > 0:
             mentions = f"<@&{mention_id}>"
         elif mention_id is not None:
-            errors["mention_id"] = "El rol no es válido. · Role is invalid."
+            errors["mention_id"] = "El rol no es válido."
 
     validated.update(
         {
@@ -204,7 +195,7 @@ def _expected_version(body: dict) -> tuple[int | None, dict[str, str]]:
     errors: dict[str, str] = {}
     version = _integer(body.get("version"), "version", errors)
     if version is not None and version < 1:
-        errors["version"] = "La versión no es válida. · Version is invalid."
+        errors["version"] = "La versión no es válida."
     return version, errors
 
 
@@ -223,14 +214,14 @@ def _relative_fire(value: str, now_utc: datetime) -> str:
     future = seconds >= 0
     span = abs(seconds)
     if span < 3600:
-        amount, unit_es, unit_en = max(1, span // 60), "min", "min"
+        amount, unit = max(1, span // 60), "min"
     elif span < 86400:
-        amount, unit_es, unit_en = span // 3600, "h", "h"
+        amount, unit = span // 3600, "h"
     else:
-        amount, unit_es, unit_en = span // 86400, "d", "d"
+        amount, unit = span // 86400, "d"
     if future:
-        return f"en {amount}{unit_es} · in {amount}{unit_en}"
-    return f"hace {amount}{unit_es} · {amount}{unit_en} ago"
+        return f"en {amount}{unit}"
+    return f"hace {amount}{unit}"
 
 
 def _render_rows(rows, cached_names, now_utc: datetime) -> tuple[list[dict], list[dict]]:
@@ -305,7 +296,7 @@ async def reminders_page(
             "bot_online": False,
             "rows": rendered_rows,
             "names": names,
-            "section_label": "Recordatorios · Reminders",
+            "section_label": "Recordatorios",
             "icon": "⏰",
             "accent": "var(--accent-reminders)",
         },

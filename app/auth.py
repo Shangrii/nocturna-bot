@@ -66,12 +66,12 @@ _REDIRECT_EDITOR_TIER = "/editor"
 # Explicit timeout on every outbound Discord call (no unbounded hangs on the role gate).
 _HTTP_TIMEOUT = httpx.Timeout(10.0)
 
-# UI-SPEC "Not-an-editor (403)" copy (EN · ES) — the only thing a rejected user sees.
-# Carries no secret/token; safe to return in the response body (T-10-08-05).
+# UI-SPEC "Not-an-editor (403)" copy (Spanish-only, 10-07 UAT gap-closure) — the only
+# thing a rejected user sees. Carries no secret/token; safe to return in the response
+# body (T-10-08-05).
 _FORBIDDEN_COPY = (
-    "This tool is for Nocturna editors only. If you should have access, ask a mod to "
-    "check your role. — Esta herramienta es solo para editores de Nocturna. Si "
-    "deberías tener acceso, pídele a un mod que revise tu rol."
+    "Esta herramienta es solo para editores de Nocturna. Si deberías tener acceso, "
+    "pídele a un mod que revise tu rol."
 )
 
 

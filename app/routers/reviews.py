@@ -47,7 +47,7 @@ async def reviews_page(
             "bot_online": False,
             "pending_rows": pending,
             "published_rows": published,
-            "section_label": "Reseñas · Reviews",
+            "section_label": "Reseñas",
             "icon": "★",
             "accent": "var(--accent-reviews)",
         },
@@ -72,7 +72,7 @@ async def _enqueue_review_action(
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail="reseña no encontrada · review not found",
+            detail="reseña no encontrada",
         )
     action_id = await run_in_threadpool(
         action_queue.enqueue,

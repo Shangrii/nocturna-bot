@@ -47,7 +47,7 @@ async def gallery_page(
             "bot_online": False,
             "pending_rows": pending,
             "published_rows": published,
-            "section_label": "Galería · Gallery",
+            "section_label": "Galería",
             "icon": "🖼",
             "accent": "var(--accent-gallery)",
         },
@@ -72,7 +72,7 @@ async def _enqueue_gallery_action(
     if row is None:
         raise HTTPException(
             status_code=404,
-            detail="foto no encontrada · photo not found",
+            detail="foto no encontrada",
         )
     action_id = await run_in_threadpool(
         action_queue.enqueue,

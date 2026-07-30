@@ -98,42 +98,29 @@ _UPLOAD_CHUNK = 256 * 1024
 _REJECTED_EXTS = (".svg",)
 _REJECTED_CONTENT_TYPES = ("image/svg+xml",)
 
-# UI-SPEC copy (bilingual, single string carrying both locales like the 403 copy).
+# UI-SPEC copy (Spanish-only UI chrome, 10-07 UAT gap-closure).
 _IMAGE_ERROR_COPY = (
-    "Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP de menos de 10 MB. — "
-    "That image couldn't be uploaded (format or size). Use PNG/JPG/WebP under 10 MB."
+    "Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP de menos de 10 MB."
 )
-_SAVE_FAILED_COPY = (
-    "No se pudo publicar. Inténtalo de nuevo en un momento. — "
-    "Couldn't publish. Try again in a moment."
-)
-_PUBLISH_SUCCESS_COPY = (
-    "Publicado — la web tarda un par de minutos en actualizarse. — "
-    "Published — the site takes a couple of minutes to update."
-)
-_UNPUBLISH_FAILED_COPY = (
-    "No se pudo despublicar. Inténtalo de nuevo. — Couldn't unpublish. Try again."
-)
-_UNPUBLISH_SUCCESS_COPY = "Página despublicada — Page unpublished"
+_SAVE_FAILED_COPY = "No se pudo publicar. Inténtalo de nuevo en un momento."
+_PUBLISH_SUCCESS_COPY = "Publicado — la web tarda un par de minutos en actualizarse."
+_UNPUBLISH_FAILED_COPY = "No se pudo despublicar. Inténtalo de nuevo."
+_UNPUBLISH_SUCCESS_COPY = "Página despublicada"
 
-# Owner settings panel copy (Phase 2, D-13 bilingual house style).
-_SETTINGS_SAVED_COPY = "Ajustes guardados. — Settings saved."
-_SETTINGS_ERROR_COPY = (
-    "Revisa los campos marcados. — Check the highlighted fields."
-)
+# Owner settings panel copy (Phase 2, D-13; Spanish-only per 10-07 UAT gap-closure).
+_SETTINGS_SAVED_COPY = "Ajustes guardados."
+_SETTINGS_ERROR_COPY = "Revisa los campos marcados."
 
 # Fallback ``roles`` dict for the dashboard-shell sidebar when rendering forbidden.html
 # from the exception handler (Phase 3, 03-07) — no tier is resolved for a denied caller
 # at this layer, so every section renders locked (see _auth_html_or_json docstring).
 _NO_TIER_ROLES = {"is_owner": False, "is_manager": False, "is_editor": False}
 
-# Slug-rejection copy, keyed by SlugRejected.reason → (HTTP status, bilingual message).
+# Slug-rejection copy, keyed by SlugRejected.reason → (HTTP status, Spanish-only message).
 _SLUG_REJECT = {
-    "invalid": (422, "Elige un nombre de link válido (letras, números y guiones). · "
-                     "Choose a valid link name (letters, numbers, hyphens)."),
-    "reserved": (422, "Ese nombre de link está reservado, elige otro. · "
-                      "That link name is reserved — choose another."),
-    "taken": (409, "Ese nombre de link ya está en uso. · That link name is already taken."),
+    "invalid": (422, "Elige un nombre de link válido (letras, números y guiones)."),
+    "reserved": (422, "Ese nombre de link está reservado, elige otro."),
+    "taken": (409, "Ese nombre de link ya está en uso."),
 }
 
 # ── background media + audio upload limits (D-18 / D-06 / D-19 / T-10.1-11-01) ───────
@@ -165,12 +152,10 @@ _AUDIO_CONTENT_TYPES = (
 
 _MEDIA_ERROR_COPY = (
     "Ese archivo no se pudo procesar (formato o compresión). Usa una imagen, GIF o vídeo "
-    "compatible. — That file couldn't be processed (format or compression). Use a supported "
-    "image, GIF or video."
+    "compatible."
 )
 _AUDIO_ERROR_COPY = (
-    "Ese audio no se pudo subir (formato o tamaño). Usa MP3/OGG/M4A de menos de 5 MB. — "
-    "That audio couldn't be uploaded (format or size). Use MP3/OGG/M4A under 5 MB."
+    "Ese audio no se pudo subir (formato o tamaño). Usa MP3/OGG/M4A de menos de 5 MB."
 )
 
 
@@ -179,11 +164,8 @@ class MediaProcessingError(Exception):
 
 
 def _too_large_copy(cap_human: str) -> str:
-    """Bilingual over-cap copy (D-19) interpolating the human-readable size limit."""
-    return (
-        f"El archivo supera el límite ({cap_human}). Comprime o elige otro. — "
-        f"File exceeds the limit ({cap_human}). Compress or choose another."
-    )
+    """Spanish-only over-cap copy (D-19) interpolating the human-readable size limit."""
+    return f"El archivo supera el límite ({cap_human}). Comprime o elige otro."
 
 
 def _classify_media(content_type: str, filename: str):
@@ -529,13 +511,13 @@ async def editor_page(request: Request, roles: dict = Depends(_resolve_roles)):
 # module_stub.html). Owner and Manager both satisfy require_manager; Settings itself
 # stays on the UNCHANGED require_owner dependency below (D-04/T-03-12).
 _MODULE_SECTIONS = {
-    "gallery": {"label": "Galería · Gallery", "icon": "🖼", "accent": "var(--accent-gallery)"},
-    "reviews": {"label": "Reseñas · Reviews", "icon": "★", "accent": "var(--accent-reviews)"},
+    "gallery": {"label": "Galería", "icon": "🖼", "accent": "var(--accent-gallery)"},
+    "reviews": {"label": "Reseñas", "icon": "★", "accent": "var(--accent-reviews)"},
     "reminders": {
-        "label": "Recordatorios · Reminders", "icon": "⏰", "accent": "var(--accent-reminders)",
+        "label": "Recordatorios", "icon": "⏰", "accent": "var(--accent-reminders)",
     },
-    "jinxxy": {"label": "Tienda Jinxxy · Jinxxy Store", "icon": "🛍", "accent": "var(--accent-jinxxy)"},
-    "meetings": {"label": "Reuniones · Meetings", "icon": "🎙", "accent": "var(--accent-meetings)"},
+    "jinxxy": {"label": "Tienda Jinxxy", "icon": "🛍", "accent": "var(--accent-jinxxy)"},
+    "meetings": {"label": "Reuniones", "icon": "🎙", "accent": "var(--accent-meetings)"},
 }
 
 _NAMES_STALE_SECONDS = 15 * 60

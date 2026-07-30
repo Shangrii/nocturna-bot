@@ -95,7 +95,7 @@ async def jinxxy_page(
             "active_section": "jinxxy",
             "asset_v": asset_v,
             "bot_online": online,
-            "section_label": "Tienda Jinxxy · Jinxxy Store",
+            "section_label": "Tienda Jinxxy",
             "icon": "🛍",
             "accent": "var(--accent-jinxxy)",
             "sync": sync,

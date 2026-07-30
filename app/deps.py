@@ -55,10 +55,7 @@ from core import db, settings
 # missed beat doesn't flap the status, but two in a row reads as offline.
 HEARTBEAT_STALE_SECONDS = 90
 
-_OWNER_FORBIDDEN_COPY = (
-    "Solo el propietario puede acceder a esta página. — "
-    "Only the owner can access this page."
-)
+_OWNER_FORBIDDEN_COPY = "Solo el propietario puede acceder a esta página."
 
 
 def compute_bot_online(heartbeat_row) -> bool:
