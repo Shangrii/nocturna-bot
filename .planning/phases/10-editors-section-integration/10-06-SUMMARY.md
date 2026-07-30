@@ -102,3 +102,12 @@ None - no external service configuration required.
 ---
 *Phase: 10-editors-section-integration*
 *Completed: 2026-07-30*
+
+## Self-Check: PASSED
+
+- FOUND: `../Website/src/pages/[slug].astro`
+- FOUND: `../Website/src/pages/e/[slug].astro`
+- FOUND: `.planning/phases/10-editors-section-integration/10-06-SUMMARY.md`
+- FOUND commit `b412143` (Website repo, Task 1)
+- FOUND commit `e9dc794` (Website repo, Task 2)
+- FOUND commit `8e11449` (nocturna-bot repo, this summary)
