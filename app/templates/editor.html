@@ -16,6 +16,26 @@
       Alpine scope then fails to build -> every binding throws "not defined"). -#}
   <div x-data='editorApp({{ entry | tojson }})' x-cloak>
 
+    <!-- Sticky sub-header: relocated status pill + Save/Publish + Unpublish
+         (10-05 Task 2) — the wordmark/logout/owner-Settings shortcut removed
+         from the old standalone topbar are NOT reproduced here (wordmark+logout
+         come free from the shell topbar; owner-Settings is redundant with the
+         sidebar's own Settings entry). -->
+    <div class="mod-hdr editor-subhead">
+      <span class="i">✎</span>
+      <div class="t">Editor</div>
+      <div class="editor-subhead-actions">
+        <span class="status-badge" :class="saving ? 'pending' : (page.published ? 'active' : '')"
+              x-text="saving ? (page.published ? 'Guardando… · Saving…' : 'Publicando… · Publishing…') : (page.published ? 'Publicada · Published' : 'Borrador · Draft')"></span>
+        <button class="btn btn--accent" type="button" @click="publish()" :disabled="saving"
+                x-text="saving ? (page.published ? 'Guardando…' : 'Publicando…') : (page.published ? 'Guardar cambios · Save changes' : 'Publicar · Publish')"></button>
+        <button class="btn btn--danger" type="button" @click="unpublish()" :disabled="saving"
+                x-show="page.published">
+          Despublicar · Unpublish
+        </button>
+      </div>
+    </div>
+
     <!-- Mobile pane tabs (hidden ≥1024px) -->
     <div class="pane-tabs" style="padding: 0 var(--sp-md);">
       <button class="btn btn--sm" type="button" @click="mobileView='edit'"
@@ -882,7 +902,7 @@
 
       return {
         page,
-        linkBase: (MEDIA_BASE || '') + '/e/',
+        linkBase: (MEDIA_BASE || '') + '/',
         blockTypes: ['bio', 'heading', 'text', 'links', 'portfolio', 'quote', 'image', 'divider'],
         curatedFonts: CURATED_FONTS,
         effectKeys: EFFECT_KEYS,
