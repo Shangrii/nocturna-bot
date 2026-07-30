@@ -506,6 +506,15 @@ def test_resolve_slug_rejects_reserved_word():
     assert ei.value.reason == "reserved"
 
 
+# ── Phase 10 (10-01): widened reserved-word set protecting the public site's own
+# top-level routes (T-10-02). RED until 10-02 widens RESERVED_SLUGS to include these.
+@pytest.mark.parametrize("word", ["en", "es", "gallery", "store", "fonts", "build"])
+def test_resolve_slug_rejects_widened_public_site_reserved_words(word):
+    with pytest.raises(SlugRejected) as ei:
+        resolve_slug(word, self_discord_id="1", editors=[])
+    assert ei.value.reason == "reserved"
+
+
 def test_resolve_slug_rejects_slug_taken_by_another_editor():
     editors = [{"discordId": "2", "slug": "aria"}]
     with pytest.raises(SlugRejected) as ei:
