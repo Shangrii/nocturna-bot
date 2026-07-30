@@ -1,14 +1,22 @@
-/* Editor admin app — Surface B (Fase 10, 10-10).
+/* Editor admin app — Surface B (Fase 10, 10-10; retinted onto dashboard.css in 10-03).
  *
- * A chrome-light builder tool that ECHOES the website's "Refined Street Editorial"
- * palette + type (the SAME hex values as src/styles/theme.css — do NOT fork the brand),
- * but stays functional/utilitarian: it is an internal editor-only tool, never deployed
- * to the public site (D-06). Tokens below are copied verbatim from the 10-UI-SPEC color
- * table — the single source of truth for both surfaces.
+ * NAMESPACE SPLIT (10-UI-SPEC.md "Reconciliation Strategy", D-01/D-06):
+ *   1. CHROME (topbar, buttons, fields, block cards, picker, theme panel, upload,
+ *      toast, login/403) — retargeted onto dashboard.css's shipped tokens
+ *      (--color-*, --font-sans, --text-*, --space-*, --radius-*) so the editor
+ *      reads as a native shell module.
+ *   2. PREVIEW CANVAS (every preview-prefixed selector + the effect keyframe
+ *      blocks / `spotify-spin` they depend on) — copied forward BYTE-FOR-BYTE,
+ *      untouched. These render the editor's own arbitrary `--theme-*` page
+ *      theme, not admin chrome, and must never resolve dashboard tokens.
+ *
+ * The legacy editorial ink/red palette below is kept verbatim in :root — it no
+ * longer styles any chrome selector, but survives as the fallback literal inside
+ * `var(--theme-x, --ink)`-style expressions feeding the preview rules.
  */
 
 :root {
-  /* Color (60/30/10 editorial ink/paper rhythm) */
+  /* Legacy editorial palette — PREVIEW FALLBACKS ONLY (never chrome again). */
   --ink: #0a0c14;            /* dominant base field / app background */
   --ink-raised: #10131e;     /* cards / panels / block surfaces */
   --paper-warm: #11141f;     /* alternating warm panel */
@@ -19,7 +27,9 @@
   --dim: #9a9198;            /* dim secondary text */
   --line: rgba(240, 234, 228, 0.14); /* hairline rules */
 
-  /* Spacing (8-point scale from theme.css) */
+  /* Spacing (8-point scale from theme.css) — still used verbatim by the preview
+     canvas rules below; chrome rules reference dashboard.css's --space-* scale
+     directly instead (1:1 pixel-value mapping, see 10-UI-SPEC.md Spacing Scale). */
   --sp-3xs: 4px;
   --sp-2xs: 8px;
   --sp-xs: 12px;
@@ -27,9 +37,11 @@
   --sp-md: 24px;
   --sp-lg: 32px;
   --sp-xl: 48px;
-  --touch-min: 44px; /* a11y / PLAT-04 minimum touch target */
+  --touch-min: 44px; /* a11y / PLAT-04 minimum touch target — kept verbatim, chrome AND preview */
 
-  /* Type */
+  /* Type — kept verbatim as preview-font fallbacks + the curated font-picker's
+     available choices. No longer used by chrome (chrome collapses onto
+     dashboard.css's --font-sans everywhere). */
   --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
   --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
   --font-mono: "Space Mono", ui-monospace, "Cascadia Code", monospace;
@@ -51,27 +63,34 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--ink);
-  color: var(--fg);
-  font-family: var(--font-body);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  /* font-size/line-height intentionally NOT retinted here: several preview
+     canvas elements (e.g. the profile header block) have no explicit font-size
+     of their own and inherit this base — changing it would visibly regress
+     preview fidelity (Pitfall 6). Colors/font-family are safe: every
+     text-bearing preview rule sets its own color/font-family explicitly,
+     overriding this. */
   font-size: 16px;
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
 }
 
-a { color: var(--red-on-ink); }
+a { color: var(--color-primary); text-decoration: none; }
 
-/* ── Labels / eyebrows (Space Mono, uppercase, letter-spaced) ─────────────── */
+/* ── Labels / eyebrows ─────────────────────────────────────────────────────── */
 .label {
-  font-family: var(--font-mono);
-  font-size: clamp(10px, 1.4vw, 12px);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.2;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--dim);
-  line-height: 1.4;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
 }
 
-h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.15; }
+h1, h2, h3 { font-family: var(--font-sans); font-weight: 600; line-height: 1.15; }
 
 /* ── Top bar (persistent) ──────────────────────────────────────────────────── */
 .topbar {
@@ -80,15 +99,15 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: var(--sp-sm);
-  padding: var(--sp-xs) var(--sp-md);
-  background: rgba(10, 12, 20, 0.96);
-  border-bottom: 1px solid var(--line);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
   backdrop-filter: blur(6px);
 }
 .topbar .wordmark {
   font-family: var(--font-graffiti);
-  color: var(--red-wordmark);
+  color: var(--color-brand);
   font-size: clamp(20px, 3vw, 28px);
   margin: 0;
 }
@@ -98,34 +117,56 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.
 .btn {
   min-height: var(--touch-min);
   min-width: var(--touch-min);
-  padding: 0 var(--sp-sm);
+  padding: 0 var(--space-4);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-2xs);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--ink-raised);
-  color: var(--fg);
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  color: var(--color-text);
   cursor: pointer;
   text-decoration: none;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
 }
-.btn:hover { border-color: var(--fg); }
-.btn:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
-.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+.btn:hover { border-color: var(--color-text-faint); }
+.btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.btn[disabled] { opacity: 0.6; cursor: not-allowed; }
 
-.btn--accent { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
-.btn--accent:hover { filter: brightness(1.08); border-color: var(--red); }
+.btn--accent { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 600; }
+.btn--accent:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
 
-.btn--danger { background: transparent; border-color: var(--red); color: var(--red-on-ink); }
-.btn--danger:hover { background: var(--red); color: #fff; }
+.btn--danger { background: transparent; border-color: var(--color-danger); color: var(--color-danger); }
+.btn--danger:hover { background: var(--color-danger); color: #fff; }
 
-.btn--ghost { background: transparent; }
-.btn--sm { min-height: 36px; min-width: 36px; padding: 0 var(--sp-xs); font-size: 12px; }
+.btn--ghost { background: transparent; border-color: var(--color-border-strong); color: var(--color-text-muted); }
+.btn--ghost:hover { color: var(--color-text); border-color: var(--color-text-faint); }
+.btn--sm { min-height: 36px; min-width: 36px; padding: 0 var(--space-3); font-size: var(--text-xs); }
+
+/* ── Editor sub-header (10-03 polish) — composes onto .mod-hdr (dashboard.css):
+   icon+title+left-accent-border shape, retargeted to --accent-editor, sticky
+   under the shell topbar, and a right-aligned status-pill + button cluster
+   (`.editor-subhead-actions`) that wraps onto its own line on narrow viewports
+   (10-UI-SPEC.md Polish Items §3). ───────────────────────────────────────── */
+.editor-subhead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  border-left-color: var(--accent-editor);
+  flex-wrap: wrap;
+}
+.editor-subhead .i { color: var(--accent-editor); }
+.editor-subhead-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
 
 /* ── Two-pane layout ───────────────────────────────────────────────────────── */
 .panes {
@@ -147,66 +188,67 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.
 }
 
 .pane {
-  padding: var(--sp-md);
+  padding: var(--space-6);
   overflow-y: auto;
 }
-.pane--edit { border-right: 1px solid var(--line); }
-.pane--preview { background: var(--ink); }
+.pane--edit { border-right: 1px solid var(--color-border); }
+.pane--preview { background: var(--color-bg); }
 
 /* Mobile: preview toggled via tab; hidden by default when editing */
-.pane-tabs { display: flex; gap: var(--sp-2xs); margin-bottom: var(--sp-md); }
+.pane-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); }
 @media (min-width: 1024px) { .pane-tabs { display: none; } }
 @media (max-width: 1023px) {
   .pane[data-hidden="true"] { display: none; }
 }
 
 /* ── Core fields + block cards ─────────────────────────────────────────────── */
-.field { margin-bottom: var(--sp-sm); }
-.field > label { display: block; margin-bottom: var(--sp-3xs); }
+.field { margin-bottom: var(--space-4); }
+.field > label { display: block; margin-bottom: var(--space-1); }
 
 input[type="text"], input[type="url"], input[type="number"], textarea, select {
   width: 100%;
   min-height: var(--touch-min);
-  padding: var(--sp-xs);
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--fg);
-  font-family: var(--font-body);
-  font-size: 15px;
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
 }
 textarea { min-height: 88px; resize: vertical; line-height: 1.6; }
 input:focus-visible, textarea:focus-visible, select:focus-visible {
-  outline: 2px solid var(--red);
+  outline: 2px solid var(--color-primary);
   outline-offset: 1px;
-  border-color: var(--red);
+  border-color: var(--color-primary);
 }
 
-.locale-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2xs); }
-.locale-pair .label { margin-bottom: var(--sp-3xs); }
+.locale-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.locale-pair .label { margin-bottom: var(--space-1); }
 
 .block-card {
-  background: var(--ink-raised);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: var(--sp-sm);
-  margin-bottom: var(--sp-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 .block-card.sortable-drag,
-.block-card.sortable-ghost { outline: 2px solid var(--red); }
+.block-card.sortable-ghost { outline: 2px solid var(--color-primary); }
 
 .block-head {
   display: flex;
   align-items: center;
-  gap: var(--sp-2xs);
-  margin-bottom: var(--sp-xs);
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 .block-type-tag {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--red-on-ink);
+  color: var(--color-primary);
 }
 .block-head .spacer { flex: 1 1 auto; }
 .block-drag {
@@ -216,52 +258,36 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--dim);
+  color: var(--color-text-muted);
 }
 .block-drag:active { cursor: grabbing; }
 
 /* ── Block-type picker ─────────────────────────────────────────────────────── */
 .picker {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--paper-warm);
-  padding: var(--sp-sm);
-  margin-bottom: var(--sp-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 .picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: var(--sp-2xs);
+  gap: var(--space-2);
 }
 
-/* ── Upload widget ─────────────────────────────────────────────────────────── */
+/* ── Upload widget — 4 data-kind states: idle/loading/ok/error ─────────────── */
 .upload {
   display: flex;
   align-items: center;
-  gap: var(--sp-2xs);
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
-.upload-state { font-family: var(--font-mono); font-size: 12px; color: var(--dim); }
-.upload-state[data-kind="error"] { color: var(--red-on-ink); }
-.thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
-
-/* ── Toast ─────────────────────────────────────────────────────────────────── */
-.toast {
-  position: fixed;
-  bottom: var(--sp-lg);
-  left: 50%;
-  transform: translateX(-50%);
-  padding: var(--sp-xs) var(--sp-md);
-  border-radius: 6px;
-  background: var(--ink-raised);
-  border: 1px solid var(--line);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  z-index: 40;
-  max-width: 90vw;
-}
-.toast[data-kind="ok"] { border-color: var(--red); }
-.toast[data-kind="error"] { border-color: var(--red-on-ink); color: var(--red-on-ink); }
+.upload-state { font-family: var(--font-sans); font-size: var(--text-xs); color: var(--color-text-muted); }
+.upload-state[data-kind="loading"] { color: var(--color-text-muted); }
+.upload-state[data-kind="ok"] { color: var(--color-success); }
+.upload-state[data-kind="error"] { color: var(--color-danger); }
+.thumb { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--color-border); }
 
 /* ── Preview (approximates the public profile look) ────────────────────────── */
 /* The preview column paints the ACTUAL theme background (color + optional media +
@@ -388,125 +414,128 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .preview-grid img, .preview-img { width: 100%; border-radius: 8px; aspect-ratio: 1; object-fit: cover; border: 1px solid color-mix(in srgb, var(--theme-text) 15%, transparent); }
 .preview-note { font-family: var(--font-mono); font-size: 11px; color: var(--theme-text-muted, var(--dim)); text-align: center; opacity: 0.7; }
 
-.empty-hint { text-align: center; color: var(--dim); padding: var(--sp-xl) 0; }
+.empty-hint { text-align: center; color: var(--color-text-muted); padding: var(--space-12) 0; }
 
-/* ── Theme panel (10.1-10) — grouped controls on the brand-dark admin surface ── */
-.theme-panel { display: grid; gap: var(--sp-sm); margin-bottom: var(--sp-md); }
+/* ── Theme panel (10.1-10) — grouped controls on the retinted admin surface ──── */
+.theme-panel { display: grid; gap: var(--space-4); margin-bottom: var(--space-6); }
 .theme-group {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--ink-raised);
-  padding: var(--sp-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  padding: var(--space-4);
   margin: 0;
   display: grid;
-  gap: var(--sp-xs);
+  gap: var(--space-3);
 }
-.theme-group legend { padding: 0 var(--sp-2xs); }
+.theme-group legend { padding: 0 var(--space-2); }
 
 .color-row, .range-row, .seg-row {
   display: flex; align-items: center; justify-content: space-between;
-  gap: var(--sp-sm);
+  gap: var(--space-4);
 }
 .color-row input[type="color"] {
   width: 48px; min-height: 32px; padding: 0;
-  border: 1px solid var(--line); border-radius: 4px;
-  background: var(--ink); cursor: pointer;
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm);
+  background: var(--color-surface-2); cursor: pointer;
 }
 /* Compact 2×2 color swatch grid — short label + swatch; the "what it controls"
-   detail lives in each cell's title tooltip (hover), so no visible text clutter. */
-.color-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2xs); }
-.swatch-field {
-  display: flex; align-items: center; gap: var(--sp-2xs);
-  padding: var(--sp-3xs) var(--sp-2xs); min-height: 40px;
-  border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+   detail lives in each cell's title tooltip (hover), so no visible text clutter.
+   Collapses to 1 column below 480px (10-UI-SPEC.md Polish Items §3) so the
+   swatch-field touch targets never compress below --touch-min. */
+.color-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-2); }
+@media (max-width: 480px) {
+  .color-grid { grid-template-columns: 1fr; }
 }
-.swatch-field:hover { border-color: var(--fg); }
+.swatch-field {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1) var(--space-2); min-height: 40px;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer;
+}
+.swatch-field:hover { border-color: var(--color-text-faint); }
 .swatch-field input[type="color"] {
   width: 32px; min-height: 28px; flex: 0 0 auto; padding: 0;
-  border: 1px solid var(--line); border-radius: 4px; background: var(--ink); cursor: pointer;
+  border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface-2); cursor: pointer;
 }
 .swatch-field .label { cursor: pointer; }
 .color-row input[type="text"] { max-width: 60%; }
-.range-row input[type="range"] { flex: 1 1 auto; accent-color: var(--red); min-height: auto; }
+.range-row input[type="range"] { flex: 1 1 auto; accent-color: var(--color-primary); min-height: auto; }
 .seg-row select { max-width: 60%; }
 
 .badge-grid, .effect-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: var(--sp-2xs);
+  gap: var(--space-2);
 }
 .chip {
   display: inline-flex; align-items: center; justify-content: center;
-  min-height: 36px; padding: 0 var(--sp-sm);
-  border: 1px solid var(--line); border-radius: 999px;
-  /* Body font (not mono) so the effect/tag labels read clearly — user asked for a
-     "more normal", clearer font here. */
-  font-family: var(--font-body); font-size: 13.5px; letter-spacing: 0; text-align: center;
-  color: var(--dim); cursor: pointer; user-select: none;
+  min-height: 36px; padding: 0 var(--space-4);
+  border: 1px solid var(--color-border); border-radius: var(--radius-full);
+  font-family: var(--font-sans); font-size: var(--text-xs); letter-spacing: 0; text-align: center;
+  color: var(--color-text-muted); cursor: pointer; user-select: none;
 }
 
 /* Helper text under a control — plain, legible sentence-case guidance. */
 .field-hint {
-  margin: 2px 0 var(--sp-2xs);
-  font-family: var(--font-body); font-size: 12.5px; line-height: 1.45;
-  color: var(--dim);
+  margin: 2px 0 var(--space-2);
+  font-family: var(--font-sans); font-size: var(--text-xs); line-height: 1.45;
+  color: var(--color-text-muted);
 }
 
 /* ── Free-form specialty tag input (replaces the old fixed checkbox set) ─────── */
 .tag-input {
-  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2xs);
-  padding: var(--sp-2xs);
-  border: 1px solid var(--line); border-radius: 6px; background: var(--ink);
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-2);
 }
 .tag-input input {
   flex: 1 1 120px; min-width: 120px; width: auto;
-  min-height: 32px; padding: var(--sp-3xs) var(--sp-2xs);
+  min-height: 32px; padding: var(--space-1) var(--space-2);
   border: 0; background: transparent;
 }
 .tag-input input:focus-visible { outline: none; border: 0; }
 .tag-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 6px 5px 12px; border-radius: 999px;
-  font-family: var(--font-body); font-size: 13px;
-  color: var(--fg); background: rgba(192, 25, 44, 0.14);
-  border: 1px solid var(--red);
+  padding: 5px 6px 5px 12px; border-radius: var(--radius-full);
+  font-family: var(--font-sans); font-size: var(--text-xs);
+  color: var(--color-text); background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  border: 1px solid var(--color-primary);
 }
 .tag-chip__x {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
-  background: rgba(240, 234, 228, 0.1); color: var(--fg);
+  background: var(--color-surface-3); color: var(--color-text);
   font-size: 11px; line-height: 1; cursor: pointer;
 }
-.tag-chip__x:hover { background: var(--red); color: #fff; }
+.tag-chip__x:hover { background: var(--color-danger); color: #fff; }
 
 /* Inline theme group placed among the block controls (button style/shape). */
-.theme-group--inline { margin-bottom: var(--sp-md); }
-.chip:hover { border-color: var(--fg); }
-.chip--on { border-color: var(--red); color: var(--fg); background: rgba(192, 25, 44, 0.14); }
+.theme-group--inline { margin-bottom: var(--space-6); }
+.chip:hover { border-color: var(--color-text-faint); }
+.chip--on { border-color: var(--color-primary); color: var(--color-text); background: color-mix(in srgb, var(--color-primary) 14%, transparent); }
 
 /* ── Theme presets (D-24) — one-click swatch row + reset inline confirm ────────── */
 .preset-row {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: var(--sp-2xs);
+  gap: var(--space-2);
 }
 .preset-swatch {
   position: relative;
-  display: flex; flex-direction: column; align-items: center; gap: var(--sp-3xs);
-  padding: var(--sp-2xs);
-  border: 1px solid var(--line); border-radius: 6px;
-  background: var(--sw-b, var(--ink-raised));
-  color: var(--sw-c, var(--fg));
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  background: var(--sw-b, var(--color-surface));
+  color: var(--sw-c, var(--color-text));
   cursor: pointer; min-height: var(--touch-min);
   /* Inactive presets are dimmed so the active one is unmistakable regardless of
      each swatch's own (sometimes near-white) background color. */
   opacity: 0.6;
   transition: opacity 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
-.preset-swatch:hover { border-color: var(--fg); opacity: 0.9; }
-/* Active: full opacity, a thick red ring, and a ✓ badge that reads on any bg. */
+.preset-swatch:hover { border-color: var(--color-text-faint); opacity: 0.9; }
+/* Active: full opacity, a thick primary ring, and a ✓ badge that reads on any bg. */
 .preset-swatch--on {
   opacity: 1;
-  border-color: var(--red);
-  box-shadow: 0 0 0 3px var(--red);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary);
   transform: translateY(-1px);
 }
 .preset-swatch--on::after {
@@ -514,29 +543,29 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   position: absolute; top: -9px; right: -9px;
   width: 20px; height: 20px;
   border-radius: 50%;
-  background: var(--red); color: #fff;
-  font-family: var(--font-body); font-size: 12px; font-weight: 700;
+  background: var(--color-primary); color: #fff;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 700;
   line-height: 20px; text-align: center;
-  box-shadow: 0 0 0 2px var(--ink);
+  box-shadow: 0 0 0 2px var(--color-bg);
 }
-.preset-swatch--on .preset-swatch__name { color: var(--red); font-weight: 700; }
+.preset-swatch--on .preset-swatch__name { color: var(--color-primary); font-weight: 700; }
 .preset-swatch__dots {
   width: 100%; height: 14px; border-radius: 3px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-border);
   background: linear-gradient(90deg,
     var(--sw-b) 0 33%, var(--sw-c) 33% 66%, var(--sw-a) 66% 100%);
 }
 .preset-swatch__name {
-  font-family: var(--font-mono); font-size: 10px; line-height: 1.2; text-align: center;
+  font-family: var(--font-sans); font-size: var(--text-xs); line-height: 1.2; text-align: center;
 }
 
-.theme-reset { margin-bottom: var(--sp-md); }
+.theme-reset { margin-bottom: var(--space-6); }
 .confirm-inline {
-  border: 1px solid var(--red-on-ink); border-radius: 6px;
-  padding: var(--sp-sm); background: rgba(232, 74, 94, 0.08);
+  border: 1px solid var(--color-danger); border-radius: var(--radius-md);
+  padding: var(--space-4); background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
-.confirm-text { margin: 0 0 var(--sp-xs); font-size: 14px; color: var(--fg); }
-.confirm-actions { display: flex; gap: var(--sp-2xs); flex-wrap: wrap; }
+.confirm-text { margin: 0 0 var(--space-3); font-size: var(--text-sm); color: var(--color-text); }
+.confirm-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
 /* Preview badges + socials (mirror the public header card) */
 .preview-badges { display: flex; flex-wrap: wrap; gap: var(--sp-2xs); justify-content: center; margin: var(--sp-2xs) 0; }
@@ -572,20 +601,21 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
    PLUS the always-on legend below, so you always see what's active.
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* Active-effects legend — admin chrome ABOVE the themed card (never overlapping it).
-   Uses the app's own dark tokens so it reads as a tool label, not part of the design. */
+/* Active-effects legend — admin chrome ABOVE the themed card (never overlapping
+   it). Retinted onto dashboard tokens (it is genuinely chrome, per its own
+   original comment), reads as a tool label, not part of the themed design. */
 .fx-legend-bar {
-  display: flex; align-items: baseline; gap: var(--sp-2xs);
-  max-width: 640px; margin: 0 auto var(--sp-2xs);
-  padding: 0 var(--sp-2xs);
+  display: flex; align-items: baseline; gap: var(--space-2);
+  max-width: 640px; margin: 0 auto var(--space-2);
+  padding: 0 var(--space-2);
 }
 .fx-legend-bar .label { flex: 0 0 auto; }
 .fx-legend-bar__chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .fx-legend-chip {
-  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 2px 8px; border-radius: 999px;
-  color: var(--fg); background: rgba(192, 25, 44, 0.16);
-  border: 1px solid color-mix(in srgb, var(--red) 55%, transparent);
+  font-family: var(--font-sans); font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: var(--radius-full);
+  color: var(--color-text); background: color-mix(in srgb, var(--color-primary) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
 }
 
 /* glass → header/quote/portfolio blocks become frosted glass cards. */
@@ -687,19 +717,19 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   min-height: 100vh;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  text-align: center; padding: var(--sp-lg); gap: var(--sp-md);
+  text-align: center; padding: var(--space-8); gap: var(--space-6);
 }
 .login-wrap .wordmark {
-  font-family: var(--font-graffiti); color: var(--red-wordmark);
+  font-family: var(--font-graffiti); color: var(--color-brand);
   font-size: clamp(46px, 11vw, 96px); margin: 0;
 }
-.forbidden { max-width: 520px; color: var(--dim); }
+.forbidden { max-width: 520px; color: var(--color-text-muted); }
 
 /* ── Spotify: admin confirmation + preview vinyl ───────────────────────────── */
-.spotify-admin { display: flex; align-items: center; gap: var(--sp-2xs); margin-top: var(--sp-2xs); }
-.spotify-admin__art { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; border: 1px solid var(--line); }
+.spotify-admin { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.spotify-admin__art { width: 44px; height: 44px; border-radius: var(--radius-sm); object-fit: cover; border: 1px solid var(--color-border); }
 .spotify-admin__title {
-  font-family: var(--font-body); font-size: 13px; flex: 1 1 auto; min-width: 0;
+  font-family: var(--font-sans); font-size: var(--text-xs); flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -751,12 +781,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* ── Settings panel: inline per-field errors (NEW, Phase 2) ──────────────────── */
 .field--invalid input, .field--invalid select {
-  border-color: var(--red-on-ink);
+  border-color: var(--color-danger);
 }
 .field-error {
   margin: 2px 0 0;
-  font-family: var(--font-body);
-  font-size: 12.5px;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
   line-height: 1.45;
-  color: var(--red-on-ink);
+  color: var(--color-danger);
 }
