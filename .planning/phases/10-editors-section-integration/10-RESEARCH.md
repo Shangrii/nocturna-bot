@@ -559,7 +559,7 @@ dependency findings surfaced.
 they could not be fully closed out without running a live `astro build` or querying
 external DNS/CDN configuration, which was out of scope for a static-code research pass.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should the pre-existing `_NO_TIER_ROLES` all-locked-sidebar cosmetic quirk on
    `forbidden.html` be fixed as part of this phase?**
@@ -568,7 +568,7 @@ external DNS/CDN configuration, which was out of scope for a static-code researc
      will hit the same quirk.
    - What's unclear: whether the owner considers "two scenarios now instead of one"
      enough to warrant a fix.
-   - Recommendation: leave as-is unless flagged during `/gsd:discuss-phase` follow-up;
+   - Recommendation: RESOLVED: leave as-is unless flagged during `/gsd:discuss-phase` follow-up;
      it is cosmetic, not a security or functional regression.
 
 2. **Does `nocturna-avatars.site` sit behind any CDN/proxy (Cloudflare or otherwise) that
@@ -579,7 +579,7 @@ external DNS/CDN configuration, which was out of scope for a static-code researc
      session.
    - What's unclear: DNS-level configuration (registrar settings) is outside both repos'
      visibility from static analysis.
-   - Recommendation: proceed with the build-time Astro stub (Pattern 3) as the default
+   - Recommendation: RESOLVED: proceed with the build-time Astro stub (Pattern 3) as the default
      plan — it works regardless of DNS layer and is already proven — but a 30-second
      owner confirmation ("is nocturna-avatars.site's DNS proxied through anything, or a
      plain A/CNAME record to GitHub Pages?") would let the planner skip Assumption A3
