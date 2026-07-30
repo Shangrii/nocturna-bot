@@ -90,8 +90,8 @@ def test_reviews_page_renders_named_and_anonymous_cards(client):
     assert response.status_code == 200
     assert "Pendientes" in response.text
     assert "review-card" in response.text
-    assert "Anónimo · Anonymous" in response.text
-    assert "Con nombre · Named" in response.text
+    assert "Anónimo" in response.text
+    assert "Con nombre" in response.text
     assert "Anonymous pending review" in response.text
     assert "Secret Submitter" not in response.text
 

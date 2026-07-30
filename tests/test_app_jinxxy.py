@@ -116,9 +116,9 @@ def test_never_synced_empty_state(client):
     response = client.get("/jinxxy")
 
     assert response.status_code == 200
-    assert "Nunca se ha sincronizado · Never synced" in response.text
+    assert "Nunca se ha sincronizado" in response.text
     assert (
-        "Aún no hay productos sincronizados · No synced products yet"
+        "Aún no hay productos sincronizados"
         in response.text
     )
     assert "'—'" not in response.text
@@ -140,17 +140,17 @@ def test_product_table_columns(client):
 
     assert response.status_code == 200
     for heading in (
-        "Nombre · Name",
-        "Precio · Price",
-        "Categoría · Category",
+        "Nombre",
+        "Precio",
+        "Categoría",
         "NSFW",
-        "Fecha · Date",
+        "Fecha",
     ):
         assert heading in response.text
     for forbidden_heading in (
-        "Imagen · Image",
-        "Descripción · Description",
-        "Editor · Editor",
+        "<th>Imagen</th>",
+        "<th>Descripción</th>",
+        "<th>Editor</th>",
     ):
         assert forbidden_heading not in response.text
 
@@ -196,8 +196,8 @@ def test_page_has_no_confirm_dialog(client):
 def test_page_renders_the_sync_button_labels(client):
     response = client.get("/jinxxy")
 
-    assert "Sincronizar catálogo · Sync catalog" in response.text
-    assert "Sincronizando… · Syncing…" in response.text
+    assert "Sincronizar catálogo" in response.text
+    assert "Sincronizando…" in response.text
 
 
 def test_rendered_page_does_not_leak_the_raw_error_column(client):

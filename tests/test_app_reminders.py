@@ -205,7 +205,7 @@ def test_edit_stale_version_returns_409_reload_message(client):
     assert response.status_code == 409
     assert response.status_code != 422
     error = response.json()["error"].lower()
-    assert "recarga" in error and "reload" in error
+    assert "recarga" in error
     assert db.get_reminder(reminder_id)["name"] == "Cambio concurrente"
 
 

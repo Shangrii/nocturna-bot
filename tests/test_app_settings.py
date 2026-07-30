@@ -224,8 +224,8 @@ def test_settings_page_cold_cache_shows_banner_not_field_markers(client):
     resp = client.get("/admin/settings")
 
     assert resp.status_code == 200
-    assert "Sincronizando nombres · Names syncing" in resp.text
-    assert "Name unavailable · no encontrado" not in resp.text
+    assert "Sincronizando nombres" in resp.text
+    assert "No encontrado" not in resp.text
 
 
 def test_names_map_shipped_to_alpine_is_string_keyed(client):

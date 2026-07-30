@@ -727,7 +727,7 @@ def test_editor_page_renders_in_shell(monkeypatch, client):
     assert "/logout" in body
 
 
-# ── Task 5: editable "Tu link · Your link" slug field in the admin editor form ────
+# ── Task 5: editable "Tu link" slug field in the admin editor form ────
 def test_editor_page_renders_slug_field(monkeypatch, client):
     import app.main as main
 

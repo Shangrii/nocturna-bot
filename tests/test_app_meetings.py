@@ -91,10 +91,10 @@ def test_meetings_list_renders_rows_in_database_order(monkeypatch, client):
     response = client.get("/meetings")
 
     assert response.status_code == 200
-    assert "Reuniones · Meetings" in response.text
+    assert "Reuniones" in response.text
     assert response.text.index("Más reciente") < response.text.index("Más antigua")
     assert "Resumen nuevo" in response.text
-    assert "2 asistente(s) · 2 attendee(s)" in response.text
+    assert "2 asistente(s)" in response.text
 
 
 def test_fresh_app_startup_initializes_meetings_table(monkeypatch, tmp_path):
@@ -107,7 +107,7 @@ def test_fresh_app_startup_initializes_meetings_table(monkeypatch, tmp_path):
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert "Aún no hay reuniones · No meetings yet" in response.text
+    assert "Aún no hay reuniones" in response.text
 
 
 def test_meeting_detail_renders_summary_and_transcript(monkeypatch, client):
@@ -125,7 +125,7 @@ def test_meeting_detail_renders_summary_and_transcript(monkeypatch, client):
     assert response.status_code == 200
     assert "Resumen editable" in response.text
     assert "Transcripción completa" in response.text
-    assert "Guardar y republicar · Save & re-publish" in response.text
+    assert "Guardar y republicar" in response.text
 
 
 def test_meeting_detail_returns_404_for_unknown_id(monkeypatch, client):
