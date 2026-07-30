@@ -69,7 +69,7 @@ Visual contract: `.planning/sketches/001-dashboard-shell/` (variant A won).
 
 ### Editors (EDIT)
 
-- [ ] **EDIT-01**: The editors presentation section (`editors.nocturna-avatars.site`) is
+- [x] **EDIT-01**: The editors presentation section (`editors.nocturna-avatars.site`) is
       integrated as a dashboard section with its own access tier, and the editor's self-serve
       workflow keeps parity (OAuth, publish-on-save, upload, self-unpublish, IDOR guards) while
       the chrome is polished to match the shell (scope expansion, owner decision 2026-07-29,
@@ -136,7 +136,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | MEET-01 | Phase 9 | Pending |
 | MEET-02 | Phase 9 | Pending |
 | MEET-03 | Phase 9 | Pending |
-| EDIT-01 | Phase 10 | Pending |
+| EDIT-01 | Phase 10 | Complete |
 | EDIT-02 | Phase 10 | Pending |
 
 **Coverage:**

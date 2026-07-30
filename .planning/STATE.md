@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
 status: executing
-stopped_at: Phase 10 UI-SPEC approved
-last_updated: "2026-07-30T08:42:15.840Z"
-last_activity: 2026-07-30 -- Phase 10 planning complete
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-07-30T17:39:23.722Z"
+last_activity: 2026-07-30
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 48
-  completed_plans: 34
+  completed_plans: 36
   percent: 38
 ---
 
@@ -23,16 +23,16 @@ See: .planning/PROJECT.md (updated 2026-07-21)
 **Core value:** The whole staff operates the bot from one web dashboard according to their
 access level — owner everything, Managers day-to-day operations, editors their own
 presentation pages — with no secrets exposed and no bad value able to break a cog.
-**Current focus:** Phase 9 — meetings browser + re publish
+**Current focus:** Phase 10 — editors-section-integration
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
+Phase: 10 (editors-section-integration) — EXECUTING
+Plan: 3 of 7
 Status: Ready to execute
-Last activity: 2026-07-30 -- Phase 10 planning complete
+Last activity: 2026-07-30
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 | 02 | 5 | - | - |
 | 03 | 8 | - | - |
 | 08 | 8 | - | - |
+| Phase 10 P03 | 55min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,9 @@ Recent decisions affecting current work:
   (Phase 6, standalone CRUD) → Gallery+Reviews together (Phase 7, shared publish-race fix) →
   Jinxxy (Phase 8) → Meetings last among modules (Phase 9, newest credential/idempotency
   question) → Editors integration last overall (Phase 10, lowest risk)
+
+- [Phase 10]: editor.css chrome retinted onto dashboard.css tokens; legacy ink/red palette kept only as preview-canvas fallback literals (D-01/D-06)
+- [Phase 10]: Split editor.css's conflated --red into --color-primary (CTA/active) vs --color-danger (destructive) to match dashboard.css's convention
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T07:19:26.165Z
-Stopped at: Phase 10 UI-SPEC approved
-Resume file: .planning/phases/10-editors-section-integration/10-UI-SPEC.md
+Last session: 2026-07-30T17:39:23.713Z
+Stopped at: Completed 10-03-PLAN.md
+Resume file: None
