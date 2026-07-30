@@ -157,6 +157,7 @@ RESERVED_SLUGS = frozenset(
     {
         "e", "api", "static", "assets", "admin", "editor", "editors",
         "auth", "login", "logout", "me", "favicon",
+        "en", "es", "gallery", "store", "fonts", "build",
     }
 )
 
