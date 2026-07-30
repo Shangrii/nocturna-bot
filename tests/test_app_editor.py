@@ -690,6 +690,32 @@ def test_upload_image_returns_path_under_media_id(monkeypatch, client):
     assert "/editors/tok777/" in resp.json()["path"]
 
 
+# ── Phase 10 (10-01): GET /editor must render INSIDE the dashboard shell ──────────
+# RED until 10-05 (Wave 2+) wraps editor.html with {% extends "_dashboard_base.html" %}.
+# Assertions target stable structural class/route tokens (never copy/colors) so the
+# later CSS retint (10-03) can't break this test.
+def test_editor_page_renders_in_shell(monkeypatch, client):
+    import app.main as main
+
+    async def fake_current(discord_id):
+        return {"slug": "aria", "discordId": "555", "published": True, "name": "Aria",
+                "avatar": "", "tagline": "", "links": [], "blocks": []}
+
+    monkeypatch.setattr(main, "_fetch_current_entry", fake_current)
+
+    resp = client.get("/editor")
+    assert resp.status_code == 200
+    body = resp.text
+    # _sidebar.html's rail marker (`<aside class="side">` / `.nav-item` links) — only
+    # present once editor.html extends the shell via _dashboard_base.html's {% include %}.
+    assert 'class="side"' in body or "nav-item" in body, (
+        "expected the _sidebar.html rail marker (class=\"side\"/nav-item) in the "
+        "GET /editor body — editor.html does not yet extend the dashboard shell"
+    )
+    # The shell topbar's logout link (_dashboard_base.html).
+    assert "/logout" in body
+
+
 # ── Task 5: editable "Tu link · Your link" slug field in the admin editor form ────
 def test_editor_page_renders_slug_field(monkeypatch, client):
     import app.main as main
