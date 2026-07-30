@@ -93,6 +93,24 @@ body {
 a { color: inherit; text-decoration: none; }
 button { font-family: inherit; cursor: pointer; }
 
+/* ─── Scrollbars ────────────────────────────────────────────────────────
+   One thin, rounded style for every scroll region (page + inner panes) so
+   they all match instead of falling back to the chunky default per-element
+   Chromium bar (10-07 UAT). */
+* { scrollbar-width: thin; scrollbar-color: var(--color-border-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-faint);
+  background-clip: padding-box;
+}
+
 [x-cloak] { display: none !important; }
 
 /* ─── Topbar ────────────────────────────────────────────────────────── */
@@ -141,7 +159,15 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--color-surface-2); color: var(--color-text);
   border-left-color: var(--acc, var(--color-primary));
 }
-.nav-item .ico { width: 20px; text-align: center; font-size: var(--text-sm); }
+/* Inline SVG rail icons (10-07 UAT) — line style, monochrome, tinted to the
+   section accent when active. Sprite lives in _sidebar.html. */
+.sidebar-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.nav-item .ico {
+  width: 18px; height: 18px; flex-shrink: 0;
+  fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+.nav-item.on .ico { stroke: var(--acc, currentColor); }
 .nav-item .lock { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-faint); }
 
 .side .nav-item:last-child {

@@ -1,17 +1,34 @@
-{#- Data-driven 7-section nav (SHELL-01). Lock state is computed server-side from the
+{#- Data-driven 8-section nav (SHELL-01). Lock state is computed server-side from the
     `roles` dict passed into every render — never client-side JS/Alpine (D-14, T-03-18).
     Locked items still link to their real route; the forbidden page (Plan 07) is the
-    graceful dead end (D-16), not a disabled/no-op link. -#}
+    graceful dead end (D-16), not a disabled/no-op link. Icons are a shared inline SVG
+    sprite (line style, currentColor) so the rail reads as one cohesive set instead of
+    the old mixed emoji glyphs (10-07 UAT). -#}
 {% set sections = [
-  {"id": "overview",  "label": "Overview",                     "icon": "⌂", "accent": "var(--color-primary)",    "route": "/overview",       "tier": "manager"},
-  {"id": "gallery",   "label": "Galería · Gallery",             "icon": "🖼", "accent": "var(--accent-gallery)",   "route": "/gallery",        "tier": "manager"},
-  {"id": "reviews",   "label": "Reseñas · Reviews",             "icon": "★", "accent": "var(--accent-reviews)",   "route": "/reviews",        "tier": "manager"},
-  {"id": "reminders", "label": "Recordatorios · Reminders",     "icon": "⏰", "accent": "var(--accent-reminders)", "route": "/reminders",      "tier": "manager"},
-  {"id": "jinxxy",    "label": "Tienda Jinxxy · Jinxxy Store",  "icon": "🛍", "accent": "var(--accent-jinxxy)",    "route": "/jinxxy",         "tier": "manager"},
-  {"id": "meetings",  "label": "Reuniones · Meetings",          "icon": "🎙", "accent": "var(--accent-meetings)",  "route": "/meetings",       "tier": "manager"},
-  {"id": "editor",    "label": "Editor",                        "icon": "✎", "accent": "var(--accent-editor)",    "route": "/editor",         "tier": "editor"},
-  {"id": "settings",  "label": "Ajustes · Settings",            "icon": "⚙", "accent": "var(--accent-settings)",  "route": "/admin/settings", "tier": "owner"},
+  {"id": "overview",  "label": "Overview",                     "accent": "var(--color-primary)",    "route": "/overview",       "tier": "manager"},
+  {"id": "gallery",   "label": "Galería · Gallery",             "accent": "var(--accent-gallery)",   "route": "/gallery",        "tier": "manager"},
+  {"id": "reviews",   "label": "Reseñas · Reviews",             "accent": "var(--accent-reviews)",   "route": "/reviews",        "tier": "manager"},
+  {"id": "reminders", "label": "Recordatorios · Reminders",     "accent": "var(--accent-reminders)", "route": "/reminders",      "tier": "manager"},
+  {"id": "jinxxy",    "label": "Tienda Jinxxy · Jinxxy Store",  "accent": "var(--accent-jinxxy)",    "route": "/jinxxy",         "tier": "manager"},
+  {"id": "meetings",  "label": "Reuniones · Meetings",          "accent": "var(--accent-meetings)",  "route": "/meetings",       "tier": "manager"},
+  {"id": "editor",    "label": "Editor",                        "accent": "var(--accent-editor)",    "route": "/editor",         "tier": "editor"},
+  {"id": "settings",  "label": "Ajustes · Settings",            "accent": "var(--accent-settings)",  "route": "/admin/settings", "tier": "owner"},
 ] %}
+
+{#- Inline icon sprite (Feather-style, 24×24, inherits stroke:currentColor from .ico). -#}
+<svg class="sidebar-sprite" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="ic-overview" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
+    <symbol id="ic-gallery" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></symbol>
+    <symbol id="ic-reviews" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></symbol>
+    <symbol id="ic-reminders" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+    <symbol id="ic-jinxxy" viewBox="0 0 24 24"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></symbol>
+    <symbol id="ic-meetings" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></symbol>
+    <symbol id="ic-editor" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+    <symbol id="ic-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  </defs>
+</svg>
+
 <aside class="side">
   {% for section in sections %}
   {% set unlocked = (section.tier == "owner" and roles.is_owner)
@@ -20,7 +37,7 @@
   <a class="nav-item {{ 'on' if active_section == section.id else '' }}"
      style="--acc: {{ section.accent }}"
      href="{{ section.route }}">
-    <span class="ico">{{ section.icon }}</span>
+    <svg class="ico" aria-hidden="true" focusable="false"><use href="#ic-{{ section.id }}"></use></svg>
     <span>{{ section.label }}</span>
     {% if not unlocked %}<span class="lock" title="Requiere más acceso · Requires more access">🔒</span>{% endif %}
   </a>
