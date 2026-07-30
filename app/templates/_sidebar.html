@@ -10,10 +10,13 @@
   {"id": "jinxxy",    "label": "Tienda Jinxxy · Jinxxy Store",  "icon": "🛍", "accent": "var(--accent-jinxxy)",    "route": "/jinxxy",         "tier": "manager"},
   {"id": "meetings",  "label": "Reuniones · Meetings",          "icon": "🎙", "accent": "var(--accent-meetings)",  "route": "/meetings",       "tier": "manager"},
   {"id": "settings",  "label": "Ajustes · Settings",            "icon": "⚙", "accent": "var(--accent-settings)",  "route": "/admin/settings", "tier": "owner"},
+  {"id": "editor",    "label": "Editor",                        "icon": "✎", "accent": "var(--accent-editor)",    "route": "/editor",         "tier": "editor"},
 ] %}
 <aside class="side">
   {% for section in sections %}
-  {% set unlocked = (section.tier == "owner" and roles.is_owner) or (section.tier == "manager" and (roles.is_owner or roles.is_manager)) %}
+  {% set unlocked = (section.tier == "owner" and roles.is_owner)
+                  or (section.tier == "manager" and (roles.is_owner or roles.is_manager))
+                  or (section.tier == "editor" and roles.is_editor) %}
   <a class="nav-item {{ 'on' if active_section == section.id else '' }}"
      style="--acc: {{ section.accent }}"
      href="{{ section.route }}">
@@ -22,15 +25,6 @@
     {% if not unlocked %}<span class="lock" title="Requiere más acceso · Requires more access">🔒</span>{% endif %}
   </a>
   {% endfor %}
-
-  {% if roles.is_editor %}
-  <div class="editor-link">
-    <a class="nav-item" href="/editor">
-      <span class="ico">✎</span>
-      <span>Editor</span>
-    </a>
-  </div>
-  {% endif %}
 
   <div class="foot">
     <span class="st {{ 'live' if bot_online else '' }}"></span>

@@ -144,7 +144,7 @@ button { font-family: inherit; cursor: pointer; }
 .nav-item .ico { width: 20px; text-align: center; font-size: var(--text-sm); }
 .nav-item .lock { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-faint); }
 
-.side .editor-link {
+.side .nav-item:last-child {
   margin-top: var(--space-4); padding-top: var(--space-4);
   border-top: 1px solid var(--color-border);
 }
