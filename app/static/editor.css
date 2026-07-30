@@ -168,37 +168,50 @@ h1, h2, h3 { font-family: var(--font-sans); font-weight: 600; line-height: 1.15;
   flex-wrap: wrap;
 }
 
-/* ── Two-pane layout ───────────────────────────────────────────────────────── */
+/* ── App-shell layout (10-07 UAT polish) ───────────────────────────────────────
+   The editor fills the shell viewport so the PAGE itself never scrolls — that
+   removes the redundant outer scrollbar the old sticky model produced. Only the
+   edit column scrolls; the live preview stays fixed and full-height beside it, so
+   it "follows" as you edit and uses the full page width. Neutralize the shared
+   `.main` padding / 1180px reading cap for the editor only (via :has), otherwise
+   the 100vh child would overflow and reintroduce the page scrollbar. ─────────── */
+.main:has(.editor-root) { padding: 0; max-width: none; overflow: hidden; }
+.main:has(.editor-root) > * { max-width: none; }
+
+.editor-root {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 64px);   /* 64px = shell topbar (matches dashboard.css) */
+}
+
 .panes {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0;
-  min-height: calc(100vh - 64px);
+  flex: 1 1 auto;
+  min-height: 0;                /* let the grid children own the scroll, not the page */
 }
-@media (min-width: 1024px) {
-  .panes { grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr); }
-  /* Keep the live preview in view while the edit column scrolls (sticky follows). */
-  .pane--preview {
-    position: sticky;
-    top: 64px;
-    align-self: start;
-    max-height: calc(100vh - 64px);
-    overflow-y: auto;
-  }
-}
-
-.pane {
-  padding: var(--space-6);
-  overflow-y: auto;
-}
+.pane { padding: var(--space-6); }
 .pane--edit { border-right: 1px solid var(--color-border); }
 .pane--preview { background: var(--color-bg); }
 
-/* Mobile: preview toggled via tab; hidden by default when editing */
+/* Mobile: one pane at a time (tab-toggled); the visible pane scrolls internally. */
 .pane-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); }
-@media (min-width: 1024px) { .pane-tabs { display: none; } }
 @media (max-width: 1023px) {
+  .pane { overflow-y: auto; max-height: 100%; }
   .pane[data-hidden="true"] { display: none; }
+}
+@media (min-width: 1024px) {
+  .pane-tabs { display: none; }
+  .panes { grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.1fr); }
+  .pane--edit { overflow-y: auto; }         /* the single scroll region */
+  /* Preview: fixed & full-height, no scrollbar of its own (fixes the double-bar). */
+  .pane--preview {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
 }
 
 /* ── Core fields + block cards ─────────────────────────────────────────────── */
@@ -295,10 +308,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 .preview-col {
   position: relative;
   overflow: hidden;
-  max-width: 640px;
+  width: 100%;
+  max-width: 700px;
   margin: 0 auto;
   padding: var(--sp-lg) var(--sp-md);
-  min-height: 70vh;
+  /* Fill the fixed-height preview column so the card uses the full page height
+     instead of a short 70vh block floating in empty space (10-07 UAT #2). */
+  min-height: 100%;
   border-radius: 12px;
   background: var(--theme-bg, var(--ink));
   color: var(--theme-text, var(--fg));

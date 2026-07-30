@@ -14,7 +14,7 @@
       Jinja escapes ' -> ', so a single-quoted attribute can never be broken by
       the data. A double-quoted attribute is closed by the JSON's first " (the whole
       Alpine scope then fails to build -> every binding throws "not defined"). -#}
-  <div x-data='editorApp({{ entry | tojson }})' x-cloak>
+  <div class="editor-root" x-data='editorApp({{ entry | tojson }})' x-cloak>
 
     <!-- Sticky sub-header: relocated status pill + Save/Publish + Unpublish
          (10-05 Task 2) — the wordmark/logout/owner-Settings shortcut removed
