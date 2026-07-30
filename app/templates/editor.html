@@ -1,41 +1,20 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex, nofollow" />
-  <title>Nocturna · Editor de perfil</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+{% extends "_dashboard_base.html" %}
+{% block title %}Editor{% endblock %}
+
+{% block head %}
   <!-- Admin UI fonts + ALL 14 curated theme fonts, so the preview's typography is accurate. -->
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Space+Grotesk:wght@400;700&family=Space+Mono&family=Sora:wght@400;700&family=Playfair+Display:wght@400;700&family=Fraunces:wght@400;700&family=Bebas+Neue&family=UnifrakturMaguntia&family=Pirata+One&family=Caveat:wght@400;700&family=Permanent+Marker&family=Press+Start+2P&family=VT323&family=Orbitron:wght@400;700&family=Rajdhani:wght@400;700&display=swap"
     rel="stylesheet" />
   <link rel="stylesheet" href="/static/editor.css?v={{ asset_v | default(0) }}" />
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
   {#- x-data MUST be single-quoted: `entry | tojson` emits double-quoted JSON, and
       Jinja escapes ' -> ', so a single-quoted attribute can never be broken by
       the data. A double-quoted attribute is closed by the JSON's first " (the whole
       Alpine scope then fails to build -> every binding throws "not defined"). -#}
   <div x-data='editorApp({{ entry | tojson }})' x-cloak>
-
-    <!-- Persistent top bar -->
-    <header class="topbar">
-      <h1 class="wordmark">Nocturna</h1>
-      <span class="label" x-text="page.published ? 'Publicada · Published' : 'Borrador · Draft'"></span>
-      <span class="spacer"></span>
-      <button class="btn btn--accent" type="button" @click="publish()" :disabled="saving"
-              x-text="saving ? (page.published ? 'Guardando…' : 'Publicando…') : (page.published ? 'Guardar cambios · Save changes' : 'Publicar · Publish')"></button>
-      <button class="btn btn--danger" type="button" @click="unpublish()" :disabled="saving"
-              x-show="page.published">
-        Despublicar · Unpublish
-      </button>
-      {% if is_owner %}
-      <a class="btn btn--ghost" href="/admin/settings">⚙ Ajustes · Settings</a>
-      {% endif %}
-      <a class="btn btn--ghost" href="/logout">Salir · Sign out</a>
-    </header>
 
     <!-- Mobile pane tabs (hidden ≥1024px) -->
     <div class="pane-tabs" style="padding: 0 var(--sp-md);">
@@ -657,7 +636,9 @@
     <div class="toast" x-show="toast" x-cloak :data-kind="toastKind" x-text="toast"
          @click="toast=''" role="status" aria-live="polite"></div>
   </div>
+{% endblock %}
 
+{% block scripts %}
   <!-- editorApp defined BEFORE Alpine parses x-data; libs are VENDORED (not CDN) -->
   <script>
     function editorApp(initial) {
@@ -1320,8 +1301,5 @@
       };
     }
   </script>
-  <style>[x-cloak] { display: none !important; }</style>
   <script src="/static/Sortable.min.js"></script>
-  <script defer src="/static/alpine.min.js"></script>
-</body>
-</html>
+{% endblock %}
