@@ -9,7 +9,7 @@
 {{ dict(row) | tojson }}{% if not loop.last %},{% endif %}
 {%- endfor -%}]
 {%- endmacro %}
-{% block title %}Galería · Gallery{% endblock %}
+{% block title %}Galería{% endblock %}
 {% block content %}
 <div class="queue-page"
      style="--acc: var(--accent-gallery)"
@@ -17,17 +17,17 @@
      x-cloak>
   <div class="mod-hdr">
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-gallery"></use></svg>
-    <div class="t">Galería · Gallery</div>
+    <div class="t">Galería</div>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Estado · Status">
+  <div class="tabs" role="tablist" aria-label="Estado">
     <button class="tab"
             :class="{ active: activeTab === 'pending' }"
             type="button"
             role="tab"
             :aria-selected="activeTab === 'pending'"
             @click="activeTab = 'pending'">
-      Pendientes · Pending
+      Pendientes
       <span class="cnt" x-text="pending.length"></span>
     </button>
     <button class="tab"
@@ -36,7 +36,7 @@
             role="tab"
             :aria-selected="activeTab === 'published'"
             @click="activeTab = 'published'">
-      Publicadas · Published
+      Publicadas
     </button>
   </div>
 
@@ -45,7 +45,7 @@
       <article class="gcard">
         <img class="thumb"
              :src="row.thumb_url"
-             :alt="row.caption || 'Foto de galería · Gallery photo'"
+             :alt="row.caption || 'Foto de galería'"
              loading="lazy"
              @click="openLightbox(row)" />
         <div class="b">
@@ -57,20 +57,20 @@
           <a class="queue-link"
              :href="row.message_link"
              target="_blank"
-             rel="noopener">↗ Abrir en Discord · Open in Discord</a>
+             rel="noopener">↗ Abrir en Discord</a>
 
           <div class="acts" x-show="row.status === 'idle'">
             <template x-if="activeTab === 'pending'">
               <button class="btn sm"
                       type="button"
                       :disabled="row.busy"
-                      @click="run(row, 'approve')">✓ Aprobar · Approve</button>
+                      @click="run(row, 'approve')">✓ Aprobar</button>
             </template>
             <template x-if="activeTab === 'published'">
               <button class="btn sm danger"
                       type="button"
                       :disabled="row.busy"
-                      @click="askRemove(row)">✕ Quitar · Remove</button>
+                      @click="askRemove(row)">✕ Quitar</button>
             </template>
           </div>
 
@@ -86,17 +86,17 @@
             <span class="action-proof-copy" x-text="statusCopy(row)"></span>
             <span class="queue-status-detail"
                   x-show="row.status === 'done' && row.already && row.lastAction === 'approve'">
-              Ya estaba publicada. · Already published.
+              Ya estaba publicada.
             </span>
             <span class="queue-status-detail"
                   x-show="row.status === 'done' && row.already && row.lastAction === 'remove'">
-              Ya estaba quitada. · Already removed.
+              Ya estaba quitada.
             </span>
             <button class="btn sm ghost action-proof-retry"
                     type="button"
                     x-show="row.status === 'failed'"
                     :disabled="row.busy"
-                    @click="retry(row)">Reintentar · Retry</button>
+                    @click="retry(row)">Reintentar</button>
           </div>
         </div>
       </article>
@@ -105,13 +105,13 @@
 
   <div class="empty"
        x-show="activeTab === 'pending' && !pending.length">
-    <div class="h">Cola vacía · Queue empty</div>
-    <div>No hay fotos esperando aprobación. · No photos waiting for approval.</div>
+    <div class="h">Cola vacía</div>
+    <div>No hay fotos esperando aprobación.</div>
   </div>
   <div class="empty"
        x-show="activeTab === 'published' && !published.length">
-    <div class="h">Aún no hay fotos publicadas · No photos published yet</div>
-    <div>Las fotos aprobadas aparecerán aquí. · Approved photos will appear here.</div>
+    <div class="h">Aún no hay fotos publicadas</div>
+    <div>Las fotos aprobadas aparecerán aquí.</div>
   </div>
 
   <template x-if="lightbox">
@@ -119,14 +119,14 @@
          @keydown.escape.window="closeLightbox()"
          @click.self="closeLightbox()">
       <figure class="lightbox-panel" role="dialog" aria-modal="true"
-              aria-label="Vista ampliada · Expanded view">
+              aria-label="Vista ampliada">
         <button class="modal-close"
                 type="button"
-                aria-label="Cerrar · Close"
+                aria-label="Cerrar"
                 @click="closeLightbox()">✕</button>
         <img class="lightbox-img"
              :src="lightbox.thumb_url"
-             :alt="lightbox.caption || 'Foto de galería · Gallery photo'" />
+             :alt="lightbox.caption || 'Foto de galería'" />
         <figcaption class="lightbox-caption"
                     x-show="lightbox.caption"
                     x-text="lightbox.caption"></figcaption>
@@ -142,16 +142,16 @@
                role="alertdialog"
                aria-modal="true"
                aria-labelledby="remove-gallery-title">
-        <h2 id="remove-gallery-title">¿Quitar esta foto de la web? · Remove this photo from the site?</h2>
-        <p>Puede volver a aprobarse después si cambias de idea. · It can be approved again later if you change your mind.</p>
+        <h2 id="remove-gallery-title">¿Quitar esta foto de la web?</h2>
+        <p>Puede volver a aprobarse después si cambias de idea.</p>
         <div class="modal-actions">
           <button class="btn ghost"
                   type="button"
-                  @click="confirmRow = null">Cancelar · Cancel</button>
+                  @click="confirmRow = null">Cancelar</button>
           <button class="btn danger"
                   type="button"
                   :disabled="confirmRow.busy"
-                  @click="confirmRemove()">Quitar · Remove</button>
+                  @click="confirmRemove()">Quitar</button>
         </div>
       </section>
     </div>
@@ -248,8 +248,7 @@
           || ['minute', 60];
         const amount = Math.round(seconds / size);
         const es = new Intl.RelativeTimeFormat('es', { numeric: 'auto' });
-        const en = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-        return es.format(amount, unit) + ' · ' + en.format(amount, unit);
+        return es.format(amount, unit);
       },
 
       isPending(row) {
@@ -271,12 +270,12 @@
 
       statusCopy(row) {
         if (this.isPending(row) && !row.botOnline) {
-          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+          return 'Bot desconectado — se ejecutará al reconectar';
         }
-        if (this.isPending(row)) return 'Working… · Procesando…';
-        if (row.status === 'done') return '✓ Listo · Done';
+        if (this.isPending(row)) return 'Procesando…';
+        if (row.status === 'done') return '✓ Listo';
         if (row.status === 'failed') {
-          return '✗ Falló · Failed' + (row.error ? ' · ' + row.error : '');
+          return '✗ Falló' + (row.error ? ' · ' + row.error : '');
         }
         return '';
       },
@@ -302,14 +301,14 @@
               headers: { 'Accept': 'application/json' },
             }
           );
-          if (!response.ok) throw new Error('No se pudo iniciar · Could not start');
+          if (!response.ok) throw new Error('No se pudo iniciar');
           const body = await response.json();
           row.actionId = body.id;
           await this.poll(row);
         } catch (error) {
           row.status = 'failed';
-          row.error = error.message || 'Error desconocido · Unknown error';
-          this.toast = 'Error de red · Network error';
+          row.error = error.message || 'Error desconocido';
+          this.toast = 'Error de red';
         } finally {
           row.busy = false;
         }
@@ -322,7 +321,7 @@
             headers: { 'Accept': 'application/json' },
           });
           if (!response.ok) {
-            throw new Error('No se pudo consultar · Could not check status');
+            throw new Error('No se pudo consultar');
           }
           const body = await response.json();
           row.status = body.status;
@@ -334,8 +333,8 @@
           }
         } catch (error) {
           row.status = 'failed';
-          row.error = error.message || 'Error desconocido · Unknown error';
-          this.toast = 'Error de red · Network error';
+          row.error = error.message || 'Error desconocido';
+          this.toast = 'Error de red';
         }
       },
 
@@ -354,7 +353,7 @@
             }
           );
           if (!response.ok) {
-            throw new Error('No se pudo reintentar · Could not retry');
+            throw new Error('No se pudo reintentar');
           }
           const body = await response.json();
           row.actionId = body.id;
@@ -363,8 +362,8 @@
           await this.poll(row);
         } catch (error) {
           row.status = 'failed';
-          row.error = error.message || 'Error desconocido · Unknown error';
-          this.toast = 'Error de red · Network error';
+          row.error = error.message || 'Error desconocido';
+          this.toast = 'Error de red';
         } finally {
           row.busy = false;
         }

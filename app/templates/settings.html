@@ -4,7 +4,7 @@
 {% set bot_online = bot_online | default(false) %}
 {% set names = names | default({}) %}
 {% set names_fresh = names_fresh | default(false) %}
-{% block title %}Ajustes · Settings{% endblock %}
+{% block title %}Ajustes{% endblock %}
 {% block content %}
 {#- x-data MUST be single-quoted: `groups | tojson` emits double-quoted JSON, and
     Jinja escapes ' -> &#39;, so a single-quoted attribute can never be broken by
@@ -16,18 +16,18 @@
   <div class="mod-hdr" style="--acc: var(--accent-settings)">
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-settings"></use></svg>
     <div>
-      <div class="t">Ajustes · Settings</div>
-      <div class="s">Ajustes del bot, agrupados por función · Bot tunables, grouped by feature</div>
+      <div class="t">Ajustes</div>
+      <div class="s">Ajustes del bot, agrupados por función</div>
     </div>
     <button class="btn settings-save" type="button" @click="save()" :disabled="saving"
-            x-text="saving ? 'Guardando… · Saving…' : 'Guardar ajustes · Save settings'"></button>
+            x-text="saving ? 'Guardando…' : 'Guardar ajustes'"></button>
   </div>
 
   {% if not names_fresh %}<div class="settings-cache-banner" x-show="!namesFresh">
     <span class="settings-cache-icon">⏳</span>
     <div>
-      <div class="settings-cache-title">Sincronizando nombres · Names syncing</div>
-      <div class="settings-cache-copy">El bot aún no ha publicado la caché de nombres. Los IDs se muestran sin resolver hasta el próximo sync. · The bot hasn't pushed the name cache yet. IDs show unresolved until the next sync.</div>
+      <div class="settings-cache-title">Sincronizando nombres</div>
+      <div class="settings-cache-copy">El bot aún no ha publicado la caché de nombres. Los IDs se muestran sin resolver hasta el próximo sync.</div>
     </div>
   </div>{% endif %}
 
@@ -48,7 +48,7 @@
               </div>
               <div class="resolved-name resolved-name--muted"
                    x-show="!names[values[setting.key]] && values[setting.key]">
-                {% if names_fresh %}<span class="name-unavailable" x-show="namesFresh">Name unavailable · no encontrado</span>{% endif %}
+                {% if names_fresh %}<span class="name-unavailable" x-show="namesFresh">No encontrado</span>{% endif %}
               </div>
               <input type="text" inputmode="numeric" pattern="\d{17,20}"
                      placeholder="123456789012345678"
@@ -66,12 +66,12 @@
                     <span class="role-chip-name"
                           x-text="names[id] ? '@' + names[id].name : id"></span>
                     <span class="role-chip-id" x-text="id"></span>
-                    {% if names_fresh %}<span class="name-unavailable" x-show="namesFresh && !names[id]">Name unavailable · no encontrado</span>{% endif %}
+                    {% if names_fresh %}<span class="name-unavailable" x-show="namesFresh && !names[id]">No encontrado</span>{% endif %}
                   </div>
                 </template>
               </div>
               <div class="role-list-empty" x-show="!roleIds(values[setting.key]).length">
-                Sin roles asignados · No roles assigned
+                Sin roles asignados
               </div>
               <input type="text" placeholder="123, 456"
                      x-model="values[setting.key]" />
@@ -106,8 +106,8 @@
           <!-- lang: fixed es/en select, mirrors editor.html #f-lang -->
           <template x-if="setting.type === 'lang'">
             <select x-model="values[setting.key]">
-              <option value="es" :selected="setting.value === 'es'">Español · Spanish</option>
-              <option value="en" :selected="setting.value === 'en'">English · Inglés</option>
+              <option value="es" :selected="setting.value === 'es'">Español</option>
+              <option value="en" :selected="setting.value === 'en'">Inglés</option>
             </select>
           </template>
 
@@ -142,13 +142,13 @@
     // plain schema group id (gallery/reviews/reminders/jinxxy/meetings/forum); the
     // legend must show the bilingual pair, so translate client-side.
     const groupNames = {
-      gallery: 'Galería · Gallery',
-      reviews: 'Reseñas · Reviews',
-      reminders: 'Recordatorios · Reminders',
-      jinxxy: 'Tienda Jinxxy · Jinxxy store',
-      meetings: 'Reuniones · Meetings',
-      forum: 'Foro · Forum',
-      access: 'Acceso · Access',
+      gallery: 'Galería',
+      reviews: 'Reseñas',
+      reminders: 'Recordatorios',
+      jinxxy: 'Tienda Jinxxy',
+      meetings: 'Reuniones',
+      forum: 'Foro',
+      access: 'Acceso',
     };
     return {
       groups: initial,
@@ -192,15 +192,15 @@
           const data = await r.json().catch(() => ({}));
           if (r.ok && data.ok) {
             this.toastKind = 'ok';
-            this.toast = data.message || 'Ajustes guardados. — Settings saved.';
+            this.toast = data.message || 'Ajustes guardados.';
           } else {
             this.toastKind = 'error';
             this.errors = data.errors || {};
-            this.toast = 'Revisa los campos marcados. — Check the highlighted fields.';
+            this.toast = 'Revisa los campos marcados.';
           }
         } catch (e) {
           this.toastKind = 'error';
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
         } finally {
           this.saving = false;
         }

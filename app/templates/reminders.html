@@ -4,7 +4,7 @@
 {% set bot_online = bot_online | default(false) %}
 {% set rows = rows | default([]) %}
 {% set names = names | default([]) %}
-{% block title %}Recordatorios · Reminders{% endblock %}
+{% block title %}Recordatorios{% endblock %}
 {% block content %}
 {# x-data must stay single-quoted: tojson emits double-quoted JSON. #}
 <div class="reminders-page"
@@ -13,11 +13,11 @@
   <div class="mod-hdr" style="--acc: var(--accent-reminders)">
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-reminders"></use></svg>
     <div>
-      <div class="t">Recordatorios · Reminders</div>
-      <div class="s">Programa avisos para el equipo · Schedule notices for the team</div>
+      <div class="t">Recordatorios</div>
+      <div class="s">Programa avisos para el equipo</div>
     </div>
     <button class="btn reminders-create" type="button" @click="openCreate()">
-      Nuevo recordatorio · New reminder
+      Nuevo recordatorio
     </button>
   </div>
 
@@ -26,12 +26,12 @@
       <table>
         <thead>
           <tr>
-            <th>Nombre · Name</th>
-            <th>Horario · Schedule</th>
-            <th>Canal · Channel</th>
-            <th>Próximo disparo · Next fire</th>
-            <th>Estado · Status</th>
-            <th>Acciones · Actions</th>
+            <th>Nombre</th>
+            <th>Horario</th>
+            <th>Canal</th>
+            <th>Próximo disparo</th>
+            <th>Estado</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
@@ -49,20 +49,20 @@
               <td>
                 <span class="status-badge"
                       :class="row.paused ? 'paused' : 'active'"
-                      x-text="row.paused ? 'Pausado · Paused' : 'Activo · Active'"></span>
+                      x-text="row.paused ? 'Pausado' : 'Activo'"></span>
               </td>
               <td>
                 <div class="row-actions">
                   <button class="row-action edit" type="button"
-                          title="Editar · Edit" aria-label="Editar · Edit"
+                          title="Editar" aria-label="Editar"
                           @click="openEdit(row)">✎</button>
                   <button class="row-action pause" type="button"
-                          :title="row.paused ? 'Reanudar · Resume' : 'Pausar · Pause'"
-                          :aria-label="row.paused ? 'Reanudar · Resume' : 'Pausar · Pause'"
+                          :title="row.paused ? 'Reanudar' : 'Pausar'"
+                          :aria-label="row.paused ? 'Reanudar' : 'Pausar'"
                           @click="row.paused ? resume(row) : pause(row)"
                           x-text="row.paused ? '▶' : '⏸'"></button>
                   <button class="row-action delete" type="button"
-                          title="Eliminar · Delete" aria-label="Eliminar · Delete"
+                          title="Eliminar" aria-label="Eliminar"
                           @click="askDelete(row)">✕</button>
                 </div>
               </td>
@@ -73,8 +73,8 @@
     </div>
 
     <div class="empty" x-show="!rows.length">
-      <div class="h">Sin recordatorios · No reminders yet</div>
-      <p>Crea el primero para empezar a recordar al equipo. · Create the first one to start reminding the team.</p>
+      <div class="h">Sin recordatorios</div>
+      <p>Crea el primero para empezar a recordar al equipo.</p>
     </div>
   </section>
 
@@ -84,28 +84,28 @@
                aria-labelledby="reminder-modal-title">
         <div class="modal-header">
           <h2 id="reminder-modal-title"
-              x-text="editingId ? 'Editar recordatorio · Edit reminder' : 'Nuevo recordatorio · New reminder'"></h2>
-          <button class="modal-close" type="button" aria-label="Cerrar · Close"
+              x-text="editingId ? 'Editar recordatorio' : 'Nuevo recordatorio'"></h2>
+          <button class="modal-close" type="button" aria-label="Cerrar"
                   @click="closeModal()">✕</button>
         </div>
 
         <form @submit.prevent="save()">
           <div class="modal-body">
             <div class="field" :class="errors.name ? 'field--invalid' : ''">
-              <label class="label" for="reminder-name">Nombre · Name</label>
+              <label class="label" for="reminder-name">Nombre</label>
               <input id="reminder-name" type="text" maxlength="80"
                      x-model="values.name" autocomplete="off" />
               <p class="field-error" x-show="errors.name" x-text="errors.name"></p>
             </div>
 
             <div class="field" :class="errors.frequency ? 'field--invalid' : ''">
-              <label class="label" for="reminder-frequency">Frecuencia · Frequency</label>
+              <label class="label" for="reminder-frequency">Frecuencia</label>
               <select id="reminder-frequency" x-model="values.frequency"
                       @change="scheduleChanged()">
-                <option value="weekly">Semanal · Weekly</option>
-                <option value="biweekly">Cada 2 semanas · Biweekly</option>
-                <option value="monthly">Mensual · Monthly</option>
-                <option value="oneoff">Una vez · One-off</option>
+                <option value="weekly">Semanal</option>
+                <option value="biweekly">Cada 2 semanas</option>
+                <option value="monthly">Mensual</option>
+                <option value="oneoff">Una vez</option>
               </select>
               <p class="field-error" x-show="errors.frequency" x-text="errors.frequency"></p>
             </div>
@@ -114,21 +114,21 @@
               <template x-if="values.frequency === 'weekly'">
                 <div class="schedule-field-grid">
                   <div class="field" :class="errors.weekday ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-weekday">Día · Day</label>
+                    <label class="label" for="reminder-weekday">Día</label>
                     <select id="reminder-weekday" x-model.number="values.weekday"
                             @change="recomputePreview()">
-                      <option :value="0">Lunes · Monday</option>
-                      <option :value="1">Martes · Tuesday</option>
-                      <option :value="2">Miércoles · Wednesday</option>
-                      <option :value="3">Jueves · Thursday</option>
-                      <option :value="4">Viernes · Friday</option>
-                      <option :value="5">Sábado · Saturday</option>
-                      <option :value="6">Domingo · Sunday</option>
+                      <option :value="0">Lunes</option>
+                      <option :value="1">Martes</option>
+                      <option :value="2">Miércoles</option>
+                      <option :value="3">Jueves</option>
+                      <option :value="4">Viernes</option>
+                      <option :value="5">Sábado</option>
+                      <option :value="6">Domingo</option>
                     </select>
                     <p class="field-error" x-show="errors.weekday" x-text="errors.weekday"></p>
                   </div>
                   <div class="field" :class="errors.time ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-weekly-time">Hora · Time</label>
+                    <label class="label" for="reminder-weekly-time">Hora</label>
                     <input id="reminder-weekly-time" type="time" x-model="values.time"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
@@ -139,13 +139,13 @@
               <template x-if="values.frequency === 'biweekly'">
                 <div class="schedule-field-grid">
                   <div class="field" :class="errors.run_date ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-anchor">Fecha de inicio · Anchor date</label>
+                    <label class="label" for="reminder-anchor">Fecha de inicio</label>
                     <input id="reminder-anchor" type="date" x-model="values.run_date"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.run_date" x-text="errors.run_date"></p>
                   </div>
                   <div class="field" :class="errors.time ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-biweekly-time">Hora · Time</label>
+                    <label class="label" for="reminder-biweekly-time">Hora</label>
                     <input id="reminder-biweekly-time" type="time" x-model="values.time"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
@@ -156,14 +156,14 @@
               <template x-if="values.frequency === 'monthly'">
                 <div class="schedule-field-grid">
                   <div class="field" :class="errors.day_of_month ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-month-day">Día del mes · Day of month</label>
+                    <label class="label" for="reminder-month-day">Día del mes</label>
                     <input id="reminder-month-day" type="number" min="1" max="31"
                            x-model.number="values.day_of_month"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.day_of_month" x-text="errors.day_of_month"></p>
                   </div>
                   <div class="field" :class="errors.time ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-monthly-time">Hora · Time</label>
+                    <label class="label" for="reminder-monthly-time">Hora</label>
                     <input id="reminder-monthly-time" type="time" x-model="values.time"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
@@ -174,13 +174,13 @@
               <template x-if="values.frequency === 'oneoff'">
                 <div class="schedule-field-grid">
                   <div class="field" :class="errors.run_date ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-date">Fecha · Date</label>
+                    <label class="label" for="reminder-date">Fecha</label>
                     <input id="reminder-date" type="date" x-model="values.run_date"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.run_date" x-text="errors.run_date"></p>
                   </div>
                   <div class="field" :class="errors.time ? 'field--invalid' : ''">
-                    <label class="label" for="reminder-oneoff-time">Hora · Time</label>
+                    <label class="label" for="reminder-oneoff-time">Hora</label>
                     <input id="reminder-oneoff-time" type="time" x-model="values.time"
                            @input.debounce.250ms="recomputePreview()" />
                     <p class="field-error" x-show="errors.time" x-text="errors.time"></p>
@@ -191,22 +191,22 @@
 
             <div class="schedule-preview" x-show="preview.next_fire_utc">
               <span class="schedule-preview-icon">⏱</span>
-              <span class="schedule-preview-label">Próximo disparo · Next fire</span>
+              <span class="schedule-preview-label">Próximo disparo</span>
               <span class="schedule-preview-value"
                     x-text="preview.summary + ' · ' + preview.next_fire_utc"></span>
             </div>
 
             <p class="imminent-caveat" x-show="editingId && editingImminent">
               <span>⚠</span>
-              Tu cambio aplica desde el próximo disparo; el actual podría estar enviándose ya. · Your change applies from the next fire; the imminent one may already be sending.
+              Tu cambio aplica desde el próximo disparo; el actual podría estar enviándose ya.
             </p>
 
             <div class="field" :class="errors.channel_id ? 'field--invalid' : ''">
-              <label class="label">Canal · Channel</label>
+              <label class="label">Canal</label>
               <div class="combobox" @click.outside="channelOpen = false">
                 <template x-if="!rawChannel">
                   <div>
-                    <input type="search" placeholder="🔍 Buscar canal · Search channel"
+                    <input type="search" placeholder="🔍 Buscar canal"
                            x-model="channelSearch" @focus="channelOpen = true"
                            @input="channelOpen = true" autocomplete="off" />
                     <div class="combobox-list" x-show="channelOpen">
@@ -218,7 +218,7 @@
                       </template>
                       <button class="combobox-fallback" type="button"
                               @click="rawChannel = true; channelOpen = false">
-                        Usar ID directo · Use raw ID
+                        Usar ID directo
                       </button>
                     </div>
                   </div>
@@ -230,7 +230,7 @@
                            x-model="values.channel_id" />
                     <button class="btn ghost" type="button"
                             @click="rawChannel = false; channelSearch = ''">
-                      Buscar nombre · Search names
+                      Buscar nombre
                     </button>
                   </div>
                 </template>
@@ -239,23 +239,23 @@
             </div>
 
             <div class="field" :class="errors.message ? 'field--invalid' : ''">
-              <label class="label" for="reminder-message">Mensaje · Message</label>
+              <label class="label" for="reminder-message">Mensaje</label>
               <textarea id="reminder-message" rows="4" x-model="values.message"></textarea>
               <p class="field-error" x-show="errors.message" x-text="errors.message"></p>
             </div>
 
             <div class="field"
                  :class="(errors.mention_id || errors.mentions) ? 'field--invalid' : ''">
-              <label class="label">Rol a mencionar (opcional) · Mention role (optional)</label>
+              <label class="label">Rol a mencionar (opcional)</label>
               <div class="combobox" @click.outside="roleOpen = false">
                 <template x-if="!rawRole">
                   <div>
-                    <input type="search" placeholder="🔍 Buscar rol · Search role"
+                    <input type="search" placeholder="🔍 Buscar rol"
                            x-model="roleSearch" @focus="roleOpen = true"
                            @input="roleOpen = true" autocomplete="off" />
                     <div class="combobox-list" x-show="roleOpen">
                       <button class="combobox-option" type="button"
-                              @click="clearRole()">Sin mención · No mention</button>
+                              @click="clearRole()">Sin mención</button>
                       <template x-for="entry in filteredNames('role', roleSearch)"
                                 :key="'role-' + entry.id">
                         <button class="combobox-option" type="button"
@@ -264,7 +264,7 @@
                       </template>
                       <button class="combobox-fallback" type="button"
                               @click="rawRole = true; roleOpen = false">
-                        Usar ID directo · Use raw ID
+                        Usar ID directo
                       </button>
                     </div>
                   </div>
@@ -276,7 +276,7 @@
                            x-model="values.mention_id" />
                     <button class="btn ghost" type="button"
                             @click="rawRole = false; roleSearch = ''">
-                      Buscar nombre · Search names
+                      Buscar nombre
                     </button>
                   </div>
                 </template>
@@ -290,13 +290,13 @@
 
             <div class="field" :class="errors.reactions ? 'field--invalid' : ''">
               <label class="label"
-                     x-text="`Reacciones · Reactions (${values.reactions.length}/6)`"></label>
+                     x-text="`Reacciones (${values.reactions.length}/6)`"></label>
               <div class="chip-input">
                 <div class="role-chip-list" x-show="values.reactions.length">
                   <template x-for="(reaction, index) in values.reactions" :key="index + '-' + reaction">
                     <span class="reaction-chip">
                       <span x-text="reaction"></span>
-                      <button type="button" aria-label="Quitar · Remove"
+                      <button type="button" aria-label="Quitar"
                               @click="removeReaction(index)">×</button>
                     </span>
                   </template>
@@ -308,7 +308,7 @@
                          placeholder="👍" />
                   <button class="btn ghost" type="button" @click="addReaction()"
                           :disabled="values.reactions.length >= 6 || !reactionInput.trim()">
-                    Añadir · Add
+                    Añadir
                   </button>
                 </div>
               </div>
@@ -318,14 +318,14 @@
 
           <div class="modal-actions">
             <button class="btn ghost" type="button" @click="closeModal()">
-              Cancelar · Cancel
+              Cancelar
             </button>
             <button class="btn" type="submit" :disabled="saving"
                     x-text="saving
-                      ? 'Guardando… · Saving…'
+                      ? 'Guardando…'
                       : (editingId
-                        ? 'Guardar cambios · Save changes'
-                        : 'Crear recordatorio · Create reminder')"></button>
+                        ? 'Guardar cambios'
+                        : 'Crear recordatorio')"></button>
           </div>
         </form>
       </section>
@@ -339,18 +339,18 @@
       <section class="confirm-modal" role="alertdialog" aria-modal="true"
                aria-labelledby="delete-reminder-title">
         <h2 id="delete-reminder-title"
-            x-text="`¿Eliminar «${confirmDelete.name}»? · Delete &quot;${confirmDelete.name}&quot;?`"></h2>
-        <p>Se eliminará permanentemente y dejará de dispararse. · It will be permanently removed and stop firing.</p>
+            x-text="`¿Eliminar «${confirmDelete.name}»?`"></h2>
+        <p>Se eliminará permanentemente y dejará de dispararse.</p>
         <p class="imminent-caveat" x-show="confirmDelete.imminent">
           <span>⚠</span>
-          Este recordatorio podría estar enviándose ahora mismo; eliminarlo detiene disparos futuros. · This reminder may already be mid-send; deleting stops future occurrences.
+          Este recordatorio podría estar enviándose ahora mismo; eliminarlo detiene disparos futuros.
         </p>
         <div class="modal-actions">
           <button class="btn ghost" type="button" @click="confirmDelete = null">
-            Cancelar · Cancel
+            Cancelar
           </button>
           <button class="btn danger" type="button" :disabled="saving"
-                  @click="confirmDeleteNow()">Eliminar · Delete</button>
+                  @click="confirmDeleteNow()">Eliminar</button>
         </div>
       </section>
     </div>
@@ -543,7 +543,7 @@
 
       showConflict() {
         this.toastKind = 'error';
-        this.toast = 'Este recordatorio cambió mientras editabas — recarga. · This reminder changed while you were editing — reload.';
+        this.toast = 'Este recordatorio cambió mientras editabas — recarga.';
       },
 
       async save() {
@@ -563,19 +563,19 @@
             this.modalOpen = false;
             this.toastKind = 'ok';
             this.toast = wasEdit
-              ? 'Recordatorio guardado. · Reminder saved.'
-              : 'Recordatorio creado. · Reminder created.';
+              ? 'Recordatorio guardado.'
+              : 'Recordatorio creado.';
             window.setTimeout(() => window.location.reload(), 500);
           } else if (response.status === 409) {
             this.showConflict();
           } else {
             this.toastKind = 'error';
             this.errors = data.errors || {};
-            this.toast = 'Revisa los campos marcados. · Check the highlighted fields.';
+            this.toast = 'Revisa los campos marcados.';
           }
         } catch (e) {
           this.toastKind = 'error';
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
         } finally {
           this.saving = false;
         }
@@ -597,11 +597,11 @@
             this.showConflict();
           } else {
             this.toastKind = 'error';
-            this.toast = 'Revisa los campos marcados. · Check the highlighted fields.';
+            this.toast = 'Revisa los campos marcados.';
           }
         } catch (e) {
           this.toastKind = 'error';
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
         } finally {
           this.saving = false;
         }
@@ -639,11 +639,11 @@
             this.showConflict();
           } else {
             this.toastKind = 'error';
-            this.toast = 'Revisa los campos marcados. · Check the highlighted fields.';
+            this.toast = 'Revisa los campos marcados.';
           }
         } catch (e) {
           this.toastKind = 'error';
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
         } finally {
           this.saving = false;
         }

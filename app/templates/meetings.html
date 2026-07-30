@@ -3,15 +3,15 @@
 {% set active_section = active_section | default("meetings") %}
 {% set bot_online = bot_online | default(false) %}
 {% set rows = rows | default([]) %}
-{% block title %}Reuniones · Meetings{% endblock %}
+{% block title %}Reuniones{% endblock %}
 
 {% block content %}
 <div class="jinxxy-page">
   <div class="mod-hdr" style="--acc: var(--accent-meetings)">
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-meetings"></use></svg>
     <div>
-      <div class="t">Reuniones · Meetings</div>
-      <div class="s">Consulta el historial y corrige un resumen · Browse history and correct a summary</div>
+      <div class="t">Reuniones</div>
+      <div class="s">Consulta el historial y corrige un resumen</div>
     </div>
   </div>
 
@@ -20,10 +20,10 @@
     <table>
       <thead>
         <tr>
-          <th>Tema · Topic</th>
-          <th>Fecha y hora · Date and time</th>
-          <th>Asistentes · Attendees</th>
-          <th>Resumen · Summary</th>
+          <th>Tema</th>
+          <th>Fecha y hora</th>
+          <th>Asistentes</th>
+          <th>Resumen</th>
         </tr>
       </thead>
       <tbody>
@@ -31,7 +31,7 @@
         <tr>
           <td>
             <a class="jinxxy-product-link"
-               href="/meetings/{{ row.id }}">{{ row.tema or "Sin tema · No topic" }}</a>
+               href="/meetings/{{ row.id }}">{{ row.tema or "Sin tema" }}</a>
           </td>
           <td>
             <a href="/meetings/{{ row.id }}">
@@ -42,17 +42,17 @@
             <a href="/meetings/{{ row.id }}">
               {% if row.attendees is defined %}
               {% set attendee_count = row.attendees | default([], true) | length %}
-              {{ attendee_count }} asistente(s) · {{ attendee_count }} attendee(s)
+              {{ attendee_count }} asistente(s)
               {% else %}
               <span x-data='{ count: JSON.parse({{ row.attendees_json | default("[]") | tojson }}).length }'
-                    x-text="count + ' asistente(s) · ' + count + ' attendee(s)'"></span>
+                    x-text="count + ' asistente(s)'"></span>
               {% endif %}
             </a>
           </td>
           <td>
             <a href="/meetings/{{ row.id }}"
                style="display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;">
-              {{ row.summary or "Sin resumen · No summary" }}
+              {{ row.summary or "Sin resumen" }}
             </a>
           </td>
         </tr>
@@ -61,8 +61,8 @@
     </table>
     {% else %}
     <div class="empty">
-      <div class="h">Aún no hay reuniones · No meetings yet</div>
-      <div>Las reuniones grabadas con /reunion grabar aparecerán aquí · Meetings recorded with /reunion grabar will appear here</div>
+      <div class="h">Aún no hay reuniones</div>
+      <div>Las reuniones grabadas con /reunion grabar aparecerán aquí</div>
     </div>
     {% endif %}
   </section>

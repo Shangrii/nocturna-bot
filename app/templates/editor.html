@@ -23,12 +23,12 @@
     <template x-teleport="#topbar-slot">
       <div class="editor-topbar-actions">
         <span class="status-badge" :class="saving ? 'pending' : (page.published ? 'active' : '')"
-              x-text="saving ? (page.published ? 'Guardando… · Saving…' : 'Publicando… · Publishing…') : (page.published ? 'Publicada · Published' : 'Borrador · Draft')"></span>
+              x-text="saving ? (page.published ? 'Guardando…' : 'Publicando…') : (page.published ? 'Publicada' : 'Borrador')"></span>
         <button class="btn btn--accent" type="button" @click="publish()" :disabled="saving"
-                x-text="saving ? (page.published ? 'Guardando…' : 'Publicando…') : (page.published ? 'Guardar cambios · Save changes' : 'Publicar · Publish')"></button>
+                x-text="saving ? (page.published ? 'Guardando…' : 'Publicando…') : (page.published ? 'Guardar cambios' : 'Publicar')"></button>
         <button class="btn btn--danger" type="button" @click="unpublish()" :disabled="saving"
                 x-show="page.published">
-          Despublicar · Unpublish
+          Despublicar
         </button>
       </div>
     </template>
@@ -36,21 +36,21 @@
     <!-- Mobile pane tabs (hidden ≥1024px) -->
     <div class="pane-tabs" style="padding: 0 var(--sp-md);">
       <button class="btn btn--sm" type="button" @click="mobileView='edit'"
-              :class="mobileView==='edit' ? 'btn--accent' : ''">Editar · Edit</button>
+              :class="mobileView==='edit' ? 'btn--accent' : ''">Editar</button>
       <button class="btn btn--sm" type="button" @click="mobileView='preview'"
-              :class="mobileView==='preview' ? 'btn--accent' : ''">Vista · Preview</button>
+              :class="mobileView==='preview' ? 'btn--accent' : ''">Vista</button>
     </div>
 
     <div class="panes">
       <!-- ── LEFT: block list editor ─────────────────────────────────────── -->
       <section class="pane pane--edit" :data-hidden="mobileView==='preview'">
-        <p class="label">Datos base · Core fields</p>
+        <p class="label">Datos base</p>
 
         <div class="field">
-          <label class="label" for="f-name">Nombre · Name</label>
+          <label class="label" for="f-name">Nombre</label>
           <input id="f-name" type="text" x-model="page.name" maxlength="100" />
 
-          <label class="label" for="f-slug">Tu link · Your link</label>
+          <label class="label" for="f-slug">Tu link</label>
           <input id="f-slug" type="text" x-model="page.slug"
                  @input="page.slug = normalizeSlugLive(page.slug)"
                  @blur="page.slug = normalizeSlug(page.slug)"
@@ -58,8 +58,7 @@
           <p class="field-hint">
             <span x-text="linkBase + (page.slug || '…')"></span><br />
             Cambiar el nombre cambia tu link público: el link anterior deja de funcionar y
-            el contador de vistas se reinicia. · Renaming changes your public link — the old
-            link stops working and the view count resets.
+            el contador de vistas se reinicia.
           </p>
         </div>
 
@@ -70,14 +69,14 @@
               <img class="thumb" :src="mediaUrl(page.avatar)" alt="" />
             </template>
             <label class="btn btn--sm">
-              Subir · Upload
+              Subir
               <input type="file" accept="image/png,image/jpeg,image/webp" hidden
                      @change="uploadImage($event, v => page.avatar = v)" />
             </label>
             <template x-if="page.avatar">
               <button class="btn btn--sm btn--danger" type="button"
-                      @click="if (confirm('¿Quitar esta imagen? · Remove this image?')) page.avatar=''">
-                Quitar · Remove
+                      @click="if (confirm('¿Quitar esta imagen?')) page.avatar=''">
+                Quitar
               </button>
             </template>
             <span class="upload-state" :data-kind="uploadKind" x-text="uploadMsg"></span>
@@ -85,32 +84,32 @@
         </div>
 
         <div class="field">
-          <label class="label" for="f-lang">Idioma · Language</label>
+          <label class="label" for="f-lang">Idioma</label>
           <select id="f-lang" x-model="page.lang">
-            <option value="es">Español · Spanish</option>
-            <option value="en">English · Inglés</option>
+            <option value="es">Español</option>
+            <option value="en">Inglés</option>
           </select>
         </div>
 
         <div class="field">
           <label class="label" for="f-tagline">Tagline</label>
           <input id="f-tagline" type="text" x-model="page.tagline" maxlength="300"
-                 placeholder="Una línea · One line" />
+                 placeholder="Una línea" />
         </div>
 
         <div class="field">
-          <span class="label">Especialidades · Skills &amp; tags</span>
-          <p class="field-hint">Escribe y pulsa Enter · Type &amp; press Enter</p>
+          <span class="label">Especialidades</span>
+          <p class="field-hint">Escribe y pulsa Enter</p>
           <div class="tag-input">
             <template x-for="(b, bi) in page.badges" :key="bi">
               <span class="tag-chip">
                 <span x-text="b"></span>
                 <button type="button" class="tag-chip__x" @click="page.badges.splice(bi,1)"
-                        aria-label="Quitar · Remove">✕</button>
+                        aria-label="Quitar">✕</button>
               </span>
             </template>
             <input type="text" x-model="badgeDraft" maxlength="40"
-                   placeholder="Añadir… · Add…"
+                   placeholder="Añadir…"
                    @keydown.enter.prevent="addBadge()"
                    @keydown="if ($event.key===',') { $event.preventDefault(); addBadge(); }"
                    @blur="addBadge()" />
@@ -118,29 +117,29 @@
         </div>
 
         <div class="field">
-          <span class="label">Redes · Socials</span>
+          <span class="label">Redes</span>
           <template x-for="(s, j) in page.socials" :key="j">
             <div class="locale-pair" style="margin-bottom: var(--sp-2xs);">
-              <input type="text" x-model="s.label" placeholder="Etiqueta · Label" maxlength="100" />
+              <input type="text" x-model="s.label" placeholder="Etiqueta" maxlength="100" />
               <div style="display:flex; gap: var(--sp-2xs);">
                 <input type="url" x-model="s.url" placeholder="https://…" maxlength="2048" />
                 <button class="btn btn--sm btn--danger" type="button"
-                        @click="page.socials.splice(j,1)" aria-label="Quitar red · Remove social">✕</button>
+                        @click="page.socials.splice(j,1)" aria-label="Quitar red">✕</button>
               </div>
             </div>
           </template>
           <button class="btn btn--sm" type="button" @click="page.socials.push({label:'',url:''})">
-            + Red · Social
+            + Red
           </button>
         </div>
 
         <hr class="preview-divider" />
-        <p class="label">Tema · Theme</p>
+        <p class="label">Tema</p>
 
         <!-- ── Theme preset picker (D-24): one click = full palette+font+buttons+effects,
              then every knob below stays editable (apply-then-tweak) ── -->
         <div class="field">
-          <span class="label">Presets · Temas rápidos</span>
+          <span class="label">Temas rápidos</span>
           <div class="preset-row">
             <template x-for="p in presetList" :key="p.key">
               <button class="preset-swatch" type="button"
@@ -158,8 +157,8 @@
         <div class="theme-panel">
           <!-- 1 · Background -->
           <fieldset class="theme-group">
-            <legend class="label">Background · Fondo</legend>
-            <p class="field-hint">Imagen, GIF o vídeo (mp4/webm, máx 10 MB) · Image, GIF or video</p>
+            <legend class="label">Fondo</legend>
+            <p class="field-hint">Imagen, GIF o vídeo (mp4/webm, máx 10 MB)</p>
             <div class="upload">
               <template x-if="page.theme.bgMedia && isVideo(page.theme.bgMedia)">
                 <video class="thumb" :src="mediaUrl(page.theme.bgMedia)" autoplay muted loop playsinline></video>
@@ -168,7 +167,7 @@
                 <img class="thumb" :src="mediaUrl(page.theme.bgMedia)" alt="" />
               </template>
               <label class="btn btn--sm">
-                Media · Subir
+                Subir
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" hidden
                        @change="uploadMedia($event, v => page.theme.bgMedia = v)" />
               </label>
@@ -176,7 +175,7 @@
                 <button class="btn btn--sm btn--danger" type="button"
                         x-data="{ confirm: false }"
                         @click="confirm ? (page.theme.bgMedia = null, confirm = false) : (confirm = true)"
-                        x-text="confirm ? '¿Seguro? · Sure?' : 'Quitar · Remove'"></button>
+                        x-text="confirm ? '¿Seguro?' : 'Quitar'"></button>
               </template>
               <span class="upload-state" :data-kind="uploadKind" x-text="uploadMsg"></span>
             </div>
@@ -190,7 +189,7 @@
             </label>
             <p class="field-hint">Colorea la imagen · Fuerza 0 = sin tinte</p>
             <div class="color-row">
-              <span class="label">Tint · Tinte</span>
+              <span class="label">Tinte</span>
               <span style="display:flex; gap: var(--sp-2xs); align-items:center;">
                 <input type="color" :value="tintHex"
                        @input="setTint($event.target.value, tintAlpha || 0.5)"
@@ -201,7 +200,7 @@
               </span>
             </div>
             <label class="range-row">
-              <span class="label">Fuerza · Strength <span x-text="Math.round(tintAlpha*100) + '%'"></span></span>
+              <span class="label">Fuerza <span x-text="Math.round(tintAlpha*100) + '%'"></span></span>
               <input type="range" min="0" max="100" :value="Math.round(tintAlpha*100)"
                      @input="setTint(tintHex, $event.target.value/100)" />
             </label>
@@ -210,23 +209,23 @@
           <!-- 2 · Colors — compact swatch grid; the "what it controls" detail lives in
                each swatch's tooltip (hover) so nothing clutters the panel. -->
           <fieldset class="theme-group">
-            <legend class="label">Colors · Colores</legend>
+            <legend class="label">Colores</legend>
             <div class="color-grid">
-              <label class="swatch-field" title="Botones, anillo del avatar, enlaces y líneas · Buttons, avatar ring, links, dividers">
+              <label class="swatch-field" title="Botones, anillo del avatar, enlaces y líneas">
                 <input type="color" x-model="page.theme.accent" />
-                <span class="label">Acento · Accent</span>
+                <span class="label">Acento</span>
               </label>
-              <label class="swatch-field" title="Nombre, títulos y texto principal · Name, headings, main text">
+              <label class="swatch-field" title="Nombre, títulos y texto principal">
                 <input type="color" x-model="page.theme.text" />
-                <span class="label">Texto · Text</span>
+                <span class="label">Texto</span>
               </label>
-              <label class="swatch-field" title="Tagline y textos secundarios · Tagline & secondary text">
+              <label class="swatch-field" title="Tagline y textos secundarios">
                 <input type="color" x-model="page.theme.textMuted" />
-                <span class="label">Atenuado · Muted</span>
+                <span class="label">Atenuado</span>
               </label>
-              <label class="swatch-field" title="Color estático de toda la página, detrás de la imagen · Static page color, behind the image">
+              <label class="swatch-field" title="Color estático de toda la página, detrás de la imagen">
                 <input type="color" x-model="page.theme.bg" />
-                <span class="label">Fondo · Background</span>
+                <span class="label">Fondo</span>
               </label>
             </div>
           </fieldset>
@@ -234,13 +233,13 @@
           <!-- Surface (glass tint) — made intuitive: a color + opacity, composed into
                the rgba() the model expects. Only visible/relevant with glass effects. -->
           <fieldset class="theme-group">
-            <legend class="label">Surface · Tarjetas cristal</legend>
-            <p class="field-hint">Tarjetas de cristal (efecto Glass) · Glass cards</p>
+            <legend class="label">Tarjetas cristal</legend>
+            <p class="field-hint">Tarjetas de cristal (efecto Glass)</p>
             <label class="color-row"><span class="label">Color</span>
               <input type="color" :value="surfaceHex"
                      @input="setSurface($event.target.value, surfaceAlpha)" /></label>
             <label class="range-row">
-              <span class="label">Opacidad · Opacity <span x-text="Math.round(surfaceAlpha*100) + '%'"></span></span>
+              <span class="label">Opacidad <span x-text="Math.round(surfaceAlpha*100) + '%'"></span></span>
               <input type="range" min="0" max="100" :value="Math.round(surfaceAlpha*100)"
                      @input="setSurface(surfaceHex, $event.target.value/100)" />
             </label>
@@ -248,14 +247,14 @@
 
           <!-- 3 · Typography -->
           <fieldset class="theme-group">
-            <legend class="label">Typography · Tipografía</legend>
+            <legend class="label">Tipografía</legend>
             <select x-model="page.theme.font" aria-label="Curated font">
               <template x-for="f in curatedFonts" :key="f">
                 <option :value="f" x-text="f"></option>
               </template>
             </select>
             <label class="range-row">
-              <span class="label">Tamaño · Size <span x-text="Math.round((page.theme.fontScale||1)*100) + '%'"></span></span>
+              <span class="label">Tamaño <span x-text="Math.round((page.theme.fontScale||1)*100) + '%'"></span></span>
               <input type="range" min="80" max="160" step="5"
                      :value="Math.round((page.theme.fontScale||1)*100)"
                      @input="page.theme.fontScale = $event.target.value/100" />
@@ -266,7 +265,7 @@
 
           <!-- 5 · Effects -->
           <fieldset class="theme-group">
-            <legend class="label">Effects · Efectos</legend>
+            <legend class="label">Efectos</legend>
             <div class="effect-grid">
               <template x-for="fx in effectKeys" :key="fx.key">
                 <label class="chip" :class="hasEffect(fx.key) ? 'chip--on' : ''">
@@ -281,8 +280,8 @@
 
           <!-- 7 · Música — Spotify O un MP3 propio (mutuamente excluyentes) -->
           <fieldset class="theme-group">
-            <legend class="label">Música · Music</legend>
-            <p class="field-hint">Spotify o un MP3 propio · Spotify or your own MP3</p>
+            <legend class="label">Música</legend>
+            <p class="field-hint">Spotify o un MP3 propio</p>
 
             <!-- Spotify (oculto si hay MP3) -->
             <input type="url" x-model="page.theme.spotify" maxlength="2048"
@@ -293,24 +292,24 @@
               <img class="spotify-admin__art" :src="spotifyMeta.image" alt="" />
               <span class="spotify-admin__title" x-text="spotifyMeta.title"></span>
               <button class="btn btn--sm btn--danger" type="button" @click="clearSpotify()">
-                Quitar · Remove
+                Quitar
               </button>
             </div>
 
             <!-- MP3 propio (oculto si hay Spotify) -->
             <div x-show="!page.theme.spotify" x-cloak>
-              <p class="field-hint" x-show="!page.theme.audio" x-cloak>— o sube un MP3 · or upload an MP3 —</p>
+              <p class="field-hint" x-show="!page.theme.audio" x-cloak>— o sube un MP3 —</p>
               <div class="upload">
                 <template x-if="page.theme.audioCover">
                   <img class="thumb" :src="mediaUrl(page.theme.audioCover)" alt="" />
                 </template>
                 <label class="btn btn--sm">
-                  MP3 · Subir
+                  Subir
                   <input type="file" accept="audio/mpeg,audio/ogg,audio/wav" hidden
                          @change="uploadAudio($event, v => onMp3Uploaded(v))" />
                 </label>
                 <label class="btn btn--sm" x-show="page.theme.audio" x-cloak>
-                  Portada · Cover
+                  Portada
                   <input type="file" accept="image/png,image/jpeg,image/webp" hidden
                          @change="uploadImage($event, v => page.theme.audioCover = v)" />
                 </label>
@@ -318,32 +317,32 @@
               </div>
               <input type="text" x-model="page.theme.audioTitle" maxlength="120"
                      x-show="page.theme.audio" x-cloak style="margin-top: var(--sp-2xs);"
-                     placeholder="Título de la canción · Song title" />
+                     placeholder="Título de la canción" />
               <button class="btn btn--sm btn--danger" type="button" x-show="page.theme.audio" x-cloak
                       style="margin-top: var(--sp-2xs);" @click="clearMp3()">
-                Quitar MP3 · Remove MP3
+                Quitar MP3
               </button>
             </div>
 
             <!-- Inicio (ambos) -->
             <label class="range-row" x-show="page.theme.spotify || page.theme.audio" x-cloak>
-              <span class="label">Empieza en · Starts at
+              <span class="label">Empieza en
                 <span x-text="fmtTime(page.theme.spotifyStart || 0)"></span>
               </span>
               <input type="number" min="0" max="3600" step="1" style="max-width: 96px;"
                      :value="page.theme.spotifyStart || 0"
                      @input="page.theme.spotifyStart = Math.max(0, parseInt($event.target.value) || 0)" />
             </label>
-            <p class="field-hint" x-show="page.theme.spotify || page.theme.audio" x-cloak>Segundos · Seconds (0 = inicio)</p>
+            <p class="field-hint" x-show="page.theme.spotify || page.theme.audio" x-cloak>Segundos (0 = inicio)</p>
 
             <label class="range-row" x-show="page.theme.spotify || page.theme.audio" x-cloak>
-              <span class="label">Volumen · Volume <span x-text="(page.theme.musicVolume) + '%'"></span></span>
+              <span class="label">Volumen <span x-text="(page.theme.musicVolume) + '%'"></span></span>
               <input type="range" min="0" max="100" step="1"
                      :value="page.theme.musicVolume"
                      @input="page.theme.musicVolume = Math.max(0, Math.min(100, parseInt($event.target.value) || 0))" />
             </label>
             <p class="field-hint" x-show="page.theme.audio" x-cloak>
-              Volumen por defecto (algunas canciones están muy altas) · Default volume
+              Volumen por defecto (algunas canciones están muy altas)
             </p>
           </fieldset>
         </div>
@@ -353,32 +352,31 @@
         <div class="theme-reset" x-data="{ confirm: false }">
           <template x-if="!confirm">
             <button class="btn btn--sm btn--danger" type="button" @click="confirm = true">
-              Restablecer tema · Reset theme
+              Restablecer tema
             </button>
           </template>
           <template x-if="confirm">
             <div class="confirm-inline">
               <p class="confirm-text">
-                ¿Restablecer el tema a los valores por defecto? Se perderán tus ajustes.<br />
-                Reset theme to defaults? Your customizations will be lost.
+                ¿Restablecer el tema a los valores por defecto? Se perderán tus ajustes.
               </p>
               <div class="confirm-actions">
                 <button class="btn btn--sm btn--danger" type="button"
-                        @click="resetTheme(); confirm = false">Confirmar · Confirm</button>
-                <button class="btn btn--sm" type="button" @click="confirm = false">Cancelar · Cancel</button>
+                        @click="resetTheme(); confirm = false">Confirmar</button>
+                <button class="btn btn--sm" type="button" @click="confirm = false">Cancelar</button>
               </div>
             </div>
           </template>
         </div>
 
         <hr class="preview-divider" />
-        <p class="label">Bloques · Blocks</p>
+        <p class="label">Bloques</p>
 
         <!-- Button style/shape lives HERE (next to Blocks): it styles the link
              buttons that the Links blocks below produce, so it belongs with them. -->
         <fieldset class="theme-group theme-group--inline">
-          <legend class="label">Botones de enlace · Link buttons</legend>
-          <p class="field-hint">Estilo de los botones de enlace · Link button style</p>
+          <legend class="label">Botones de enlace</legend>
+          <p class="field-hint">Estilo de los botones de enlace</p>
           <div class="color-row">
             <span class="label">Color · Auto = acento</span>
             <span style="display:flex; gap: var(--sp-2xs); align-items:center;">
@@ -389,19 +387,19 @@
             </span>
           </div>
           <div class="seg-row">
-            <span class="label">Estilo · Style</span>
+            <span class="label">Estilo</span>
             <select x-model="page.theme.btnStyle" aria-label="Button style">
-              <option value="filled">Relleno · Filled</option>
-              <option value="outline">Contorno · Outline</option>
-              <option value="glass">Cristal · Glass</option>
+              <option value="filled">Relleno</option>
+              <option value="outline">Contorno</option>
+              <option value="glass">Cristal</option>
             </select>
           </div>
           <div class="seg-row">
-            <span class="label">Forma · Shape</span>
+            <span class="label">Forma</span>
             <select x-model="page.theme.btnShape" aria-label="Button shape">
-              <option value="sharp">Recto · Sharp</option>
-              <option value="rounded">Redondeado · Rounded</option>
-              <option value="pill">Píldora · Pill</option>
+              <option value="sharp">Recto</option>
+              <option value="rounded">Redondeado</option>
+              <option value="pill">Píldora</option>
             </select>
           </div>
         </fieldset>
@@ -409,7 +407,7 @@
         <!-- Add-block picker over the CLOSED 8-type set -->
         <div class="field">
           <button class="btn" type="button" @click="showPicker = !showPicker" :aria-expanded="showPicker">
-            + Agregar bloque · Add block
+            + Agregar bloque
           </button>
           <div class="picker" x-show="showPicker" x-cloak>
             <div class="picker-grid">
@@ -422,9 +420,8 @@
 
         <!-- Empty state -->
         <div class="empty-hint" x-show="page.blocks.length === 0">
-          <p><strong>Tu página está en blanco · Your page is empty</strong></p>
-          <p>Agrega tu primer bloque para empezar a construir tu perfil.<br />
-             Add your first block to start building your profile.</p>
+          <p><strong>Tu página está en blanco</strong></p>
+          <p>Agrega tu primer bloque para empezar a construir tu perfil.</p>
         </div>
 
         <!-- Block list (SortableJS drag + keyboard move up/down) -->
@@ -432,15 +429,15 @@
           <template x-for="(block, i) in page.blocks" :key="block._id">
             <article class="block-card">
               <div class="block-head">
-                <span class="block-drag" title="Arrastrar · Drag" aria-hidden="true">⠿</span>
+                <span class="block-drag" title="Arrastrar" aria-hidden="true">⠿</span>
                 <span class="block-type-tag" x-text="blockLabel(block.type)"></span>
                 <span class="spacer"></span>
                 <button class="btn btn--sm" type="button" @click="moveUp(i)" :disabled="i===0"
-                        aria-label="Subir · Move up">↑</button>
+                        aria-label="Subir">↑</button>
                 <button class="btn btn--sm" type="button" @click="moveDown(i)"
-                        :disabled="i===page.blocks.length-1" aria-label="Bajar · Move down">↓</button>
+                        :disabled="i===page.blocks.length-1" aria-label="Bajar">↓</button>
                 <button class="btn btn--sm btn--danger" type="button" @click="removeBlock(i)"
-                        aria-label="Eliminar · Delete">✕</button>
+                        aria-label="Eliminar">✕</button>
               </div>
 
               <!-- text-like blocks (bio / heading / text / quote) — single-language (D-13):
@@ -452,7 +449,7 @@
               </template>
               <template x-if="block.type==='quote'">
                 <div class="field">
-                  <span class="label">Atribución · Attribution</span>
+                  <span class="label">Atribución</span>
                   <input type="text" x-model="block.attribution" maxlength="200" />
                 </div>
               </template>
@@ -462,16 +459,16 @@
                 <div>
                   <template x-for="(item, j) in block.items" :key="j">
                     <div class="locale-pair" style="margin-bottom: var(--sp-2xs);">
-                      <input type="text" x-model="item.label" placeholder="Etiqueta · Label" maxlength="100" />
+                      <input type="text" x-model="item.label" placeholder="Etiqueta" maxlength="100" />
                       <div style="display:flex; gap: var(--sp-2xs);">
                         <input type="url" x-model="item.url" placeholder="https://…" maxlength="2048" />
                         <button class="btn btn--sm btn--danger" type="button"
-                                @click="block.items.splice(j,1)" aria-label="Quitar enlace · Remove link">✕</button>
+                                @click="block.items.splice(j,1)" aria-label="Quitar enlace">✕</button>
                       </div>
                     </div>
                   </template>
                   <button class="btn btn--sm" type="button" @click="block.items.push({label:'',url:''})">
-                    + Enlace · Link
+                    + Enlace
                   </button>
                 </div>
               </template>
@@ -481,24 +478,24 @@
                 <div>
                   <label class="label" style="display:flex; align-items:center; gap: var(--sp-2xs);">
                     <input type="checkbox" x-model="block.auto" style="width:auto; min-height:auto;" />
-                    Auto — trabajo acreditado (tienda + galería) · Auto-pull credited work
+                    Auto — trabajo acreditado (tienda + galería)
                   </label>
                   <template x-for="(ex, k) in block.extra" :key="k">
                     <div class="upload" style="margin-top: var(--sp-2xs);">
                       <template x-if="ex.image"><img class="thumb" :src="mediaUrl(ex.image)" alt="" /></template>
                       <label class="btn btn--sm">
-                        Imagen · Image
+                        Imagen
                         <input type="file" accept="image/png,image/jpeg,image/webp" hidden
                                @change="uploadImage($event, v => ex.image = v)" />
                       </label>
                       <input type="text" x-model="ex.caption" placeholder="Caption" maxlength="4000" />
                       <button class="btn btn--sm btn--danger" type="button"
-                              @click="block.extra.splice(k,1)" aria-label="Quitar · Remove">✕</button>
+                              @click="block.extra.splice(k,1)" aria-label="Quitar">✕</button>
                     </div>
                   </template>
                   <button class="btn btn--sm" type="button" style="margin-top: var(--sp-2xs);"
                           @click="block.extra.push({image:'',caption:''})">
-                    + Ítem · Item
+                    + Ítem
                   </button>
                 </div>
               </template>
@@ -508,7 +505,7 @@
                 <div class="upload">
                   <template x-if="block.src"><img class="thumb" :src="mediaUrl(block.src)" alt="" /></template>
                   <label class="btn btn--sm">
-                    Subir · Upload
+                    Subir
                     <input type="file" accept="image/png,image/jpeg,image/webp" hidden
                            @change="uploadImage($event, v => block.src = v)" />
                   </label>
@@ -518,7 +515,7 @@
 
               <!-- divider block: no fields -->
               <template x-if="block.type==='divider'">
-                <p class="label">Regla horizontal · Horizontal rule</p>
+                <p class="label">Regla horizontal</p>
               </template>
             </article>
           </template>
@@ -530,7 +527,7 @@
         <!-- Active-effects legend — admin chrome ABOVE the themed card (not overlapping
              it), so you always see what's on without it clashing with the design. -->
         <div class="fx-legend-bar" x-show="page.theme.effects.length" x-cloak>
-          <span class="label">Efectos · Effects</span>
+          <span class="label">Efectos</span>
           <div class="fx-legend-bar__chips">
             <template x-for="fx in page.theme.effects" :key="fx">
               <span class="fx-legend-chip" x-text="fxShort(fx)"></span>
@@ -626,7 +623,7 @@
               <template x-if="block.type==='portfolio'">
                 <div>
                   <p class="preview-note" x-show="block.auto">
-                    + Trabajo acreditado (auto) · Credited work (auto)
+                    + Trabajo acreditado (auto)
                   </p>
                   <div class="preview-grid">
                     <template x-for="(ex, k) in block.extra" :key="k">
@@ -642,8 +639,7 @@
           </template>
 
           <p class="preview-note">
-            La vista es una aproximación; el sitio final se genera al publicar.<br />
-            Preview approximates the final static build.
+            La vista es una aproximación; el sitio final se genera al publicar.
           </p>
         </div>
       </section>
@@ -694,14 +690,14 @@
       ];
       // The 9 opt-in effect keys (UI-SPEC Effects Catalog / ThemeModel.KNOWN_EFFECTS).
       const EFFECT_KEYS = [
-        { key: 'glass', label: 'Glass · Tarjetas cristal' },
-        { key: 'glow', label: 'Glow · Halo avatar' },
-        { key: 'hover', label: 'Hover · Botón animado' },
-        { key: 'gradient', label: 'Gradient · Nombre animado' },
-        { key: 'typewriter', label: 'Typewriter · Tagline' },
-        { key: 'tilt', label: 'Tilt · Inclinación 3D' },
-        { key: 'particles', label: 'Particles · Nieve/partículas' },
-        { key: 'presence', label: 'Presence · Discord en vivo' },
+        { key: 'glass', label: 'Tarjetas cristal' },
+        { key: 'glow', label: 'Halo avatar' },
+        { key: 'hover', label: 'Botón animado' },
+        { key: 'gradient', label: 'Nombre animado' },
+        { key: 'typewriter', label: 'Tagline' },
+        { key: 'tilt', label: 'Inclinación 3D' },
+        { key: 'particles', label: 'Nieve/partículas' },
+        { key: 'presence', label: 'Discord en vivo' },
       ];
       // The curated specialty badge set (UI-SPEC / EditorPage.SPECIALTY_BADGES) — no free text.
       const SPECIALTY_BADGES = [
@@ -892,9 +888,9 @@
       };
 
       const LABELS = {
-        bio: 'Bio', heading: 'Encabezado · Heading', text: 'Texto · Text',
-        links: 'Enlaces · Links', portfolio: 'Portafolio · Portfolio',
-        quote: 'Cita · Quote', image: 'Imagen · Image', divider: 'Divisor · Divider',
+        bio: 'Bio', heading: 'Encabezado', text: 'Texto',
+        links: 'Enlaces', portfolio: 'Portafolio',
+        quote: 'Cita', image: 'Imagen', divider: 'Divisor',
       };
 
       return {
@@ -1126,7 +1122,7 @@
           ev.target.value = '';
           if (!file) return;
           this.uploadKind = 'ok';
-          this.uploadMsg = 'Subiendo… · Uploading…';
+          this.uploadMsg = 'Subiendo…';
           const fd = new FormData();
           fd.append('file', file);
           try {
@@ -1138,12 +1134,11 @@
             } else {
               this.uploadKind = 'error';
               this.uploadMsg = data.error ||
-                'El archivo supera el límite. Comprime o elige otro. · ' +
-                'File exceeds the limit. Compress or choose another.';
+                'El archivo supera el límite. Comprime o elige otro.';
             }
           } catch (e) {
             this.uploadKind = 'error';
-            this.uploadMsg = 'Error de red · Network error';
+            this.uploadMsg = 'Error de red';
           }
         },
 
@@ -1152,7 +1147,7 @@
           this.showPicker = false;
         },
         removeBlock(i) {
-          if (confirm('¿Eliminar este bloque? · Delete this block?')) this.page.blocks.splice(i, 1);
+          if (confirm('¿Eliminar este bloque?')) this.page.blocks.splice(i, 1);
         },
         moveUp(i) {
           if (i > 0) {
@@ -1175,7 +1170,7 @@
           const localUrl = URL.createObjectURL(file);
           const isVid = /^video\//.test(file.type) || file.type === 'image/gif';
           this.uploadKind = 'ok';
-          this.uploadMsg = isVid ? 'Procesando vídeo… · Processing video…' : 'Optimizando… · Optimizing…';
+          this.uploadMsg = isVid ? 'Procesando vídeo…' : 'Optimizando…';
           const fd = new FormData();
           fd.append('file', file);
           try {
@@ -1192,11 +1187,11 @@
             } else {
               this.uploadKind = 'error';
               this.uploadMsg = data.error ||
-                'No se pudo subir (formato o tamaño). Imagen/GIF/vídeo, máx 10 MB. · Upload failed.';
+                'No se pudo subir (formato o tamaño). Imagen/GIF/vídeo, máx 10 MB.';
             }
           } catch (e) {
             this.uploadKind = 'error';
-            this.uploadMsg = 'Error de red · Network error';
+            this.uploadMsg = 'Error de red';
           }
         },
 
@@ -1208,7 +1203,7 @@
           // (~1 min), so show the just-picked file from the browser meanwhile.
           const localUrl = URL.createObjectURL(file);
           this.uploadKind = 'ok';
-          this.uploadMsg = 'Optimizando… · Optimizing…';
+          this.uploadMsg = 'Optimizando…';
           const fd = new FormData();
           fd.append('file', file);
           try {
@@ -1221,12 +1216,11 @@
             } else {
               this.uploadKind = 'error';
               this.uploadMsg = data.error ||
-                'Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP. · ' +
-                "That image couldn't be uploaded (format or size).";
+                'Esa imagen no se pudo subir (formato o tamaño). Usa PNG/JPG/WebP.';
             }
           } catch (e) {
             this.uploadKind = 'error';
-            this.uploadMsg = 'Error de red · Network error';
+            this.uploadMsg = 'Error de red';
           }
         },
 
@@ -1274,17 +1268,15 @@
               this.page.published = true;
               this.toastKind = 'ok';
               this.toast = data.message ||
-                'Publicado — la web tarda un par de minutos en actualizarse. · ' +
-                'Published — the site takes a couple of minutes to update.';
+                'Publicado — la web tarda un par de minutos en actualizarse.';
             } else {
               this.toastKind = 'error';
               this.toast = data.error ||
-                'No se pudo publicar. Inténtalo de nuevo en un momento. · ' +
-                "Couldn't publish. Try again in a moment.";
+                'No se pudo publicar. Inténtalo de nuevo en un momento.';
             }
           } catch (e) {
             this.toastKind = 'error';
-            this.toast = "No se pudo publicar. Inténtalo de nuevo. · Couldn't publish. Try again.";
+            this.toast = "No se pudo publicar. Inténtalo de nuevo.";
           } finally {
             this.saving = false;
           }
@@ -1292,8 +1284,7 @@
 
         async unpublish() {
           if (!confirm(
-            '¿Despublicar tu página? Dejará de aparecer en el sitio hasta que la vuelvas a publicar. · ' +
-            'Unpublish your page? It will disappear from the site until you publish again.')) return;
+            '¿Despublicar tu página? Dejará de aparecer en el sitio hasta que la vuelvas a publicar.')) return;
           this.saving = true;
           this.toast = '';
           try {
@@ -1302,15 +1293,15 @@
             if (r.ok) {
               this.page.published = false;
               this.toastKind = 'ok';
-              this.toast = data.message || 'Página despublicada · Page unpublished';
+              this.toast = data.message || 'Página despublicada';
             } else {
               this.toastKind = 'error';
               this.toast = data.error ||
-                "No se pudo despublicar. Inténtalo de nuevo. · Couldn't unpublish. Try again.";
+                "No se pudo despublicar. Inténtalo de nuevo.";
             }
           } catch (e) {
             this.toastKind = 'error';
-            this.toast = 'Error de red · Network error';
+            this.toast = 'Error de red';
           } finally {
             this.saving = false;
           }

@@ -9,7 +9,7 @@
 {% set attendee_seed = meeting.attendees_json | default("[]") %}
 {% endif %}
 {% set has_forum_post = meeting.thread_id and meeting.starter_message_id %}
-{% block title %}{{ meeting.tema or "Reunión · Meeting" }}{% endblock %}
+{% block title %}{{ meeting.tema or "Reunión" }}{% endblock %}
 
 {% block content %}
 <div class="jinxxy-page"
@@ -18,7 +18,7 @@
   <div class="mod-hdr" style="--acc: var(--accent-meetings)">
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-meetings"></use></svg>
     <div>
-      <div class="t">{{ meeting.tema or "Reunión · Meeting" }}</div>
+      <div class="t">{{ meeting.tema or "Reunión" }}</div>
       <div class="s">{{ meeting.started_at | default("") | replace("T", " ") }}</div>
       <div class="role-chip-list"
            style="margin-top: var(--space-3);"
@@ -36,13 +36,13 @@
   <section class="card reminder-modal action-proof"
            style="max-width: none; max-height: none; overflow: visible; box-shadow: none;">
     <div class="card-hdr">
-      <h3>Resumen · Summary</h3>
+      <h3>Resumen</h3>
     </div>
 
     {% if has_forum_post %}
     <div class="modal-body" style="padding: 0;">
       <div class="field">
-        <label class="label" for="meeting-summary">Resumen editable · Editable summary</label>
+        <label class="label" for="meeting-summary">Resumen editable</label>
         <textarea id="meeting-summary"
                   rows="12"
                   x-model="summaryText"
@@ -67,7 +67,7 @@
               style="justify-self: start;"
               @click="saveSummary()"
               :disabled="isBusy()"
-              x-text="isBusy() ? 'Guardando… · Saving…' : 'Guardar y republicar · Save & re-publish'"></button>
+              x-text="isBusy() ? 'Guardando…' : 'Guardar y republicar'"></button>
 
       <div class="toast"
            data-kind="error"
@@ -81,17 +81,17 @@
     <div class="settings-cache-banner" role="status">
       <span class="settings-cache-icon" aria-hidden="true">!</span>
       <div>
-        <div class="settings-cache-title">No se puede republicar · Cannot re-publish</div>
-        <div class="settings-cache-copy">No se puede republicar — esta reunión no tiene una publicación en el foro · Cannot re-publish — this meeting has no forum post</div>
+        <div class="settings-cache-title">No se puede republicar</div>
+        <div class="settings-cache-copy">No se puede republicar — esta reunión no tiene una publicación en el foro</div>
       </div>
     </div>
-    <p>{{ meeting.summary or "Sin resumen · No summary" }}</p>
+    <p>{{ meeting.summary or "Sin resumen" }}</p>
     {% endif %}
   </section>
 
   <section class="card">
     <div class="card-hdr">
-      <h3>Transcripción · Transcript</h3>
+      <h3>Transcripción</h3>
     </div>
 
     {% if meeting.transcript %}
@@ -101,12 +101,12 @@
               :aria-expanded="transcriptOpen"
               aria-controls="meeting-transcript"
               @click="transcriptOpen = !transcriptOpen"
-              x-text="transcriptOpen ? 'Ocultar transcripción · Hide transcript' : 'Ver transcripción · Show transcript'"></button>
+              x-text="transcriptOpen ? 'Ocultar transcripción' : 'Ver transcripción'"></button>
       {% if meeting.thread_url %}
       <a class="row-action edit"
          href="{{ meeting.thread_url }}"
          target="_blank"
-         rel="noopener">Descargar .md completo · Download full .md</a>
+         rel="noopener">Descargar .md completo</a>
       {% endif %}
     </div>
     <p id="meeting-transcript"
@@ -116,7 +116,7 @@
     <div class="settings-cache-banner" role="status">
       <span class="settings-cache-icon" aria-hidden="true">!</span>
       <div>
-        <div class="settings-cache-title">Transcripción no disponible · Transcript unavailable</div>
+        <div class="settings-cache-title">Transcripción no disponible</div>
       </div>
     </div>
     {% endif %}
@@ -182,17 +182,16 @@
 
       statusCopy() {
         if (this.isPending() && !this.botOnline) {
-          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+          return 'Bot desconectado — se ejecutará al reconectar';
         }
         if (this.isPending()) {
-          return 'Republicando… ' + this.elapsed()
-            + ' · Re-publishing… ' + this.elapsed();
+          return 'Republicando… ' + this.elapsed();
         }
         if (this.status === 'done') {
-          return 'Publicación actualizada · Post updated';
+          return 'Publicación actualizada';
         }
         if (this.status === 'failed') {
-          return 'No se pudo republicar. Inténtalo de nuevo · Failed to re-publish. Try again';
+          return 'No se pudo republicar. Inténtalo de nuevo';
         }
         return '';
       },
@@ -237,7 +236,7 @@
         } catch (error) {
           this.actionId = null;
           this.status = 'idle';
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
         }
       },
 
@@ -257,7 +256,7 @@
             this.pollTimer = setTimeout(() => this.pollAction(), 1500);
           }
         } catch (error) {
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
           if (this.actionId && this.isPending()) {
             this.pollTimer = setTimeout(() => this.pollAction(), 1500);
           }

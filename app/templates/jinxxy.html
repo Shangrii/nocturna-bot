@@ -17,7 +17,7 @@
   "removed": none
 }) %}
 {% set products = products | default([]) %}
-{% block title %}Tienda Jinxxy · Jinxxy Store{% endblock %}
+{% block title %}Tienda Jinxxy{% endblock %}
 
 {% block content %}
 {# x-data stays single-quoted because tojson emits double-quoted JSON. #}
@@ -27,18 +27,18 @@
   <div class="mod-hdr" style="--acc: var(--accent-jinxxy)">
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-jinxxy"></use></svg>
     <div>
-      <div class="t">Tienda Jinxxy · Jinxxy Store</div>
-      <div class="s">Sincroniza el catálogo con Jinxxy y revisa lo publicado · Sync the catalog with Jinxxy and review what's live</div>
+      <div class="t">Tienda Jinxxy</div>
+      <div class="s">Sincroniza el catálogo con Jinxxy y revisa lo publicado</div>
     </div>
   </div>
 
   <section class="card stat" style="--acc: var(--accent-jinxxy)">
     <div class="card-hdr">
-      <h3>Última sincronización · Last sync</h3>
+      <h3>Última sincronización</h3>
     </div>
 
     <div class="empty" x-show="sync.never_synced">
-      <div class="h">Nunca se ha sincronizado · Never synced</div>
+      <div class="h">Nunca se ha sincronizado</div>
     </div>
 
     <div x-show="!sync.never_synced">
@@ -63,7 +63,7 @@
             type="button"
             @click="runSync()"
             :disabled="isBusy()"
-            x-text="isBusy() ? 'Sincronizando… · Syncing…' : 'Sincronizar catálogo · Sync catalog'"></button>
+            x-text="isBusy() ? 'Sincronizando…' : 'Sincronizar catálogo'"></button>
 
     <div class="toast"
          data-kind="error"
@@ -76,17 +76,17 @@
 
   <section class="card">
     <div class="card-hdr">
-      <h3>Catálogo sincronizado · Synced catalog</h3>
+      <h3>Catálogo sincronizado</h3>
     </div>
 
     <table x-show="products.length">
       <thead>
         <tr>
-          <th>Nombre · Name</th>
-          <th>Precio · Price</th>
-          <th>Categoría · Category</th>
+          <th>Nombre</th>
+          <th>Precio</th>
+          <th>Categoría</th>
           <th>NSFW</th>
-          <th>Fecha · Date</th>
+          <th>Fecha</th>
         </tr>
       </thead>
       <tbody>
@@ -112,7 +112,7 @@
     </table>
 
     <div class="empty" x-show="!products.length">
-      <div class="h">Aún no hay productos sincronizados · No synced products yet</div>
+      <div class="h">Aún no hay productos sincronizados</div>
     </div>
   </section>
 </div>
@@ -169,11 +169,11 @@
           return 'Sincronizando… ' + this.elapsed() + ' · ' + this.sourceTag();
         }
         if (this.isPending() && !this.botOnline) {
-          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+          return 'Bot desconectado — se ejecutará al reconectar';
         }
-        if (this.isPending()) return 'Sincronizando… · Syncing…';
+        if (this.isPending()) return 'Sincronizando…';
         if (this.status === 'done' && this.result && this.result.already) {
-          return 'Ya se está sincronizando · Sync already running';
+          return 'Ya se está sincronizando';
         }
         if (this.status === 'done') return this.countsCopy(this.result);
         if (this.status === 'failed') return this.error;
@@ -222,12 +222,12 @@
           ? ' (' + this.sync.actor_name + ')'
           : '';
         if (this.sync.source === 'panel') {
-          return 'desde el panel' + name + ' · from the panel' + name;
+          return 'desde el panel' + name;
         }
         if (this.sync.source === 'discord') {
-          return 'desde Discord' + name + ' · from Discord' + name;
+          return 'desde Discord' + name;
         }
-        return 'programada · scheduled';
+        return 'programada';
       },
 
       async refresh() {
@@ -264,7 +264,7 @@
         } catch (error) {
           this.actionId = null;
           this.status = 'idle';
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
         }
       },
 
@@ -286,7 +286,7 @@
           }
           await this.refresh();
         } catch (error) {
-          this.toast = 'Error de red · Network error';
+          this.toast = 'Error de red';
           if (this.actionId && this.isPending()) {
             this.pollTimer = setTimeout(() => this.pollAction(), 1500);
           }

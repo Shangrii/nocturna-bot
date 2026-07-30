@@ -18,18 +18,15 @@
     <p class="wordmark">Nocturna</p>
 
     {% if forbidden %}
-    <p class="label">403 — Sin acceso · No access</p>
+    <p class="label">403 — Sin acceso</p>
     <p class="forbidden">
       Esta herramienta es solo para editores de Nocturna. Si deberías tener acceso,
       pídele a un mod que revise tu rol.
-      <br /><br />
-      This tool is for Nocturna editors only. If you should have access, ask a mod to
-      check your role.
     </p>
-    <a class="btn btn--ghost" href="/login">Reintentar · Try again</a>
+    <a class="btn btn--ghost" href="/login">Reintentar</a>
     {% else %}
-    <p class="label">Editor de perfiles · Profile editor</p>
-    <a class="btn btn--accent" href="/login">Entrar con Discord · Sign in with Discord</a>
+    <p class="label">Editor de perfiles</p>
+    <a class="btn btn--accent" href="/login">Entrar con Discord</a>
     {% endif %}
   </main>
 </body>

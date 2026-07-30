@@ -17,7 +17,7 @@
   <div class="ph">
     <div>
       <div class="ttl">Overview</div>
-      <div class="sub">Estado del bot y actividad reciente · Bot status and recent activity</div>
+      <div class="sub">Estado del bot y actividad reciente</div>
     </div>
   </div>
 
@@ -25,21 +25,21 @@
     <!-- Primary visual anchor: bot-status tile (leftmost, success/danger accent) -->
     <div class="stat" :style="'--acc: ' + (data.online ? 'var(--color-success)' : 'var(--color-danger)')">
       <div class="k">Bot</div>
-      <div class="v" x-text="data.online ? 'En línea · Online' : 'Desconectado · Offline'"></div>
+      <div class="v" x-text="data.online ? 'En línea' : 'Desconectado'"></div>
       <div class="d" x-text="statusDetail()"></div>
     </div>
     <div class="stat" style="--acc: var(--accent-jinxxy)">
-      <div class="k">Última sync Jinxxy · Last Jinxxy sync</div>
+      <div class="k">Última sync Jinxxy</div>
       <div class="v" x-text="(data.last_sync && data.last_sync.when) ? data.last_sync.when : '—'"></div>
       <div class="d" x-text="syncDetail()"></div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-hdr"><h3>Actividad reciente · Recent activity</h3></div>
+    <div class="card-hdr"><h3>Actividad reciente</h3></div>
     <template x-if="data.activity && data.activity.length">
       <table>
-        <tr><th>Evento · Event</th><th>Cuándo · When</th></tr>
+        <tr><th>Evento</th><th>Cuándo</th></tr>
         <template x-for="row in data.activity" :key="row.when + row.message">
           <tr>
             <td x-text="row.message"></td>
@@ -50,8 +50,8 @@
     </template>
     <template x-if="!data.activity || !data.activity.length">
       <div class="empty">
-        <div class="h">Sin actividad reciente · No recent activity</div>
-        <div>Aparecerá aquí en cuanto el bot registre un evento. · It will appear here once the bot logs an event.</div>
+        <div class="h">Sin actividad reciente</div>
+        <div>Aparecerá aquí en cuanto el bot registre un evento.</div>
       </div>
     </template>
   </div>
@@ -61,15 +61,15 @@
 <div class="card action-proof" x-data="actionProofApp()" x-cloak>
   <div class="card-hdr action-proof-hdr">
     <div>
-      <h3>Action queue self-test · Prueba de la cola</h3>
-      <p>Verifica la conexión entre el panel y el bot · Verify the panel-to-bot connection</p>
+      <h3>Prueba de la cola</h3>
+      <p>Verifica la conexión entre el panel y el bot</p>
     </div>
     <button
       class="btn"
       type="button"
       @click="run()"
       :disabled="busy || isPending()"
-    >Run noop · Ejecutar noop</button>
+    >Ejecutar noop</button>
   </div>
 
   <div
@@ -92,7 +92,7 @@
       x-show="status === 'failed'"
       @click="retry()"
       :disabled="busy"
-    >Reintentar · Retry</button>
+    >Reintentar</button>
   </div>
 </div>
 {% endif %}
@@ -121,7 +121,7 @@
         const parts = [];
         if (this.data.uptime) parts.push(this.data.uptime);
         if (this.data.member_count !== null && this.data.member_count !== undefined) {
-          parts.push(this.data.member_count + ' miembros · members');
+          parts.push(this.data.member_count + ' miembros');
         }
         return parts.length ? parts.join(' · ') : '—';
       },
@@ -129,7 +129,7 @@
         if (!this.data.last_sync || this.data.last_sync.products === null || this.data.last_sync.products === undefined) {
           return '—';
         }
-        return this.data.last_sync.products + ' productos · products';
+        return this.data.last_sync.products + ' productos';
       },
     };
   }
@@ -162,12 +162,12 @@
 
       statusCopy() {
         if (this.isPending() && !this.botOnline) {
-          return 'Bot desconectado — se ejecutará al reconectar · Bot offline — will run on reconnect';
+          return 'Bot desconectado — se ejecutará al reconectar';
         }
-        if (this.isPending()) return 'Working… · Procesando…';
-        if (this.status === 'done') return '✓ Listo · Done';
+        if (this.isPending()) return 'Procesando…';
+        if (this.status === 'done') return '✓ Listo';
         if (this.status === 'failed') {
-          return '✗ Falló · Failed' + (this.error ? ' · ' + this.error : '');
+          return '✗ Falló' + (this.error ? ' · ' + this.error : '');
         }
         return '';
       },
@@ -184,13 +184,13 @@
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify({ kind: 'noop', payload: { echo: 'panel' } }),
           });
-          if (!response.ok) throw new Error('No se pudo iniciar · Could not start');
+          if (!response.ok) throw new Error('No se pudo iniciar');
           const body = await response.json();
           this.actionId = body.id;
           await this.poll();
         } catch (error) {
           this.status = 'failed';
-          this.error = error.message || 'Error desconocido · Unknown error';
+          this.error = error.message || 'Error desconocido';
         } finally {
           this.busy = false;
         }
@@ -202,7 +202,7 @@
           const response = await fetch('/api/actions/' + this.actionId, {
             headers: { 'Accept': 'application/json' },
           });
-          if (!response.ok) throw new Error('No se pudo consultar · Could not check status');
+          if (!response.ok) throw new Error('No se pudo consultar');
           const body = await response.json();
           this.status = body.status;
           this.error = body.error || '';
@@ -212,7 +212,7 @@
           }
         } catch (error) {
           this.status = 'failed';
-          this.error = error.message || 'Error desconocido · Unknown error';
+          this.error = error.message || 'Error desconocido';
         }
       },
 
@@ -226,7 +226,7 @@
             method: 'POST',
             headers: { 'Accept': 'application/json' },
           });
-          if (!response.ok) throw new Error('No se pudo reintentar · Could not retry');
+          if (!response.ok) throw new Error('No se pudo reintentar');
           const body = await response.json();
           this.actionId = body.id;
           this.status = 'pending';
@@ -234,7 +234,7 @@
           await this.poll();
         } catch (error) {
           this.status = 'failed';
-          this.error = error.message || 'Error desconocido · Unknown error';
+          this.error = error.message || 'Error desconocido';
         } finally {
           this.busy = false;
         }
