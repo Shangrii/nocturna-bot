@@ -565,6 +565,24 @@ def _compute_uptime(started_at_utc: str | None) -> str | None:
     return f"{hours}h {minutes}m" if hours else f"{minutes}m"
 
 
+_MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul",
+              "ago", "sep", "oct", "nov", "dic"]
+
+
+def _human_datetime(iso: str | None) -> str | None:
+    """Render a raw UTC ISO timestamp as a short, readable string for the shell
+    (e.g. ``2026-07-30T21:50:14.062030+00:00`` -> ``30 jul 2026, 21:50``).
+    Drops microseconds/seconds/offset; returns the input unchanged if unparseable
+    so a malformed row never breaks the Overview render."""
+    if not iso:
+        return iso
+    try:
+        dt = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return iso
+    return f"{dt.day} {_MONTHS_ES[dt.month - 1]} {dt.year}, {dt.hour:02d}:{dt.minute:02d}"
+
+
 def _build_overview_status(heartbeat, sync, activity_rows) -> dict:
     """Assemble the exact JSON shape ``overview.html``'s Alpine poll consumes (Plan 07
     <interfaces>) from the three raw ``core.db`` rows — gracefully degrading to
@@ -572,7 +590,7 @@ def _build_overview_status(heartbeat, sync, activity_rows) -> dict:
     """
     last_sync = (
         {
-            "when": sync["last_run_utc"],
+            "when": _human_datetime(sync["last_run_utc"]),
             "ok": bool(sync["ok"]) if sync["ok"] is not None else None,
             "products": sync["product_count"],
         }
@@ -580,7 +598,8 @@ def _build_overview_status(heartbeat, sync, activity_rows) -> dict:
         else {"when": None, "ok": None, "products": None}
     )
     activity = [
-        {"event_type": row["event_type"], "message": row["message"], "when": row["created_at"]}
+        {"event_type": row["event_type"], "message": row["message"],
+         "when": _human_datetime(row["created_at"])}
         for row in activity_rows
     ]
     return {
