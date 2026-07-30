@@ -162,7 +162,7 @@ def test_manager_operational_access_settings_403(client):
 def test_editor_only_locked_out_of_dashboard(client, monkeypatch):
     from fastapi import HTTPException
 
-    from app.deps import require_editor, require_manager
+    from app.deps import _resolve_roles, require_editor, require_manager
 
     async def _forbid_manager():
         raise HTTPException(status_code=403, detail="needs manager access")
@@ -179,6 +179,14 @@ def test_editor_only_locked_out_of_dashboard(client, monkeypatch):
 
     app.dependency_overrides[require_manager] = _forbid_manager
     app.dependency_overrides[require_editor] = lambda: {"discord_id": "3", "slug": "aria"}
+    # Forward-compat with 10-02 (Wave 2), which switches GET /editor's gate from
+    # require_editor to _resolve_roles: without this, real _resolve_roles(request) would
+    # run against a never-set session and 401 once that switch lands, silently breaking
+    # this test's `client.get("/editor") == 200` assertion below (10-01 Task 4).
+    app.dependency_overrides[_resolve_roles] = lambda: {
+        "discord_id": "3", "username": "aria",
+        "is_owner": False, "is_manager": False, "is_editor": True,
+    }
     try:
         for route in _MODULE_ROUTES:
             resp = client.get(route)

@@ -14,10 +14,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 import config
-from app.deps import require_editor
+from app.deps import _resolve_roles, require_editor
 from app.main import app
 
 _IDENT = {"discord_id": "555", "slug": "aria"}
+# Phase 10 (10-01) forward-compat: 10-02 (Wave 2) switches GET /editor's gate from
+# require_editor to _resolve_roles. This editor-tier five-key dict (discord_id matches
+# _IDENT) keeps GET /editor resolving to an editor both before 10-02 (via the
+# still-present require_editor override below) and after (via _resolve_roles) — it is
+# inert for the POST-endpoint tests, which stay gated on the unchanged require_editor.
+_ROLES_IDENT = {
+    "discord_id": "555", "username": "aria",
+    "is_owner": False, "is_manager": False, "is_editor": True,
+}
 
 
 @pytest.fixture
@@ -30,9 +39,11 @@ def client(monkeypatch):
     monkeypatch.setattr(config, "DISCORD_OAUTH_REDIRECT_URI", "https://x/auth/callback")
 
     app.dependency_overrides[require_editor] = lambda: _IDENT
+    app.dependency_overrides[_resolve_roles] = lambda: _ROLES_IDENT
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.pop(require_editor, None)
+    app.dependency_overrides.pop(_resolve_roles, None)
 
 
 # ── Task 2: POST /editor/image — SVG-reject + size-cap + Pillow re-encode ─────────
