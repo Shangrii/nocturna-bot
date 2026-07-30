@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
 status: executing
-stopped_at: Completed 10-06-PLAN.md
-last_updated: "2026-07-30T17:54:18.072Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-07-30T18:06:27.165Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 48
-  completed_plans: 37
+  completed_plans: 38
   percent: 38
 ---
 
@@ -28,11 +28,11 @@ presentation pages — with no secrets exposed and no bad value able to break a 
 ## Current Position
 
 Phase: 10 (editors-section-integration) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-07-30
 
-Progress: [████████░░] 77%
+Progress: [████████░░] 79%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [████████░░] 77%
 | 08 | 8 | - | - |
 | Phase 10 P03 | 55min | 2 tasks | 3 files |
 | Phase 10 P06 | 8min | 2 tasks | 2 files |
+| Phase 10 P02 | 20min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,8 @@ Recent decisions affecting current work:
 - [Phase 10]: editor.css chrome retinted onto dashboard.css tokens; legacy ink/red palette kept only as preview-canvas fallback literals (D-01/D-06)
 - [Phase 10]: Split editor.css's conflated --red into --color-primary (CTA/active) vs --color-danger (destructive) to match dashboard.css's convention
 - [Phase 10]: Editor vanity URLs move to root /{slug}; legacy /e/{slug} becomes a build-time redirect stub (define:vars + location.replace), mirroring the shipped [lang]/[concept]/[slug].astro pattern one cartesian dimension shallower
+- [Phase 10]: GET / and GET /editor gate on _resolve_roles + inline TierForbidden(editor), not require_editor, so a locked-nav click from a non-editor owner/Manager never clears the session (T-10-01)
+- [Phase 10]: RESERVED_SLUGS widened with en/es/gallery/store/fonts/build to protect the public site's root-level routes from vanity-slug collision (T-10-02)
 
 ### Pending Todos
 
@@ -107,6 +110,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T17:54:18.061Z
-Stopped at: Completed 10-06-PLAN.md
+Last session: 2026-07-30T18:06:27.155Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
