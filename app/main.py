@@ -55,6 +55,7 @@ import config
 from app import auth
 from app.deps import (
     TierForbidden,
+    _resolve_roles,
     bot_online,
     compute_bot_online,
     require_editor,
@@ -475,16 +476,28 @@ async def api_views(slug: str, request: Request, hit: str | None = None):
 # duplicated logic, reconciling the two plans' route-path expectations.
 @app.get("/", response_class=HTMLResponse)
 @app.get("/editor", response_class=HTMLResponse)
-async def editor_page(request: Request, ident: dict = Depends(require_editor)):
+async def editor_page(request: Request, roles: dict = Depends(_resolve_roles)):
     """The two-pane block editor (D-14), loaded with the SESSION editor's live entry.
 
-    ``require_editor`` is the D-08 IDOR choke point: the entry rendered is always the
-    caller's own, resolved from the session — never a client-supplied slug/id.
+    Gates on ``_resolve_roles`` (NOT ``require_editor``) so a non-editor owner/Manager
+    clicking the locked "Editor" nav item gets the in-shell ``forbidden.html`` dead end
+    with the session intact, rather than ``require_editor``'s ``session.clear()`` +
+    ``login.html`` (Pitfall 1, T-10-01) — that would otherwise log an owner/Manager out
+    of the ENTIRE dashboard just for viewing a locked section. Exactly one live Discord
+    role read happens here (via ``_resolve_roles``); no second ``require_editor`` call is
+    made (Pitfall 2). Every POST mutation endpoint below stays on the UNCHANGED
+    ``require_editor`` dependency (D-07 freeze).
+
+    Identity for the D-08 IDOR choke point still comes from the SESSION only — never a
+    client-supplied slug/id — via ``roles["discord_id"]`` and ``request.session["slug"]``.
     """
-    entry = await _fetch_current_entry(ident["discord_id"])
+    if not roles["is_editor"]:
+        raise TierForbidden(required_tier="editor")
+
+    entry = await _fetch_current_entry(roles["discord_id"])
     if entry is None:  # defensive — ensure_draft guarantees this exists post-login
         entry = {
-            "slug": ident.get("slug", ""), "discordId": ident["discord_id"],
+            "slug": request.session.get("slug", ""), "discordId": roles["discord_id"],
             "published": False, "name": "", "avatar": "",
             "tagline": "", "links": [], "blocks": [],
         }
@@ -496,15 +509,10 @@ async def editor_page(request: Request, ident: dict = Depends(require_editor)):
         asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
     except OSError:
         asset_v = 0
-    # D-12: surface whether the SESSION identity is the configured owner, so the
-    # template can conditionally render the owner-only settings link. Same fail-closed
-    # 0/unset guard as require_owner (a misconfigured owner id must never show the link).
-    owner_id = config.DISCORD_USER_ID
-    is_owner = bool(owner_id) and str(ident["discord_id"]) == str(owner_id)
     return templates.TemplateResponse(
         request, "editor.html",
         {"entry": entry, "website_base": config.WEBSITE_BASE_URL, "asset_v": asset_v,
-         "is_owner": is_owner},
+         "is_owner": roles["is_owner"], "roles": roles, "active_section": "editor"},
     )
 
 
