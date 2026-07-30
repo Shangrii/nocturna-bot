@@ -505,8 +505,15 @@ async def editor_page(request: Request, roles: dict = Depends(_resolve_roles)):
     # /static with a long max-age, so a bare href serves stale CSS after a deploy;
     # a ?v=<mtime> query changes the URL on every edit → guaranteed fresh, no manual
     # dashboard purge. The HTML itself carries auth cookies so it is never edge-cached.
+    # The editor page loads BOTH dashboard.css (shell chrome, via _dashboard_base)
+    # and editor.css, but shares one ?v= token — so bust on the newest of the two,
+    # else a dashboard.css-only change serves stale shell CSS on /editor (the
+    # sidebar/scrollbar regressed exactly this way in 10-07 UAT).
     try:
-        asset_v = int(os.path.getmtime(_APP_DIR / "static" / "editor.css"))
+        asset_v = max(
+            int(os.path.getmtime(_APP_DIR / "static" / "editor.css")),
+            int(os.path.getmtime(_APP_DIR / "static" / "dashboard.css")),
+        )
     except OSError:
         asset_v = 0
     return templates.TemplateResponse(

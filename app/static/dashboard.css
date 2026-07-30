@@ -266,7 +266,14 @@ tr:last-child td { border-bottom: none; }
   border-radius: var(--radius-lg); padding: var(--space-4) var(--space-6);
   margin-bottom: var(--space-6); border-left: 4px solid var(--acc, var(--color-primary));
 }
-.mod-hdr .i { font-size: var(--text-2xl); }
+/* Module-header icon is now the shared inline SVG sprite (10-07 UAT), tinted to
+   the module's accent. Explicit width/height attrs on the element keep it sane
+   even before this rule loads. */
+.mod-hdr .i {
+  width: 26px; height: 26px; flex-shrink: 0;
+  fill: none; stroke: var(--acc, currentColor);
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
 .mod-hdr .t { font-weight: 600; font-size: var(--text-lg); }
 .mod-hdr .s { font-size: var(--text-sm); color: var(--color-text-muted); margin-top: var(--space-1); }
 

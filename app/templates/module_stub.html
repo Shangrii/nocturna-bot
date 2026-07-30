@@ -2,7 +2,7 @@
 {% block title %}{{ section_label | default('Módulo') }}{% endblock %}
 {% block content %}
 <div class="mod-hdr" style="--acc: {{ accent | default('var(--color-primary)') }}">
-  <span class="i">{{ icon | default('•') }}</span>
+  <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-{{ active_section | default('overview') }}"></use></svg>
   <div>
     <div class="t">{{ section_label | default('Módulo') }}</div>
     {% if section_description %}<div class="s">{{ section_description }}</div>{% endif %}

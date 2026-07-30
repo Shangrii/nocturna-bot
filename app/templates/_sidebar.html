@@ -37,7 +37,7 @@
   <a class="nav-item {{ 'on' if active_section == section.id else '' }}"
      style="--acc: {{ section.accent }}"
      href="{{ section.route }}">
-    <svg class="ico" aria-hidden="true" focusable="false"><use href="#ic-{{ section.id }}"></use></svg>
+    <svg class="ico" aria-hidden="true" focusable="false" width="18" height="18"><use href="#ic-{{ section.id }}"></use></svg>
     <span>{{ section.label }}</span>
     {% if not unlocked %}<span class="lock" title="Requiere más acceso · Requires more access">🔒</span>{% endif %}
   </a>
