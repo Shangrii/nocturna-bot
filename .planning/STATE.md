@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
 status: executing
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-07-30T18:19:02.965Z"
+stopped_at: Completed 10-05-PLAN.md
+last_updated: "2026-07-30T18:36:26.325Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 48
-  completed_plans: 39
+  completed_plans: 40
   percent: 38
 ---
 
@@ -28,11 +28,11 @@ presentation pages — with no secrets exposed and no bad value able to break a 
 ## Current Position
 
 Phase: 10 (editors-section-integration) — EXECUTING
-Plan: 6 of 7
+Plan: 7 of 7
 Status: Ready to execute
 Last activity: 2026-07-30
 
-Progress: [████████░░] 81%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [████████░░] 81%
 | Phase 10 P06 | 8min | 2 tasks | 2 files |
 | Phase 10 P02 | 20min | 2 tasks | 2 files |
 | Phase 10 P04 | 6min | 2 tasks | 3 files |
+| Phase 10-editors-section-integration P05 | 25min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,7 @@ Recent decisions affecting current work:
 - [Phase 10]: GET / and GET /editor gate on _resolve_roles + inline TierForbidden(editor), not require_editor, so a locked-nav click from a non-editor owner/Manager never clears the session (T-10-01)
 - [Phase 10]: RESERVED_SLUGS widened with en/es/gallery/store/fonts/build to protect the public site's root-level routes from vanity-slug collision (T-10-02)
 - [Phase 10]: Migrated the bottom-of-nav separator CSS rule from .side .editor-link to .side .nav-item:last-child so it follows the structurally-last sidebar section without a wrapper div
+- [Phase 10]: editor.html's relocated Save/Publish/Unpublish controls keep editor.css's own .btn--accent/.btn--danger modifier classes (already retinted onto dashboard tokens in 10-03) rather than switching to dashboard.css's dot-notation
 
 ### Pending Todos
 
@@ -112,6 +114,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T18:19:02.956Z
-Stopped at: Completed 10-04-PLAN.md
+Last session: 2026-07-30T18:36:26.315Z
+Stopped at: Completed 10-05-PLAN.md
 Resume file: None

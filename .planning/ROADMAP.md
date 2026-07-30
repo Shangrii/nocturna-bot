@@ -348,7 +348,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 10-05-PLAN.md — `editor.html` shell wrap: extend `_dashboard_base.html`, sticky `.editor-subhead`, drop `/e/` link segment (EDIT-01) [Wave 3]
+- [x] 10-05-PLAN.md — `editor.html` shell wrap: extend `_dashboard_base.html`, sticky `.editor-subhead`, drop `/e/` link segment (EDIT-01) [Wave 3]
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -371,4 +371,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 8/8 | Complete   | 2026-07-28 |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/5 | Not started | - |
-| 10. Editors Section Integration | v2.0 | 5/7 | In Progress|  |
+| 10. Editors Section Integration | v2.0 | 6/7 | In Progress|  |
