@@ -147,24 +147,14 @@ h1, h2, h3 { font-family: var(--font-sans); font-weight: 600; line-height: 1.15;
 .btn--ghost:hover { color: var(--color-text); border-color: var(--color-text-faint); }
 .btn--sm { min-height: 36px; min-width: 36px; padding: 0 var(--space-3); font-size: var(--text-xs); }
 
-/* ── Editor sub-header (10-03 polish) — composes onto .mod-hdr (dashboard.css):
-   icon+title+left-accent-border shape, retargeted to --accent-editor, sticky
-   under the shell topbar, and a right-aligned status-pill + button cluster
-   (`.editor-subhead-actions`) that wraps onto its own line on narrow viewports
-   (10-UI-SPEC.md Polish Items §3). ───────────────────────────────────────── */
-.editor-subhead {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  border-left-color: var(--accent-editor);
-  flex-wrap: wrap;
-}
-.editor-subhead .i { color: var(--accent-editor); }
-.editor-subhead-actions {
+/* ── Editor actions in the shell topbar (10-07 UAT) — the status pill +
+   Save/Publish/Unpublish cluster is teleported out of the editorApp() scope into
+   the shared topbar (#topbar-slot), so it reads as one bar (no editor-specific
+   second bar) and only shows on the editor page. ───────────────────────────── */
+.editor-topbar-actions {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  margin-left: auto;
   flex-wrap: wrap;
 }
 
@@ -204,14 +194,11 @@ h1, h2, h3 { font-family: var(--font-sans); font-weight: 600; line-height: 1.15;
 @media (min-width: 1024px) {
   .pane-tabs { display: none; }
   .panes { grid-template-columns: minmax(420px, 1fr) minmax(480px, 1.1fr); }
-  .pane--edit { overflow-y: auto; }         /* the single scroll region */
-  /* Preview: fixed & full-height, no scrollbar of its own (fixes the double-bar). */
-  .pane--preview {
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-  }
+  .pane--edit { overflow-y: auto; }         /* edit column scrolls independently */
+  /* Preview scrolls WITHIN its own column (like the real page) so a long profile
+     is fully viewable — the page itself still never scrolls, so there is no
+     redundant outer scrollbar (10-07 UAT). */
+  .pane--preview { overflow-y: auto; }
 }
 
 /* ── Core fields + block cards ─────────────────────────────────────────────── */
@@ -309,11 +296,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
   position: relative;
   overflow: hidden;
   width: 100%;
-  max-width: 700px;
+  max-width: 640px;
   margin: 0 auto;
   padding: var(--sp-lg) var(--sp-md);
-  /* Fill the fixed-height preview column so the card uses the full page height
-     instead of a short 70vh block floating in empty space (10-07 UAT #2). */
+  /* Fill the preview column when the profile is short (no floating short card),
+     but let taller profiles grow and scroll within the column (10-07 UAT). */
   min-height: 100%;
   border-radius: 12px;
   background: var(--theme-bg, var(--ink));

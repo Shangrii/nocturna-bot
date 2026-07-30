@@ -16,15 +16,12 @@
       Alpine scope then fails to build -> every binding throws "not defined"). -#}
   <div class="editor-root" x-data='editorApp({{ entry | tojson }})' x-cloak>
 
-    <!-- Sticky sub-header: relocated status pill + Save/Publish + Unpublish
-         (10-05 Task 2) — the wordmark/logout/owner-Settings shortcut removed
-         from the old standalone topbar are NOT reproduced here (wordmark+logout
-         come free from the shell topbar; owner-Settings is redundant with the
-         sidebar's own Settings entry). -->
-    <div class="mod-hdr editor-subhead">
-      <span class="i">✎</span>
-      <div class="t">Editor</div>
-      <div class="editor-subhead-actions">
+    {#- Editor actions teleported into the shell topbar (10-07 UAT): they stay in
+        the editorApp() Alpine scope for reactivity but render up in the shared
+        topbar (#topbar-slot). Only the editor page fills that slot, so these
+        controls never appear on other dashboard sections. -#}
+    <template x-teleport="#topbar-slot">
+      <div class="editor-topbar-actions">
         <span class="status-badge" :class="saving ? 'pending' : (page.published ? 'active' : '')"
               x-text="saving ? (page.published ? 'Guardando… · Saving…' : 'Publicando… · Publishing…') : (page.published ? 'Publicada · Published' : 'Borrador · Draft')"></span>
         <button class="btn btn--accent" type="button" @click="publish()" :disabled="saving"
@@ -34,7 +31,7 @@
           Despublicar · Unpublish
         </button>
       </div>
-    </div>
+    </template>
 
     <!-- Mobile pane tabs (hidden ≥1024px) -->
     <div class="pane-tabs" style="padding: 0 var(--sp-md);">
