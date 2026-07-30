@@ -339,7 +339,7 @@ Plans:
 
 - [x] 10-01-PLAN.md — RED-first test scaffolding: locked-nav session-preservation, in-shell render, widened reserved-word cases (EDIT-01/EDIT-02) [Wave 1]
 - [x] 10-03-PLAN.md — CSS reconciliation: dashboard.css `--accent-editor`/`.status-badge.pending` + editor.css chrome retint (preview canvas frozen) + polish rules (EDIT-01) [Wave 1]
-- [ ] 10-06-PLAN.md — Astro vanity route: move `e/[slug].astro` → root `[slug].astro` + legacy redirect stub (EDIT-02) [Wave 1]
+- [x] 10-06-PLAN.md — Astro vanity route: move `e/[slug].astro` → root `[slug].astro` + legacy redirect stub (EDIT-02) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -371,4 +371,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 8/8 | Complete   | 2026-07-28 |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/5 | Not started | - |
-| 10. Editors Section Integration | v2.0 | 2/7 | In Progress|  |
+| 10. Editors Section Integration | v2.0 | 3/7 | In Progress|  |

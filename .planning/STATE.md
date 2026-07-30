@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Staff Dashboard
 status: executing
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-07-30T17:39:23.722Z"
+stopped_at: Completed 10-06-PLAN.md
+last_updated: "2026-07-30T17:54:18.072Z"
 last_activity: 2026-07-30
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 48
-  completed_plans: 36
+  completed_plans: 37
   percent: 38
 ---
 
@@ -28,11 +28,11 @@ presentation pages — with no secrets exposed and no bad value able to break a 
 ## Current Position
 
 Phase: 10 (editors-section-integration) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-07-30
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 77%
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [████████░░] 75%
 | 03 | 8 | - | - |
 | 08 | 8 | - | - |
 | Phase 10 P03 | 55min | 2 tasks | 3 files |
+| Phase 10 P06 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,7 @@ Recent decisions affecting current work:
 
 - [Phase 10]: editor.css chrome retinted onto dashboard.css tokens; legacy ink/red palette kept only as preview-canvas fallback literals (D-01/D-06)
 - [Phase 10]: Split editor.css's conflated --red into --color-primary (CTA/active) vs --color-danger (destructive) to match dashboard.css's convention
+- [Phase 10]: Editor vanity URLs move to root /{slug}; legacy /e/{slug} becomes a build-time redirect stub (define:vars + location.replace), mirroring the shipped [lang]/[concept]/[slug].astro pattern one cartesian dimension shallower
 
 ### Pending Todos
 
@@ -105,6 +107,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-07-30T17:39:23.713Z
-Stopped at: Completed 10-03-PLAN.md
+Last session: 2026-07-30T17:54:18.061Z
+Stopped at: Completed 10-06-PLAN.md
 Resume file: None
