@@ -27,8 +27,13 @@ real sqlite-backed settings store, not a mock. Each test scopes its own
 override into a later test).
 """
 
+import base64
+import json
+
+import itsdangerous
 import pytest
 from fastapi.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
 import config
 from app.main import app
@@ -37,6 +42,15 @@ from core import settings
 # The six operational modules gated by require_manager (Plan 07). Settings (/admin/settings)
 # stays require_owner-gated and is asserted separately in every test below.
 _MODULE_ROUTES = ["/overview", "/gallery", "/reviews", "/reminders", "/jinxxy", "/meetings"]
+
+
+def _set_session(client: TestClient, discord_id: str) -> None:
+    """Set a signed session cookie using the live SessionMiddleware secret (mirrors
+    tests/test_app_actions.py's helper of the same name/shape)."""
+    middleware = next(m for m in app.user_middleware if m.cls is SessionMiddleware)
+    signer = itsdangerous.TimestampSigner(str(middleware.kwargs["secret_key"]))
+    payload = base64.b64encode(json.dumps({"discord_id": discord_id}).encode("utf-8"))
+    client.cookies.set("session", signer.sign(payload).decode("utf-8"))
 
 
 @pytest.fixture
@@ -205,3 +219,57 @@ def test_anonymous_settings_403_renders_login_not_shell(client):
     # forbidden.html (the in-shell tier page) is the ONLY template that emits this string;
     # its absence proves the anonymous caller got login.html instead of the dashboard shell.
     assert "requiere acceso" not in resp.text
+
+
+# ── Phase 10 (10-01) Pitfall-1 regression: a locked "Editor" nav click must dead-end via
+# forbidden.html (required_tier="editor") with the session INTACT, never login.html with
+# the session cleared. RED until 10-02 (Wave 2) switches GET /editor's gate from
+# require_editor to _resolve_roles — see this plan's <objective>/<threat_model> T-10-01.
+@pytest.mark.parametrize(
+    "viewer",
+    [
+        {"discord_id": "42", "username": "owner-viewer",
+         "is_owner": True, "is_manager": False, "is_editor": False},
+        {"discord_id": "43", "username": "manager-viewer",
+         "is_owner": False, "is_manager": True, "is_editor": False},
+    ],
+    ids=["owner-only-viewer", "manager-only-viewer"],
+)
+def test_locked_editor_nav_click_keeps_session(client, monkeypatch, viewer):
+    from app.deps import _resolve_roles
+
+    # Overrides app.deps._resolve_roles (NOT require_manager/require_editor) to simulate
+    # the non-editor viewer — this override is currently INERT because GET /editor still
+    # gates on require_editor (10-02 switches that gate). Today's deterministic 403 comes
+    # from mocking the live app.auth._fetch_member_roles read that require_editor's
+    # has_editor_role() call makes internally, so this test never touches the network.
+    async def no_editor_roles(_discord_id):
+        return set()
+
+    monkeypatch.setattr("app.auth._fetch_member_roles", no_editor_roles)
+
+    app.dependency_overrides[_resolve_roles] = lambda: viewer
+    try:
+        _set_session(client, viewer["discord_id"])
+
+        resp = client.get("/editor", headers={"accept": "text/html"})
+
+        assert resp.status_code == 403
+
+        body = resp.text
+        # The forbidden.html tier dead-end (required_tier="editor") — NEVER login.html's
+        # wrong-audience editor-only copy (Pitfall 2 / T-03-19 discipline extended here).
+        assert "acceso de editor" in body or "needs editor access" in body, (
+            "expected the in-shell forbidden.html tier page (required_tier='editor'); "
+            f"got a different denial page:\n{body[:300]!r}"
+        )
+        assert "Esta herramienta es solo para editores" not in body
+
+        # The session must survive the denial — request.session.clear() must NOT fire
+        # (Pitfall 1, T-10-01).
+        session_cookie = client.cookies.get("session")
+        assert session_cookie, (
+            "the dashboard session must survive a locked-nav 403 click (Pitfall 1)"
+        )
+    finally:
+        app.dependency_overrides.pop(_resolve_roles, None)
