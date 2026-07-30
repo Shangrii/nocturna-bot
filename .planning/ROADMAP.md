@@ -320,15 +320,39 @@ Plans:
 
 ### Phase 10: Editors Section Integration
 
-**Goal**: Editors reach their presentation page through the same dashboard shell everyone else uses, under the same tier system.
-**Depends on**: Phase 3 (shell + tier system); sequenced last as lowest-risk, lowest-priority integration work
-**Requirements**: EDIT-01
+**Goal**: Editors reach their presentation page through the same dashboard shell everyone else uses under the same tier system, editor pages get short vanity URLs, and the editor surface is polished to match the shell.
+**Depends on**: Phase 3 (shell + tier system)
+**Requirements**: EDIT-01, EDIT-02
+**Scope expansion (owner decision 2026-07-29, CONTEXT D-01..D-07)**: pulled the maximal "full
+experience" scope IN — full shell wrap + **vanity URLs** (new public-site routing, EDIT-02) +
+**integrate-and-polish** (not integrate-as-is). SC2 softened from "unchanged" to **workflow parity**.
 **Success Criteria** (what must be TRUE):
 
-  1. The editors presentation section (`editors.nocturna-avatars.site`) is reachable as a dashboard section with its own access tier.
-  2. An editor's existing self-serve profile workflow (OAuth, profile edit, media upload, view counter) keeps working unchanged inside the shell.
+  1. The editors presentation section is integrated as a dashboard section under the editor tier: `/editor` renders inside the shell (topbar + sidebar), Editor is a real 8th data-driven section, and a non-editor clicking the locked entry is denied via `forbidden.html` WITHOUT being logged out (Pitfall-1 fix).
+  2. The editor's self-serve workflow keeps **workflow parity** (OAuth, publish-on-save, media upload+re-encode, self-unpublish, IDOR guards behave identically) while the chrome is retinted onto dashboard tokens and the three named polish items ship — the live-preview canvas is unchanged.
+  3. Published editor pages are served at `nocturna-avatars.site/{slug}` (vanity URL), with legacy `/e/{slug}` links redirecting; an editor cannot claim a slug that collides with a reserved public-site route.
 
-**Plans**: TBD
+**Plans**: 7 plans (4 waves)
+
+Plans:
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — RED-first test scaffolding: locked-nav session-preservation, in-shell render, widened reserved-word cases (EDIT-01/EDIT-02) [Wave 1]
+- [ ] 10-03-PLAN.md — CSS reconciliation: dashboard.css `--accent-editor`/`.status-badge.pending` + editor.css chrome retint (preview canvas frozen) + polish rules (EDIT-01) [Wave 1]
+- [ ] 10-06-PLAN.md — Astro vanity route: move `e/[slug].astro` → root `[slug].astro` + legacy redirect stub (EDIT-02) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 10-02-PLAN.md — Backend security fix: GET `/editor` tier-gate split (`_resolve_roles`+`TierForbidden`, no session clear) + widen `RESERVED_SLUGS` (EDIT-01/EDIT-02) [Wave 2]
+- [ ] 10-04-PLAN.md — Sidebar 8th editor section + `is_editor` lock branch + remove topbar Back-to-editor link (EDIT-01) [Wave 2]
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 10-05-PLAN.md — `editor.html` shell wrap: extend `_dashboard_base.html`, sticky `.editor-subhead`, drop `/e/` link segment (EDIT-01) [Wave 3]
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 10-07-PLAN.md — Phase gate (full pytest + Astro build) + human-verify checkpoint: in-shell editor, vanity URL + redirect, non-editor stays logged in [Wave 4]
 **UI hint**: yes
 
 ## Progress
@@ -347,4 +371,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 8/8 | Complete   | 2026-07-28 |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/5 | Not started | - |
-| 10. Editors Section Integration | v2.0 | 0/TBD | Not started | - |
+| 10. Editors Section Integration | v2.0 | 0/7 | Not started | - |

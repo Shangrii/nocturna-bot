@@ -70,7 +70,14 @@ Visual contract: `.planning/sketches/001-dashboard-shell/` (variant A won).
 ### Editors (EDIT)
 
 - [ ] **EDIT-01**: The editors presentation section (`editors.nocturna-avatars.site`) is
-      integrated as a dashboard section with its own access tier.
+      integrated as a dashboard section with its own access tier, and the editor's self-serve
+      workflow keeps parity (OAuth, publish-on-save, upload, self-unpublish, IDOR guards) while
+      the chrome is polished to match the shell (scope expansion, owner decision 2026-07-29,
+      CONTEXT D-01..D-07 — softened from "unchanged" to workflow parity).
+- [ ] **EDIT-02**: Editor pages get short public vanity URLs (`nocturna-avatars.site/{slug}`,
+      reusing the existing editor slug), with legacy `/e/{slug}` links 301-redirecting and the
+      reserved-slug guard widened to cover public-site route collisions (scope expansion, owner
+      decision 2026-07-29, CONTEXT D-04/D-05).
 
 ### Infrastructure (INFRA)
 
@@ -130,12 +137,13 @@ Explicitly excluded. Documented to prevent scope creep.
 | MEET-02 | Phase 9 | Pending |
 | MEET-03 | Phase 9 | Pending |
 | EDIT-01 | Phase 10 | Pending |
+| EDIT-02 | Phase 10 | Pending |
 
 **Coverage:**
-- v2.0 requirements: 23 total
-- Mapped to phases: 23/23
+- v2.0 requirements: 24 total
+- Mapped to phases: 24/24
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-21*
-*Last updated: 2026-07-21 after roadmap creation (Phases 3-10)*
+*Last updated: 2026-07-30 — added EDIT-02 (vanity URLs) + softened EDIT-01 per Phase 10 scope expansion*
