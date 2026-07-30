@@ -344,7 +344,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 
 - [x] 10-02-PLAN.md — Backend security fix: GET `/editor` tier-gate split (`_resolve_roles`+`TierForbidden`, no session clear) + widen `RESERVED_SLUGS` (EDIT-01/EDIT-02) [Wave 2]
-- [ ] 10-04-PLAN.md — Sidebar 8th editor section + `is_editor` lock branch + remove topbar Back-to-editor link (EDIT-01) [Wave 2]
+- [x] 10-04-PLAN.md — Sidebar 8th editor section + `is_editor` lock branch + remove topbar Back-to-editor link (EDIT-01) [Wave 2]
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -371,4 +371,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. Gallery + Reviews Approval Queues | v2.0 | 0/5 | Not started | - |
 | 8. Jinxxy Manual Sync | v2.0 | 8/8 | Complete   | 2026-07-28 |
 | 9. Meetings Browser + Re-publish | v2.0 | 0/5 | Not started | - |
-| 10. Editors Section Integration | v2.0 | 4/7 | In Progress|  |
+| 10. Editors Section Integration | v2.0 | 5/7 | In Progress|  |
