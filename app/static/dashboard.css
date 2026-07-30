@@ -34,6 +34,7 @@
   --accent-jinxxy: #34d399;
   --accent-meetings: #f472b6;
   --accent-settings: #8b93a3;
+  --accent-editor: #f97316;
 
   /* Typography — Inter 400/600 only, exactly 4 sizes (UI-SPEC Typography).
      Scaled up one step from the locked 12/13/18/26 set (owner request, post-ship):
@@ -377,6 +378,10 @@ tr:last-child td { border-bottom: none; }
 .status-badge.paused {
   border-color: var(--color-border-strong);
   color: var(--color-text-muted);
+}
+.status-badge.pending {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
 }
 
 /* ─── Jinxxy sync status + read-only catalog ─────────────────────────── */
