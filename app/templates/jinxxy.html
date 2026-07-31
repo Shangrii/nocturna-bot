@@ -42,7 +42,7 @@
     </div>
 
     <div x-show="!sync.never_synced">
-      <div class="v" x-text="sync.last_run_utc"></div>
+      <div class="v" x-text="humanDate(sync.last_run_utc)"></div>
       <div class="jinxxy-sync-detail" x-text="lastRunCounts()"></div>
       <div class="jinxxy-sync-detail" x-text="sourceTag()"></div>
     </div>
@@ -105,7 +105,7 @@
               <span class="status-badge"
                     x-show="p.nsfw">NSFW</span>
             </td>
-            <td x-text="p.date"></td>
+            <td x-text="humanDate(p.date)"></td>
           </tr>
         </template>
       </tbody>

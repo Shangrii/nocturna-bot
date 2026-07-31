@@ -33,6 +33,23 @@
     </main>
   </div>
 
+  {#- Shared date formatter for Alpine x-text (matches the server-side `humandate`
+      Jinja filter / _human_datetime: UTC wall-clock, e.g. "30 jul 2026, 21:50").
+      Defined before Alpine so component expressions can call it globally. -#}
+  <script>
+    window.humanDate = function (iso) {
+      if (!iso) return iso || '';
+      var M = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul',
+               'ago', 'sep', 'oct', 'nov', 'dic'];
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      var datePart = d.getUTCDate() + ' ' + M[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+      if (typeof iso === 'string' && iso.length <= 10 && iso.indexOf('T') === -1) return datePart;
+      var hh = String(d.getUTCHours()).padStart(2, '0');
+      var mm = String(d.getUTCMinutes()).padStart(2, '0');
+      return datePart + ', ' + hh + ':' + mm;
+    };
+  </script>
   {% block scripts %}{% endblock %}
   <script defer src="/static/alpine.min.js"></script>
 </body>

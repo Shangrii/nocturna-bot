@@ -19,7 +19,7 @@
     <svg class="i" aria-hidden="true" focusable="false" width="26" height="26"><use href="#ic-meetings"></use></svg>
     <div>
       <div class="t">{{ meeting.tema or "Reunión" }}</div>
-      <div class="s">{{ meeting.started_at | default("") | replace("T", " ") }}</div>
+      <div class="s">{{ meeting.started_at | default("") | humandate }}</div>
       <div class="role-chip-list"
            style="margin-top: var(--space-3);"
            x-show="attendees.length">

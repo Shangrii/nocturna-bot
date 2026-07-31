@@ -35,7 +35,7 @@
           </td>
           <td>
             <a href="/meetings/{{ row.id }}">
-              <time datetime="{{ row.started_at }}">{{ row.started_at | replace("T", " ") }}</time>
+              <time datetime="{{ row.started_at }}">{{ row.started_at | humandate }}</time>
             </a>
           </td>
           <td>

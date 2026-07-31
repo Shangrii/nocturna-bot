@@ -193,7 +193,7 @@
               <span class="schedule-preview-icon">⏱</span>
               <span class="schedule-preview-label">Próximo disparo</span>
               <span class="schedule-preview-value"
-                    x-text="preview.summary + ' · ' + preview.next_fire_utc"></span>
+                    x-text="preview.summary + ' · ' + humanDate(preview.next_fire_utc)"></span>
             </div>
 
             <p class="imminent-caveat" x-show="editingId && editingImminent">

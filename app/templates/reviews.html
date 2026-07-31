@@ -55,7 +55,7 @@
           <span class="spacer"></span>
           <time class="review-date"
                 :datetime="row.review_date"
-                x-text="row.review_date"></time>
+                x-text="humanDate(row.review_date)"></time>
         </header>
 
         <p class="review-body" x-text="'“' + row.body + '”'"></p>

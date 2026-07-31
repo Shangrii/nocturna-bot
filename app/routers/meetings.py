@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from app.deps import bot_online, require_manager
+from app.deps import bot_online, register_template_filters, require_manager
 from core import action_queue, db
 
 router = APIRouter()
@@ -16,6 +16,7 @@ router = APIRouter()
 _APP_DIR = Path(__file__).resolve().parents[1]
 _SUMMARY_MAX_LENGTH = 4096
 templates = Jinja2Templates(directory=str(_APP_DIR / "templates"))
+register_template_filters(templates)
 
 
 def _asset_version() -> int:

@@ -209,3 +209,31 @@ async def require_manager(roles: dict = Depends(_resolve_roles)) -> dict:
     if not (roles["is_owner"] or roles["is_manager"]):
         raise TierForbidden(required_tier="manager")
     return roles
+
+
+# ── Shared template date formatting ────────────────────────────────────────────
+_MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul",
+              "ago", "sep", "oct", "nov", "dic"]
+
+
+def human_datetime(iso):
+    """Render a raw ISO timestamp as a short, readable UTC string for the shell
+    (``2026-07-30T21:50:14.062030+00:00`` -> ``30 jul 2026, 21:50``). Date-only
+    input drops the time; unparseable input is returned unchanged so a malformed
+    row never breaks a render. Mirrors the client-side ``window.humanDate()``."""
+    if not iso:
+        return iso
+    try:
+        dt = datetime.fromisoformat(iso)
+    except (ValueError, TypeError):
+        return iso
+    date_part = f"{dt.day} {_MONTHS_ES[dt.month - 1]} {dt.year}"
+    if isinstance(iso, str) and "T" not in iso and ":" not in iso:
+        return date_part
+    return f"{date_part}, {dt.hour:02d}:{dt.minute:02d}"
+
+
+def register_template_filters(templates) -> None:
+    """Register shared Jinja filters on a ``Jinja2Templates`` env. Call once per
+    env (main + each router creates its own) so ``| humandate`` works everywhere."""
+    templates.env.filters["humandate"] = human_datetime
